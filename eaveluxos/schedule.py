@@ -138,6 +138,44 @@ class Location:
 MAX_PER_COLOR = 90  # bulbs per sequence slot (Trimlight Edge user guide)
 
 
+# ---------------------------------------------------------------- gamma (3.8)
+# LEDs are linear: a channel at 128 is half the light. Screens and color
+# pickers aren't (sRGB is gamma-encoded), so a color picked on screen looks
+# washed out and too pale on the lights. Gamma correction sends
+# 255 * (value / 255) ** gamma per channel instead, so the lights look like the
+# screen. Off by default; 2.2 to 2.8 suits most LEDs.
+GAMMA_MIN, GAMMA_MAX, GAMMA_DEFAULT = 1.0, 3.5, 2.2
+
+
+def gamma_correct(rgb: int, gamma: float | None) -> int:
+    """Correct a 0xRRGGBB color. A channel that was on stays at least 1, so
+    dim colors keep their hue instead of dropping a channel to 0."""
+    if not gamma or gamma == 1:
+        return rgb
+    out = 0
+    for shift in (16, 8, 0):
+        v = (rgb >> shift) & 0xFF
+        c = round(255 * (v / 255) ** gamma)
+        out |= (max(1, c) if v else 0) << shift
+    return out
+
+
+def color_gamma(raw: dict) -> float | None:
+    """The gamma to use from settings["color"], or None when it's off."""
+    c = raw.get("color") or {}
+    if not isinstance(c, dict):
+        raise ConfigError("Color correction settings are malformed.")
+    if not c.get("enabled"):
+        return None
+    try:
+        g = float(c.get("gamma", GAMMA_DEFAULT))
+    except (TypeError, ValueError):
+        raise ConfigError("Gamma must be a number.") from None
+    if not GAMMA_MIN <= g <= GAMMA_MAX:
+        raise ConfigError(f"Gamma must be {GAMMA_MIN} to {GAMMA_MAX}.")
+    return g
+
+
 def _hex_to_int(h: str) -> int:
     s = str(h).strip().lstrip("#")
     if not re.fullmatch(r"[0-9a-fA-F]{6}", s):
@@ -153,9 +191,15 @@ class Effect:
     saved_name: str | None = None
     saved_id: int | None = None
     payload: dict = field(default_factory=dict)
+    colors: list = field(default_factory=list)   # as designed (before gamma)
 
     @classmethod
-    def from_config(cls, key: str, c: dict) -> "Effect":
+    def from_config(cls, key: str, c: dict, gamma: float | None = None) -> "Effect":
+        """gamma: correct custom colors for the LEDs (see gamma_correct),
+        unless the pattern asks for exact colors (for example one brought
+        over from the Trimlight app, whose values were tuned on the lights)."""
+        if c.get("exact_colors"):
+            gamma = None
         label = c.get("label", key.replace("_", " ").capitalize())
         speed = int(c.get("speed", 100))
         bright = int(c.get("brightness", 200))
@@ -194,15 +238,18 @@ class Effect:
                 # are skipped by any movement (API field "disable"). Black ("BK")
                 # is different: it's a dark color that moves with the pattern.
                 zone_off = str(col).strip().lower() in ("off", "x")
-                pixels.append({"index": i, "count": int(n), "color": 0 if zone_off else _hex_to_int(col),
+                pixels.append({"index": i, "count": int(n), "color": 0 if zone_off else gamma_correct(_hex_to_int(col), gamma),
                                "disable": zone_off})
             return cls(key, label, "custom", payload={
-                "category": 1, "mode": mode, "speed": speed, "brightness": bright, "pixels": pixels})
+                "category": 1, "mode": mode, "speed": speed, "brightness": bright, "pixels": pixels},
+                colors=["off" if str(col).strip().lower() in ("off", "x") else "#" + str(col).strip().lstrip("#").upper()
+                        for col in colors])
         raise ConfigError(f"effects.{key}: needs one of saved / saved_id / builtin / colors")
 
     def swatches(self) -> list[str]:
+        """Colors as designed (what the screen shows), not as sent."""
         if self.kind == "custom":
-            return ["off" if p["disable"] else f"#{p['color']:06X}" for p in self.payload["pixels"]]
+            return list(self.colors) or ["off" if p["disable"] else f"#{p['color']:06X}" for p in self.payload["pixels"]]
         return []
 
 
@@ -598,7 +645,8 @@ def build_config(raw: dict, secrets: dict, need_secrets: bool = True) -> Config:
     eff_c = raw.get("effects", {})
     if not eff_c:
         raise SetupNeeded("Create at least one pattern.")
-    effects = {k: Effect.from_config(k, v) for k, v in eff_c.items()}
+    gamma = color_gamma(raw)
+    effects = {k: Effect.from_config(k, v, gamma) for k, v in eff_c.items()}
 
     rules = [Rule.from_config(i, r, effects) for i, r in enumerate(raw.get("rules", []))]
     names = [r.name for r in rules]

@@ -1,7 +1,7 @@
 # EaveLuxOS
 ### The Intelligent Lighting Control Platform
 
-By **Christopher A. Tankelewicz (ThinkTank4n6)** · MIT License · version 3.7.2
+By **Christopher A. Tankelewicz (ThinkTank4n6)** · MIT License · version 3.8.0
 
 EaveLuxOS currently works with **Trimlight Edge** permanent-lighting controllers.
 Its scheduling, mapping and design tools are built to grow to other brands.
@@ -33,6 +33,9 @@ owner and are used here only to say which hardware EaveLuxOS works with.*
   minutes.
 - **Has a security flash.** Bright lights on demand, from a button, Home
   Assistant or a webhook, and then the lights go back to normal.
+- **Gamma-corrected colors (optional):** LED colors look like the colors you
+  pick instead of pale and washed out, with a side-by-side converter and a
+  test on the house.
 - **A bulb painter:** paint single bulbs, ranges, zones or every Nth bulb,
   in one repeat of the pattern or across the whole house, with a live count
   of the controller's 30 color slots.

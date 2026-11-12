@@ -40,7 +40,7 @@ from . import autostart, catalog
 from .api import TrimlightAPI, TrimlightError
 from .controller import Controller
 from .safety import SafetyNet
-from .schedule import ConfigError, Effect, SetupNeeded, build_config, tz_info
+from .schedule import ConfigError, Effect, SetupNeeded, build_config, color_gamma, tz_info
 from .store import Conflict, Store, check_password, hash_password, needs_rehash
 
 _DUMMY_HASH = hash_password("timing-equalizer-not-a-password")
@@ -64,7 +64,7 @@ def doc_path(name: str) -> Path | None:
         if f.is_file():
             return f
     return None
-VERSION = "3.7.2"
+VERSION = "3.8.0"
 COOKIE = "tls_session"
 MAX_BODY = 2_000_000
 # Headers a reverse proxy or tunnel adds. A request carrying any of them came
@@ -97,7 +97,7 @@ REAUTH_SECONDS = 300
 # or anything on the admin list. Viewers can look but not change anything.
 EDITOR_POSTS = {"/api/action", "/api/settings", "/api/photo", "/api/photo/delete", "/api/device/save_effect", "/api/import"}
 ADMIN_GETS = {"/api/users", "/api/safety/backup"}
-HOUSEHOLD_KEYS = ("location", "safety", "weather", "setup_done")
+HOUSEHOLD_KEYS = ("location", "safety", "weather", "setup_done", "color")
 ROLE_NAMES = {"admin": "Administrator", "editor": "Editor", "viewer": "Viewer"}
 # A browser on the app computer itself (when it doesn't require a password).
 LOCAL_USER = {"id": None, "username": "this computer", "role": "admin", "disabled": False, "local": True}
@@ -218,6 +218,14 @@ class App:
             self.started = True
             self._start_thread()
 
+    def gamma(self) -> float | None:
+        """Gamma correction in effect (None = off); bad values count as off
+        here because save_settings refuses them."""
+        try:
+            return color_gamma(self.store.settings)
+        except ConfigError:
+            return None
+
     def setup_state(self) -> dict:
         s, loc = self.store.secrets, self.store.settings.get("location", {})
         return {"credentials": bool(s.get("client_id") and s.get("client_secret")),
@@ -234,6 +242,10 @@ class App:
         patterns is allowed (setup isn't finished), but it must not hide errors
         elsewhere, so validate with a stand-in location in that case."""
         self._validate_map(data.get("map"))
+        try:
+            color_gamma(data)
+        except ConfigError as e:
+            raise ApiError(str(e))
         probe = copy.deepcopy(data)
         loc = probe.setdefault("location", {})
         try:
@@ -564,7 +576,7 @@ class App:
         name = str(body.get("name", "")).strip()
         if not 1 <= len(name) <= 30:
             raise ApiError("Pattern name must be 1-30 characters.")
-        eff = Effect.from_config("_save", body.get("effect") or {})
+        eff = Effect.from_config("_save", body.get("effect") or {}, self.gamma())
         if eff.kind == "saved":
             raise ApiError("That pattern is already on the controller.")
         payload = {"id": -1, "name": name, **eff.payload}
@@ -734,7 +746,7 @@ def make_server(app: App, host: str, port: int):
                 cur = app.store.settings
                 for k in HOUSEHOLD_KEYS:
                     if _canon(b.get(k)) != _canon(cur.get(k)):
-                        raise ApiError("Only an Administrator can change location, weather, safety-net or setup settings.", 403)
+                        raise ApiError("Only an Administrator can change location, weather, safety-net, color-correction or setup settings.", 403)
                 devs = (b.get("service") or {}).get("devices", cur.get("service", {}).get("devices", []))
                 if _canon(devs) != _canon(cur.get("service", {}).get("devices", [])):
                     raise ApiError("Only an Administrator can choose controllers.", 403)
@@ -1065,7 +1077,7 @@ def make_server(app: App, host: str, port: int):
                     raise ApiError("Finish setup first.", 409)
                 a = b.get("action")
                 if a == "try":
-                    eff = Effect.from_config("_try", b.get("effect") or {})
+                    eff = Effect.from_config("_try", b.get("effect") or {}, app.gamma())
                     eff.label = str((b.get("effect") or {}).get("label") or "Preview")[:40]
                     try:
                         minutes = max(1, min(120, int(b.get("minutes", 15))))

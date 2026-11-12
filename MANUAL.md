@@ -1,7 +1,7 @@
 # EaveLuxOS: User Manual
 ### The Intelligent Lighting Control Platform
 
-Version 3.7.2 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
+Version 3.8.0 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
 
 EaveLuxOS is a free, community-made lighting control platform. Today it runs
 **Trimlight Edge** permanent lights. It is not made, sold, endorsed or
@@ -352,6 +352,12 @@ This works like the color circles in the Trimlight app.
    minutes, then the schedule takes over again.
 7. Tap **Save pattern**. Tick **Also add it to the Trimlight app's library**
    first if you want it in the Trimlight Edge app too.
+
+When **color correction** is on (see
+[Lights](#17-lights-ports-bulbs-and-led-settings)), the lights get adjusted
+colors so they look like the preview. Tick **Exact colors** to send this
+pattern's colors unchanged, for example colors you already tuned by eye on the
+house.
 
 To change a pattern later, open **Patterns › My patterns** and tap **Edit**.
 
@@ -762,6 +768,44 @@ end to end.
   match. Then tap **Return to schedule** on Home.
 - If a dealer or installer set up your system, check with them before changing
   ports, chip type or color order.
+
+### Color correction (gamma)
+
+Colors picked on a screen often look pale or washed out on LEDs. A soft
+orange can come out nearly yellow, and pastel colors look almost white.
+Screens apply a *gamma curve* to brightness and LEDs don't, so in-between
+values look much brighter on the house than on the screen. Gamma correction
+(the same math used by apps such as Gamma Correct for Windows or Gamma
+Corrector for iPhone and iPad) adjusts each color before it's sent, so the
+house looks closer to what you picked.
+
+1. On **Lights**, find **Color correction**.
+2. Tick **Correct colors for the lights (gamma)**.
+3. Set **Gamma**. **2.2** is a good start. If colors still look pale, try up to
+   **2.8**. **1.0** means no change.
+4. To compare, pick a color under **Try a color**. The panel shows the color
+   as picked and the color that will be sent to the lights, with hex and RGB
+   values. Tap **Show as picked**, then **Show corrected**, to see both on the
+   house. The schedule comes back by itself after 15 minutes.
+5. Tap **Save color correction**.
+
+What it applies to:
+
+- Patterns you make in this app, everywhere they're used: the schedule,
+  **Try on my lights**, the safety net, and patterns you add to the Trimlight
+  app's library.
+- **Not** built-in effects, patterns that point to a pattern saved in the
+  Trimlight app, or patterns imported from the Trimlight app. Those colors
+  were already tuned on the lights, so they're sent exactly as they are.
+- Screens in this app (swatches, previews) always show the colors as you
+  picked them.
+- A color channel that's on never drops to 0, so very dim colors keep their
+  hue.
+
+Turning it on changes how your existing patterns look on the house, usually
+richer and less pale. To keep one pattern exactly as it is, open it in
+**Create** and tick **Exact colors**. Only an Administrator can change color
+correction.
 
 ## 18. Date and time
 

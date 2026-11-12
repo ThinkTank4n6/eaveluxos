@@ -1,5 +1,23 @@
 # Changelog
 
+## 3.8.0: gamma-corrected colors
+
+- **Color correction (gamma)** on the Lights tab. Colors picked on a screen
+  often look pale on LEDs; with correction on, each color channel is sent as
+  `255 × (value ÷ 255) ^ gamma` (gamma 1.0–3.5, 2.2 by default), so the house
+  looks closer to the screen. A channel that's on never drops to 0. Off by
+  default; Administrators only.
+- **Converter:** pick a color to see it as picked and as sent (hex and RGB),
+  and show either one on the house for 15 minutes.
+- Applies to your own patterns everywhere they're used (schedule, Try, safety
+  net, saving to the Trimlight app). Built-in effects, saved-pattern
+  references and patterns imported from the Trimlight app are sent unchanged.
+  Swatches and previews always show the colors as designed.
+- **Exact colors** in Create skips correction for one pattern. Patterns
+  imported from the Trimlight app get it automatically.
+- 10 new tests (144 total), including one that checks the browser converter
+  gives the same numbers as the server.
+
 ## 3.7.2: editable zones
 
 - **House map zones can be edited:** each zone has an **Edit** button to fix

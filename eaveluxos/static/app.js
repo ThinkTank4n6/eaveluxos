@@ -422,7 +422,8 @@ function fromController(e) {
   const base = { label: e.name };
   if (e.category === 0) return { ...base, builtin: e.mode, speed: e.speed ?? 100, brightness: e.brightness ?? 200, pixel_len: e.pixelLen || 30, reverse: !!e.reverse };
   const px = (e.pixels || []).filter(p => p.count > 0).sort((a, b) => a.index - b.index);
-  if (e.category === 1 && px.length) return { ...base, colors: px.map(p => p.disable ? 'off' : hex(p.color)), counts: px.map(p => Math.min(90, p.count)), custom_mode: Math.min(16, e.mode || 0), speed: e.speed ?? 100, brightness: e.brightness ?? 200 };
+  // exact_colors: these values were tuned on the lights in the Trimlight app; don't gamma-correct them again
+  if (e.category === 1 && px.length) return { ...base, colors: px.map(p => p.disable ? 'off' : hex(p.color)), counts: px.map(p => Math.min(90, p.count)), custom_mode: Math.min(16, e.mode || 0), speed: e.speed ?? 100, brightness: e.brightness ?? 200, exact_colors: true };
   return { ...base, saved: e.name };
 }
 function totalBulbs() {
@@ -537,12 +538,14 @@ VIEWS.create = async (opts = {}) => {
   if (opts.key !== undefined || !S.design || opts.fresh) {
     const def = opts.key ? S.settings.effects[opts.key] : null;
     S.design = def ? { key: opts.key, label: def.label || opts.key, segs: def.colors.map((c, i) => ({ c: c.toUpperCase(), n: (def.counts || [])[i] || 3 })),
-      mode: def.custom_mode || 0, speed: def.speed ?? 100, brightness: def.brightness ?? 200, sel: 0 }
+      mode: def.custom_mode || 0, speed: def.speed ?? 100, brightness: def.brightness ?? 200, sel: 0, exact: !!def.exact_colors }
       : { key: null, label: '', segs: [{ c: '#FF0000', n: 4 }, { c: '#00FF00', n: 4 }, { c: '#FFFFFF', n: 4 }], mode: 0, speed: 100, brightness: 200, sel: 0 };
   }
   quiet(loadDevices());
   const D = S.design, m = $('#main');
-  const def = () => ({ label: D.label.trim() || 'Untitled', colors: D.segs.map(s => s.c), counts: D.segs.map(s => s.n), custom_mode: D.mode, speed: D.speed, brightness: D.brightness });
+  const def = () => ({ label: D.label.trim() || 'Untitled', colors: D.segs.map(s => s.c), counts: D.segs.map(s => s.n), custom_mode: D.mode, speed: D.speed, brightness: D.brightness,
+    ...(D.exact ? { exact_colors: true } : {}) });
+  const gOn = () => !!(S.settings.color && S.settings.color.enabled);
   const render = () => {
     const s = D.segs[D.sel];
     m.innerHTML = `<div class="view"><div class="panel-head"><h2>${D.key ? 'Edit pattern' : 'Create a pattern'}</h2>
@@ -574,11 +577,13 @@ VIEWS.create = async (opts = {}) => {
             ${(D.mode === 1 || D.mode === 2) && D.segs.filter(g => g.c !== 'off').every(g => g.n === 1) ? '<p class="note">Tip: a chase with 1 bulb per color runs very fast. Add black spaces or larger counts to slow it down.</p>' : ''}
             <label class="field">Speed<input type="range" id="dspeed" min="0" max="255" value="${D.speed}"></label>
             <label class="field">Brightness<input type="range" id="dbright" min="0" max="255" value="${D.brightness}"></label>
+            ${gOn() ? `<label class="check"><input type="checkbox" id="dexact" ${D.exact ? 'checked' : ''}> Exact colors <span class="small muted">(skip color correction for this pattern, for example colors already tuned on the lights)</span></label>` : ''}
           </div>
         </div>
         <div class="stack">
           <div class="panel stack"><h3>Preview</h3><canvas class="preview" id="cv" height="160" aria-label="Animated preview of the pattern"></canvas>
-            <p class="note" id="cvnote"></p></div>
+            <p class="note" id="cvnote"></p>
+            ${gOn() && !D.exact ? `<p class="note">Color correction is on (gamma ${Number(S.settings.color.gamma || GAMMA.def).toFixed(1)}): the lights get adjusted colors so they look like this preview. Change it under Lights.</p>` : ''}</div>
           <div class="panel stack">
             <button data-try>Try on my lights</button>
             <label class="check"><input type="checkbox" id="alsoapp"> Also add it to the Trimlight app's library</label>
@@ -591,6 +596,7 @@ VIEWS.create = async (opts = {}) => {
     $('#dmode').onchange = e => { D.mode = +e.target.value; render(); };
     $('#dspeed').oninput = e => D.speed = +e.target.value;
     $('#dbright').oninput = e => D.brightness = +e.target.value;
+    const dx = $('#dexact'); if (dx) dx.onchange = e => { D.exact = e.target.checked; render(); };
     const cp = $('#cpick'); if (cp) cp.oninput = e => { D.segs[D.sel].c = e.target.value.toUpperCase(); repaintSegs(); };
     const sn = $('#segn'); if (sn) sn.onchange = e => { D.segs[D.sel].n = Math.max(1, Math.min(90, +e.target.value || 1)); render(); };
     // While painting, the preview shows the painted pattern (if it fits).
@@ -992,12 +998,68 @@ async function locationEditor(box) {
 }
 
 /* ---------------------------------------------------------------- LIGHTS (ports, bulbs, LED type) */
+/* ---------------------------------------------------------------- color correction (3.8)
+   Same formula as schedule.py gamma_correct: 255 * (v / 255) ** gamma per
+   channel, and a channel that was on stays at least 1. */
+const GAMMA = { min: 1.0, max: 3.5, def: 2.2 };
+function gammaHex(hex, g) {
+  if (!g || g === 1 || hex === 'off') return hex;
+  const n = parseInt(hex.slice(1), 16);
+  const ch = [16, 8, 0].map(sh => { const v = (n >> sh) & 255; const c = Math.round(255 * Math.pow(v / 255, g)); return v ? Math.max(1, c) : 0; });
+  return '#' + ch.map(c => c.toString(16).padStart(2, '0')).join('').toUpperCase();
+}
+const rgbText = hex => { const n = parseInt(hex.slice(1), 16); return `${n >> 16}, ${n >> 8 & 255}, ${n & 255}`; };
+function colorPanel(box) {
+  const c = S.settings.color || {}, admin = isAdmin();
+  const st = { on: !!c.enabled, g: Number(c.gamma) || GAMMA.def, pick: S.gammaPick || '#FFB46B' };
+  const draw = () => {
+    const out = gammaHex(st.pick, st.g);
+    box.innerHTML = `<h2>Color correction</h2>
+      <p class="note">Colors picked on a screen often look pale and washed out on LEDs: screens apply a gamma curve, LEDs don't. Gamma correction adjusts the colors sent to the lights so they look like what you pick. It applies to your own patterns; built-in effects and patterns saved in the Trimlight app aren't changed.</p>
+      <label class="check"><input type="checkbox" id="gon" ${st.on ? 'checked' : ''} ${admin ? '' : 'disabled'}> Correct colors for the lights (gamma)</label>
+      <label class="field">Gamma <b id="gval">${st.g.toFixed(1)}</b><input type="range" id="gamma" min="${GAMMA.min}" max="${GAMMA.max}" step="0.1" value="${st.g}" ${admin ? '' : 'disabled'}></label>
+      <p class="hint">2.2 is a good start. If colors still look pale, try up to 2.8. 1.0 means no change.</p>
+      <div class="gconv">
+        <label class="field">Try a color<input type="color" id="gpick" value="${st.pick.toLowerCase()}"></label>
+        <div class="gsw"><i style="background:${st.pick}"></i><span>As picked<br><code>${st.pick}</code><br><small>${rgbText(st.pick)}</small></span></div>
+        <div class="gsw"><i style="background:${out}"></i><span>Sent to the lights<br><code>${out}</code><br><small>${rgbText(out)}</small></span></div>
+      </div>
+      <div class="row"><button class="small" data-gshow="raw">Show as picked</button><button class="small" data-gshow="fixed">Show corrected</button></div>
+      <p class="note">Compare both on the house. The schedule comes back by itself 15 minutes later.</p>
+      ${admin ? '<div><button class="primary" data-gsave>Save color correction</button></div>' : '<p class="note">Only an Administrator can change this.</p>'}`;
+  };
+  draw();
+  box.oninput = e => {
+    if (e.target.id === 'gamma') { st.g = Number(e.target.value); const v = $('#gval', box); v.textContent = st.g.toFixed(1); }
+    if (e.target.id === 'gpick') { st.pick = S.gammaPick = e.target.value.toUpperCase(); }
+    if (e.target.id === 'gamma' || e.target.id === 'gpick') {   // update the swatches without re-rendering the control in use
+      const out = gammaHex(st.pick, st.g), sw = $$('.gsw', box);
+      sw[0].querySelector('i').style.background = st.pick; sw[0].querySelector('span').innerHTML = `As picked<br><code>${st.pick}</code><br><small>${rgbText(st.pick)}</small>`;
+      sw[1].querySelector('i').style.background = out; sw[1].querySelector('span').innerHTML = `Sent to the lights<br><code>${out}</code><br><small>${rgbText(out)}</small>`;
+    }
+  };
+  box.onchange = e => { if (e.target.id === 'gon') st.on = e.target.checked; };
+  box.onclick = e => {
+    const b = e.target.closest('button'); if (!b) return; e.stopPropagation();
+    if (b.dataset.gshow) {
+      const color = b.dataset.gshow === 'raw' ? st.pick : gammaHex(st.pick, st.g);
+      busy(b, () => api('action', { body: { action: 'try', minutes: 15, effect: { label: b.dataset.gshow === 'raw' ? 'Color as picked' : `Gamma ${st.g.toFixed(1)}`,
+        colors: [color], counts: [1], custom_mode: 0, brightness: 255, exact_colors: true } } })).then(() => toast(`Showing ${color} on the lights`)).catch(() => {});
+    }
+    if (b.dataset.gsave !== undefined) {
+      const n = clone(S.settings); n.color = { enabled: st.on, gamma: Math.round(st.g * 10) / 10 };
+      busy(b, () => saveSettings(n, st.on ? `Color correction on (gamma ${st.g.toFixed(1)})` : 'Color correction off')).catch(() => {});
+    }
+  };
+}
+
 VIEWS.lights = async (opts = {}) => {
   const m = $('#main');
   if (!opts.keep) { S.portDraft = null; m.innerHTML = '<div class="view"><h2>Lights</h2><p class="muted">Asking the controller…</p></div>'; }
   let devs;
-  try { devs = await loadDevices(!opts.keep); } catch (e) { m.innerHTML = `<div class="view"><h2>Lights</h2><p class="callout warn">${esc(e.message)}</p></div>`; return; }
-  if (!devs.length) { m.innerHTML = '<div class="view"><h2>Lights</h2><p class="callout">No controllers on this account.</p></div>'; return; }
+  const alone = msg => { m.innerHTML = `<div class="view"><h2>Lights</h2>${msg}<div class="panel stack" id="gbox" style="margin-top:16px;max-width:640px"></div></div>`; colorPanel($('#gbox')); };
+  try { devs = await loadDevices(!opts.keep); } catch (e) { return alone(`<p class="callout warn">${esc(e.message)}</p>`); }
+  if (!devs.length) return alone('<p class="callout">No controllers on this account.</p>');
   S.lightDev = devs.some(d => d.id === S.lightDev) ? S.lightDev : (devs.find(d => d.selected) || devs[0]).id;
   const d = devs.find(x => x.id === S.lightDev);
   const ports = [0, 1, 2, 3].map(i => { const p = (d.ports || []).find(x => x.id === i) || { id: i, start: 0, end: 0 }; return { ...p, off: !(p.start > 0 && p.end > 0) }; });
@@ -1039,11 +1101,13 @@ VIEWS.lights = async (opts = {}) => {
           <div><button data-savedev>Save controller settings</button></div>
           <div class="row"><span class="small">Test colors:</span>${[['Red', '#FF0000'], ['Green', '#00FF00'], ['Blue', '#0000FF'], ['White', '#FFFFFF']].map(([n, c]) => `<button class="small" data-test="${c}">${swatches([c], 1)}${n}</button>`).join('')}</div>
         </div>
+        <div class="panel stack" id="gbox"></div>
         ${devs.length > 1 ? `<div class="panel stack"><h2>Controlled by this app</h2>${devs.map(x => `<label class="check"><input type="checkbox" data-ctl="${esc(x.id)}" ${!chosen.length || chosen.includes(x.id) ? 'checked' : ''}>${esc(x.name)}</label>`).join('')}
           <div><button class="small" data-savectl>Save</button></div></div>` : ''}
       </div>
     </div></div>`;
   draw();
+  colorPanel($('#gbox'));
   m.oninput = e => {
     const t = e.target, ds = t.dataset;
     if (ds.pc !== undefined) P[+ds.pc].count = Math.max(0, Math.min(2048, +t.value || 0));
