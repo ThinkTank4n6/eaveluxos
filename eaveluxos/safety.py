@@ -105,20 +105,21 @@ class SafetyNet:
         off = timedelta(minutes=offset_min)
         for i in range(cfg.safety["days"]):
             d = today + timedelta(days=i)
-            w = sch.day_plan(d)
-            if not w:
-                continue
-            eff, _ = w.rule.pick(w.start, w.start)
-            levels = dict(w.rule.levels)
-            start = w.start + off
-            last = datetime.combine(start.date(), time(23, 59), tzinfo=start.tzinfo)
-            end = min(w.end + off, last)
-            if end <= start:
-                continue
-            slot = f"{eff.key}|{json.dumps(levels, sort_keys=True)}"
-            slots[slot] = (eff, levels)
-            entries.append({"month": start.month, "day": start.day, "start": [start.hour, start.minute],
-                            "end": [end.hour, end.minute], "slot": slot, "label": eff.label, "rule": w.rule.name})
+            # Every stretch the lights are on that day (for example a morning
+            # and an evening rule), as the scheduler would run them.
+            for p in sch.day_plans(d):
+                w = p.window
+                eff, _ = w.rule.pick(w.start, w.start)
+                levels = dict(w.rule.levels)
+                start = p.start + off
+                last = datetime.combine(start.date(), time(23, 59), tzinfo=start.tzinfo)
+                end = min(p.end + off, last)
+                if end <= start:
+                    continue
+                slot = f"{eff.key}|{json.dumps(levels, sort_keys=True)}"
+                slots[slot] = (eff, levels)
+                entries.append({"month": start.month, "day": start.day, "start": [start.hour, start.minute],
+                                "end": [end.hour, end.minute], "slot": slot, "label": eff.label, "rule": w.rule.name})
         return entries, slots
 
     @staticmethod

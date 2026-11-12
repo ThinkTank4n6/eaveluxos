@@ -270,3 +270,5 @@ pre.code{padding:10px;white-space:pre-wrap;margin:0}
 .painter .chip-now{display:inline-flex;align-items:center;gap:6px;font-size:.85rem;color:var(--muted);margin-left:6px}
 .painter .chip-now i{width:16px;height:16px;border-radius:50%;border:1px solid var(--line);display:inline-block}
 .painter .chip-now i.off{background:repeating-linear-gradient(45deg,transparent 0 3px,var(--muted) 3px 4px)}
+/* ---------- several schedules a day (3.6) ---------- */
+.win + .win{margin-top:6px;padding-top:6px;border-top:1px dashed var(--line)}

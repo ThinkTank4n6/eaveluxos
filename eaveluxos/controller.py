@@ -524,13 +524,13 @@ class Controller:
         for i in range(8):
             d = now.date() + timedelta(days=i)
             s = loc.sun(d)
-            p = sch.day_plan(d)
+            plans = sch.day_plans(d)
+            wins = [{"on": fmt(p.start), "off": fmt(p.end), "rule": p.rule.name, "effect": p.effect_label()} for p in plans]
+            first = wins[0] if wins else {}
             days.append({"date": d.isoformat(), "dow": d.strftime("%a"), "label": d.strftime("%b %d").replace(" 0", " "),
                          "sunrise": fmt(s["sunrise"]), "sunset": fmt(s["sunset"]),
-                         "abbr": s["noon"].tzname() if s["noon"] else "",
-                         "on": fmt(p.start) if p else None, "off": fmt(p.end) if p else None,
-                         "rule": p.rule.name if p else None,
-                         "effect": (p.rule.pick(p.start, p.start)[0].label if p.rule.nightly else p.rule.effect_label) if p else None})
+                         "abbr": s["noon"].tzname() if s["noon"] else "", "windows": wins,
+                         **{k: first.get(k) for k in ("on", "off", "rule", "effect")}})
         # Day bar: sample what the schedule has on every 5 minutes today
         # (memoized per minute and per settings, since it's ~300 lookups).
         memo_key = (now.date(), now.hour, now.minute, self.cfg_gen)  # id() can be reused after GC

@@ -1,5 +1,23 @@
 # Changelog
 
+## 3.6.0: several schedules a day
+
+- **Morning and evening schedules on the same day**, like the Trimlight Edge
+  app's timers (for example 6:00 AM → sunrise and sunset → 11:00 PM). The
+  scheduler already switched between them, but the app showed only one
+  window per day, warned that the morning rule "never runs", and the safety
+  net copied only one window per day to the controller. Now Home (This week),
+  Schedule (Coming up), the rule check and the safety net all use every
+  stretch of the day.
+- Where rules overlap, the lower-priority one now also shows (and is copied to
+  the controller) for the time the higher one leaves free, e.g. everyday
+  lights from sunset until a New Year's Eve rule starts at 8:00 PM.
+- **Fix:** a rule whose off time comes before its on time never runs longer
+  than 20 hours. Before, "6:00 AM → sunrise" ran from 6:00 AM until the next
+  day's sunrise (about 23 hours) on summer days when sunrise is before 6:00.
+- **Add a morning schedule** button on the Schedule tab.
+- 6 new tests (121 total).
+
 ## 3.5.1: getting API credentials
 
 - Manual section 2 now has step-by-step **How to obtain API credentials**,

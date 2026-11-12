@@ -387,7 +387,7 @@ VIEWS.home = async () => {
             <table class="week"><tbody>${st.days.map((d, i) => {
               const dst = prevAbbr && d.abbr !== prevAbbr ? ` <span class="dst">${esc(d.abbr)} starts</span>` : ''; prevAbbr = d.abbr;
               return `<tr class="${i === 0 ? 'today' : ''}"><td class="d">${i === 0 ? 'Today' : esc(d.dow)}<small>${esc(d.label)}</small></td>
-                <td>${d.on ? `<span class="num">${esc(d.on)} – ${esc(d.off)}</span><div class="r">${esc(d.rule)}</div>` : '<span class="r">Off</span>'}${dst}</td>
+                <td>${(d.windows || []).length ? d.windows.map(w => `<div class="win"><span class="num">${esc(w.on)} – ${esc(w.off)}</span><div class="r">${esc(w.rule)}</div></div>`).join('') : '<span class="r">Off</span>'}${dst}</td>
                 <td class="sun num">☀ ${esc(d.sunrise ?? '—')}<br>☾ ${esc(d.sunset ?? '—')}</td></tr>`; }).join('')}</tbody></table></div>
           <div class="panel"><details><summary>Controllers and activity</summary>
             <ul class="log">${st.devices.map(d => d.error ? `<li class="warning">${esc(d.error)}</li>` : `<li><b>${esc(d.name)}</b>: ${d.online ? 'online' : 'offline'}, ${esc(d.switch)}, firmware ${esc(d.firmware)}</li>`).join('')}</ul>
@@ -766,9 +766,9 @@ function mdSelect(name, val) {
     <input type="number" name="${name}_d" min="1" max="31" value="${d}" style="width:5em" aria-label="Day"></span>`;
 }
 
-function ruleDialog(idx) {
+function ruleDialog(idx, template) {
   const rules = S.settings.rules || [];
-  const r = idx === undefined ? { name: '', on: 'sunset + 15', off: '23:00', effect: Object.keys(S.settings.effects || {})[0] } : rules[idx];
+  const r = idx === undefined ? (template || { name: '', on: 'sunset + 15', off: '23:00', effect: Object.keys(S.settings.effects || {})[0] }) : rules[idx];
   const [ds, de] = r.dates ? String(r.dates).split('..') : ['12-01', '12-31'];
   const days = !r.days || r.days === 'all' ? DAYS : r.days === 'weekdays' ? DAYS.slice(0, 5) : r.days === 'weekends' ? DAYS.slice(5) : r.days.map(x => x.slice(0, 3).toLowerCase());
   const p = r.priority;
@@ -782,7 +782,7 @@ function ruleDialog(idx) {
     <div class="stack" style="gap:8px"><span class="small" style="font-weight:650">Days of the week</span>
       <div class="chips">${DAYS.map(d => `<label class="check" style="gap:6px"><input type="checkbox" name="day" value="${d}" ${days.includes(d) ? 'checked' : ''}>${DAYNAMES[d]}</label>`).join('')}</div></div>
     <div class="cols" style="gap:10px">${timeField('on', 'Turn on at', r.on)}${timeField('off', 'Turn off at', r.off)}</div>
-    <p class="hint">If the off time is earlier than the on time, it means the next morning. Sunrise as the off time uses the next morning's real sunrise.</p>
+    <p class="hint">If the off time is earlier than the on time, it means the next morning (for example sunset to sunrise). A rule never runs longer than 20 hours, so a 6:00 AM to sunrise rule simply skips days when the sun is already up by 6:00 AM.</p>
     ${patternPicker(r.effect, r.rotate_minutes, r.rotate === 'nightly', true)}
     <label class="check"><input type="checkbox" name="usebright" ${r.brightness !== undefined ? 'checked' : ''}> Use its own brightness</label>
     <input type="range" name="brightness" min="0" max="255" value="${r.brightness ?? 120}" ${r.brightness !== undefined ? '' : 'hidden'} aria-label="Brightness">
@@ -885,7 +885,8 @@ VIEWS.schedule = async () => {
     <div class="panel-head"><h2>Schedule</h2><button class="ghost" data-import>Import from Trimlight app</button><button class="primary" data-addrule>Add a rule</button></div>
     <div class="cols wide-left">
       <div class="stack">
-        <div class="panel"><h2>Rules</h2><p class="note" style="margin-top:4px">When rules overlap, the higher one in this list wins.</p>
+        <div class="panel"><h2>Rules</h2><p class="note" style="margin-top:4px">A day can have several rules that don't overlap, for example a morning one (6:00 AM to sunrise) and an evening one (sunset to 11:00 PM); each runs in its own time. Only where rules overlap does the higher priority win (or, with equal priority, the one higher in this list).</p>
+          <div class="row" style="margin-top:6px"><button class="small ghost" data-addmorning>Add a morning schedule</button></div>
           <div class="list" style="margin-top:8px">${rules.length ? rules.map(({ r, i }) => { const pats = Array.isArray(r.effect) ? r.effect : [r.effect];
             return `<div class="item"><div class="grow" data-rulename="${esc(r.name)}"><div class="row" style="gap:8px"><span class="name">${esc(r.name)}</span><span class="badge ${prio(r) >= 200 ? 'hi' : ''}">${prioLabel(prio(r))} · ${prio(r)}</span></div>
               <div class="sub">${esc(humanDates(r))} · ${esc(humanDays(r.days))} · ${esc(humanT(r.on))} → ${esc(humanT(r.off))}</div>
@@ -917,13 +918,15 @@ VIEWS.schedule = async () => {
   } }).catch(() => {});
   api('upcoming?days=21').then(list => {
     $('#upc').innerHTML = list.length ? list.map(d => `<div class="item"><div style="width:5.5em" class="small"><b>${esc(new Date(d.date + 'T12:00').toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }))}</b></div>
-      <div class="grow">${d.on ? `<div class="num">${esc(hm12(d.on_label))} – ${esc(hm12(d.off_label))}</div><div class="sub">${esc(d.rule)}</div>` : '<span class="sub">Off</span>'}
+      <div class="grow">${(d.windows || []).length ? d.windows.map(w => `<div class="win"><div class="num">${esc(hm12(w.on_label))} – ${esc(hm12(w.off_label))}</div><div class="sub">${esc(w.rule)}</div></div>`).join('') : '<span class="sub">Off</span>'}
         ${d.dst_change ? `<div class="dst">${esc(d.abbr)} starts today</div>` : ''}</div><div class="sub num">☾ ${esc(hm12(d.sunset))}</div></div>`).join('')
       : '<p class="muted">Finish setup to see upcoming times.</p>';
   }).catch(e => { $('#upc').innerHTML = `<p class="muted">${esc(e.message)}</p>`; });
   m.onclick = async e => {
     const b = e.target.closest('button'); if (!b) return; const d = b.dataset;
     if (d.addrule !== undefined) { if (!Object.keys(effs).length) return toast('Create a pattern first.', true); ruleDialog(); }
+    else if (d.addmorning !== undefined) { if (!Object.keys(effs).length) return toast('Create a pattern first.', true);
+      ruleDialog(undefined, { name: 'Morning', on: '06:00', off: 'sunrise', effect: (rules.find(x => !x.r.dates) || {}).r?.effect || Object.keys(effs)[0] }); }
     else if (d.editrule) ruleDialog(+d.editrule);
     else if (d.delrule) { if (await confirmBox('Delete rule?', `“${esc(s.rules[+d.delrule].name)}” will be removed.`, 'Delete', true)) { const n = clone(s); n.rules.splice(+d.delrule, 1); await busy(null, () => saveSettings(n, 'Deleted')).catch(() => {}); VIEWS.schedule(); } }
     else if (d.addwx !== undefined) weatherDialog();

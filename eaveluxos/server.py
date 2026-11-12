@@ -64,7 +64,7 @@ def doc_path(name: str) -> Path | None:
         if f.is_file():
             return f
     return None
-VERSION = "3.5.1"
+VERSION = "3.6.0"
 COOKIE = "tls_session"
 MAX_BODY = 2_000_000
 # Headers a reverse proxy or tunnel adds. A request carrying any of them came
@@ -323,18 +323,21 @@ class App:
         from datetime import timedelta
         sch, today = self.cfg.schedule, self.cfg.loc.now().date()
         out = {}
+        days = [today + timedelta(days=i) for i in range(366)]
+        running = {d: {p.rule.name for p in sch.day_plans(d)} for d in days}
         for r in sch.rules:
             applies, wins, beaten = 0, 0, Counter()
-            for i in range(366):
-                d = today + timedelta(days=i)
-                if not r.applies_on(d) or not r.window(d, sch.loc):
+            for d in days:
+                w = sch._window(r, d)
+                if not w:
                     continue
                 applies += 1
-                p = sch.day_plan(d)
-                if p and p.rule is r:
+                if r.name in running[d]:   # runs for at least part of its window
                     wins += 1
-                elif p:
-                    beaten[p.rule.name] += 1
+                else:                      # covered the whole time: by whom?
+                    other = sch.active_window(w.start + (w.end - w.start) / 2)
+                    if other:
+                        beaten[other.rule.name] += 1
             info = {"applies": applies, "wins": wins, "blocked_by": None, "hint": ""}
             if applies and not wins and beaten:
                 top = beaten.most_common(1)[0][0]
@@ -589,15 +592,15 @@ class App:
         for i in range(days):
             d = start + timedelta(days=i)
             s = loc.sun(d)
-            p = sch.day_plan(d)
+            plans = sch.day_plans(d)
+            wins = [{"on": p.start.isoformat(), "off": p.end.isoformat(), "on_label": p.start.strftime("%H:%M"),
+                     "off_label": p.end.strftime("%H:%M"), "rule": p.rule.name, "effect": p.effect_label()} for p in plans]
             abbr = s["noon"].tzname() if s["noon"] else ""
+            first = wins[0] if wins else {}
             out.append({"date": d.isoformat(), "sunrise": s["sunrise"] and s["sunrise"].strftime("%H:%M"),
                         "sunset": s["sunset"] and s["sunset"].strftime("%H:%M"), "abbr": abbr,
-                        "dst_change": bool(prev and prev != abbr),
-                        "on": p and p.start.isoformat(), "off": p and p.end.isoformat(),
-                        "on_label": p and p.start.strftime("%H:%M"), "off_label": p and p.end.strftime("%H:%M"),
-                        "rule": p and p.rule.name,
-                        "effect": p and (p.rule.pick(p.start, p.start)[0].label if p.rule.nightly else p.rule.effect_label)})
+                        "dst_change": bool(prev and prev != abbr), "windows": wins,
+                        **{k: first.get(k) for k in ("on", "off", "on_label", "off_label", "rule", "effect")}})
             prev = abbr
         return out
 

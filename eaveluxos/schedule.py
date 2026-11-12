@@ -223,6 +223,12 @@ def _parse_md(s: str, where: str) -> tuple[int, int]:
     return mo, dy
 
 
+# A window whose off time comes before its on time continues into the next
+# day ("sunset to 00:30"), but never for longer than this. Without the limit, a
+# morning rule like "06:00 to sunrise" would run 06:00 to the NEXT day's
+# sunrise (about 23 hours) on summer days when sunrise is before 06:00; now it
+# simply doesn't run those days, the same as when it's already light out.
+MAX_WINDOW_HOURS = 20
 DEFAULT_PRIORITY_DATED = 200
 DEFAULT_PRIORITY_DAILY = 100
 DEFAULT_PRIORITY_WEATHER = 150
@@ -385,9 +391,27 @@ class Rule:
         end = self.off.resolve(d, loc)
         if end is None or end <= start:
             end = self.off.resolve(d + timedelta(days=1), loc)
+            if end is not None and end - start > timedelta(hours=MAX_WINDOW_HOURS):
+                return None
         if end is None or end <= start:
             return None
         return Window(self, start, end)
+
+
+@dataclass
+class Plan:
+    """A stretch [start, end) during which `window` is the one running."""
+    window: Window
+    start: datetime
+    end: datetime
+
+    @property
+    def rule(self) -> "Rule":
+        return self.window.rule
+
+    def effect_label(self) -> str:
+        r = self.window.rule
+        return r.pick(self.window.start, self.window.start)[0].label if r.nightly else r.effect_label
 
 
 def _rank(w: Window):
@@ -398,6 +422,17 @@ class Schedule:
     def __init__(self, rules: list[Rule], loc: Location):
         self.rules = rules
         self.loc = loc
+        self._wcache: dict = {}
+
+    def _window(self, rule: Rule, d: date) -> Window | None:
+        """rule.window(d), remembered: windows depend only on the rule, the
+        date and the location, and the same ones are asked for many times."""
+        k = (rule.order, d)
+        if k not in self._wcache:
+            if len(self._wcache) > 20000:
+                self._wcache.clear()
+            self._wcache[k] = rule.window(d, self.loc)
+        return self._wcache[k]
 
     def active_window(self, now: datetime) -> Window | None:
         """Highest-priority window covering now (ties: earliest in the file)."""
@@ -405,15 +440,35 @@ class Schedule:
         live = []
         for rule in self.rules:
             for d in (today, today - timedelta(days=1)):
-                w = rule.window(d, self.loc)
+                w = self._window(rule, d)
                 if w and w.start <= now < w.end:
                     live.append(w)
         return min(live, key=_rank) if live else None
 
     def day_plan(self, d: date) -> Window | None:
-        """The highest-priority window starting on date d (for display)."""
-        ws = [w for r in self.rules if (w := r.window(d, self.loc))]
+        """The highest-priority window starting on date d. A day can have
+        several separate windows (for example 06:00-sunrise and
+        sunset-23:00); day_plans() lists them all."""
+        ws = [w for r in self.rules if (w := self._window(r, d))]
         return min(ws, key=_rank) if ws else None
+
+    def day_plans(self, d: date) -> list["Plan"]:
+        """Every stretch of time the lights are on for windows that start on
+        date d, in order, exactly as the scheduler will run them: where windows
+        overlap, the higher priority wins and the other only fills the gaps."""
+        ws = [w for dd in (d - timedelta(days=1), d, d + timedelta(days=1))
+              for r in self.rules if (w := self._window(r, dd))]
+        edges = sorted({t for w in ws for t in (w.start, w.end)})
+        plans: list[Plan] = []
+        for a, b in zip(edges, edges[1:]):
+            w = self.active_window(a + (b - a) / 2)
+            if not w:
+                continue
+            if plans and plans[-1].window.key == w.key and plans[-1].end == a:
+                plans[-1].end = b
+            else:
+                plans.append(Plan(w, a, b))
+        return [p for p in plans if p.window.start.date() == d]
 
     def next_change(self, now: datetime) -> datetime | None:
         """Next moment the scheduled window changes (ignores rotation steps)."""
@@ -423,7 +478,7 @@ class Schedule:
         for i in range(-1, 9):
             d = now.date() + timedelta(days=i)
             for r in self.rules:
-                w = r.window(d, self.loc)
+                w = self._window(r, d)
                 if w:
                     edges.update(t for t in (w.start, w.end) if t > now)
         for t in sorted(edges):

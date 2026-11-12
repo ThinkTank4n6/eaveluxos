@@ -1,7 +1,7 @@
 # EaveLuxOS
 ### The Intelligent Lighting Control Platform
 
-By **Christopher A. Tankelewicz (ThinkTank4n6)** · MIT License · version 3.5.1
+By **Christopher A. Tankelewicz (ThinkTank4n6)** · MIT License · version 3.6.0
 
 EaveLuxOS currently works with **Trimlight Edge** permanent-lighting controllers.
 Its scheduling, mapping and design tools are built to grow to other brands.
@@ -159,6 +159,14 @@ get an app icon.
 
 The bottom of every screen, including the sign-in page, shows the version,
 the copyright notice and a link to the MIT License.
+
+## Several schedules a day
+
+A day can have several rules at different times, like the Trimlight Edge
+app's timers: for example **6:00 AM → sunrise** and **sunset → 11:00 PM**.
+Each runs in its own time; priorities only decide where rules overlap. A
+rule never runs longer than 20 hours, so a 6:00 AM → sunrise rule skips the
+days when the sun is already up by then.
 
 ## How overlapping rules are decided
 

@@ -1,7 +1,7 @@
 # EaveLuxOS: User Manual
 ### The Intelligent Lighting Control Platform
 
-Version 3.5.1 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
+Version 3.6.0 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
 
 EaveLuxOS is a free, community-made lighting control platform. Today it runs
 **Trimlight Edge** permanent lights. It is not made, sold, endorsed or
@@ -531,7 +531,9 @@ A **rule** says when the lights turn on and off, and which pattern shows.
 
    If the off time is earlier than the on time, it means the next morning.
    For example, on at Sunset and off at Sunrise keeps the lights on all night,
-   using the next morning's real sunrise.
+   using the next morning's real sunrise. A rule never runs longer than 20
+   hours, so a 6:00 AM → Sunrise rule simply skips the days when the sun is
+   already up by 6:00 AM.
 6. **Pattern:** choose one. To use several, tap **Add a pattern to rotate**
    and add more. Then choose:
    - **Switch every … minutes**, or
@@ -555,6 +557,29 @@ one of its nights, usually one with the same priority that is listed first.
 The note names that rule and how to fix it, usually by raising this rule's
 priority.
 
+### Several schedules a day
+
+Like the Trimlight Edge app's timers, a day can have more than one rule, as
+long as their times don't overlap. Each one runs in its own time. For
+example:
+
+- **Evening:** all year, Sunset → 11:00 PM.
+- **Morning:** all year, 6:00 AM → Sunrise.
+
+**Add a morning schedule** on the Schedule tab fills in the second one for
+you (6:00 AM → Sunrise, with your everyday pattern); change anything before
+tapping **Save**. Both show in **Coming up** and in **This week** on Home,
+and the safety net copies both to the controller.
+
+In winter the morning rule runs from 6:00 AM until it gets light. Around
+the summer, when the sun is up before 6:00 AM, it doesn't run at all.
+
+Priority only matters where rules overlap. There, the higher priority wins
+and the other rule runs in the time that's left: for example, an
+everyday Sunset → 11:00 PM rule and a New Year's Eve 8:00 PM → 12:30 AM
+holiday rule give everyday lights from sunset to 8:00 PM, then the holiday
+pattern.
+
 ### Examples
 
 | Goal | Settings |
@@ -565,6 +590,7 @@ priority.
 | Game days | All year, Sunday only, Dusk → 11:00 PM, team colors, custom priority 150 |
 | A different look every night in December | Dec 1 – Dec 31, Sunset → 11:00 PM, five Christmas patterns, "A different one each night" |
 | Dim accent until morning | All year, 11:00 PM → Sunrise, Warm white, own brightness 25%, Low |
+| Morning lights on dark mornings | All year, weekdays, 6:00 AM → Sunrise, Warm white, Everyday (alongside an evening rule) |
 
 ### Bring over timers from the Trimlight app
 
@@ -581,7 +607,8 @@ From highest to lowest:
 2. **Something you turned on or off by hand** (until the next scheduled change).
 3. **A weather rule** (section 14).
 4. **The scheduled rule with the highest priority.** If two have the same
-   priority, the one listed first wins.
+   priority, the one listed first wins. This only decides overlapping time:
+   rules at different times of day (morning and evening) each run.
 
 ## 14. Weather rules
 
