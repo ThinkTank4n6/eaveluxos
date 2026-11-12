@@ -35,6 +35,7 @@ from pathlib import Path
 from .api import TrimlightError
 
 log = logging.getLogger("eaveluxos.safety")
+_CAL_KEYS = ("effectId", "startDate", "endDate", "startTime", "endTime")
 MAX_EFFECTS = 60
 MAX_CALENDAR = 60
 PREFIX = "Auto "
@@ -88,6 +89,34 @@ class SafetyNet:
         with self.lock:
             d = self.state["devices"].get(dev_id) or {}
             return bool(d.get("ok") and d.get("covers_until", "") >= today.isoformat())
+
+    def check_live(self, dev_id: str, detail: dict) -> str | None:
+        """Compare a fresh read of the controller with what the last sync
+        wrote. If the copy was changed or cleared since (the Trimlight app, a
+        reset), stop relying on it and have it written again. Returns a
+        message when that happened."""
+        with self.lock:
+            d = self.state["devices"].get(dev_id)
+            if not (d and d.get("ok")):
+                return None
+            written = d.get("written")
+            if written is None:      # synced by an older version: copy it again to start checking
+                d["hash"] = None
+                self.retry_at = 0
+                self._save()
+                return None
+            cal = {str(c.get("id")): c for c in detail.get("calendar", []) or []}
+            lib = {e.get("id") for e in detail.get("effects", []) or []}
+            changed = [cid for cid, p in written.items()
+                       if cid not in cal or any(cal[cid].get(k) != p[k] for k in _CAL_KEYS)]
+            gone = [i for i in d.get("written_effects", []) if i not in lib]
+            if not (changed or gone):
+                return None
+            msg = "The timer copy on the controller was changed outside this app, so it's being copied again."
+            d.update(ok=False, hash=None, message=msg)
+            self.retry_at = 0
+            self._save()
+            return msg
 
     def summary(self) -> dict:
         with self.lock:
@@ -256,25 +285,32 @@ class SafetyNet:
                 self._save()
 
         written = []
-        for entry, cid in zip(entries, pool):
-            payload = {"id": cid, "effectId": ids[entry["slot"]],
-                       "startDate": {"month": entry["month"], "day": entry["day"]},
-                       "endDate": {"month": entry["month"], "day": entry["day"]},
-                       "startTime": {"hours": entry["start"][0], "minutes": entry["start"][1]},
-                       "endTime": {"hours": entry["end"][0], "minutes": entry["end"][1]}}
-            owned_set.add(cid)          # claim before writing: if the reply is lost, we still own it
-            persist_calendar()
-            r = api.calendar_save(dev, payload) or {}
-            rid = r.get("id", cid)
-            if rid != cid:
-                owned_set.add(rid)
+        try:
+            for entry, cid in zip(entries, pool):
+                payload = {"id": cid, "effectId": ids[entry["slot"]],
+                           "startDate": {"month": entry["month"], "day": entry["day"]},
+                           "endDate": {"month": entry["month"], "day": entry["day"]},
+                           "startTime": {"hours": entry["start"][0], "minutes": entry["start"][1]},
+                           "endTime": {"hours": entry["end"][0], "minutes": entry["end"][1]}}
+                owned_set.add(cid)          # claim before writing: if the reply is lost, we still own it
                 persist_calendar()
-            written.append((rid, payload))
-        keep = {c for c, _ in written}
-        for cid in sorted(owned_set - keep):
-            api.calendar_delete(dev, cid)
-            owned_set.discard(cid)
-            persist_calendar()
+                r = api.calendar_save(dev, payload) or {}
+                rid = r.get("id", cid)
+                if rid != cid:
+                    owned_set.add(rid)
+                    persist_calendar()
+                written.append((rid, payload))
+            keep = {c for c, _ in written}
+            for cid in sorted(owned_set - keep):
+                api.calendar_delete(dev, cid)
+                owned_set.discard(cid)
+                persist_calendar()
+        except TrimlightError:
+            # Part of the new copy is on the controller next to part of the old
+            # one. Don't leave that mix to run if this app stops: take back
+            # everything of ours (the lights are driven live meanwhile).
+            self._take_back(api, dev, owned_set, persist_calendar)
+            raise
         with self.lock:
             st["conflicts"] = conflicts
             st["entries"] = [{"date": f"{e['month']:02d}-{e['day']:02d}", "on": "%02d:%02d" % tuple(e["start"]),
@@ -288,19 +324,29 @@ class SafetyNet:
         bad = []
         for cid, p in written:
             c = cal2.get(cid)
-            if not c or any(c.get(k) != p[k] for k in ("effectId", "startDate", "endDate", "startTime", "endTime")):
+            if not c or any(c.get(k) != p[k] for k in _CAL_KEYS):
                 bad.append(cid)
         missing_eff = [i for i in ids.values() if i not in lib2]
+        if not (bad or missing_eff):
+            with self.lock:   # what the live check compares against later
+                st["written"] = {str(cid): {k: p[k] for k in _CAL_KEYS} for cid, p in written}
+                st["written_effects"] = sorted(set(ids.values()))
+                self._save()
         if bad or missing_eff:
-            for cid in sorted(owned_set):  # take back what we wrote; leave everything else alone
-                try:
-                    api.calendar_delete(dev, cid)
-                    owned_set.discard(cid)
-                except TrimlightError:
-                    pass                    # still recorded as ours; removed on the next sync
-            persist_calendar()
+            self._take_back(api, dev, owned_set, persist_calendar)
             raise ValueError("The controller's timers didn't read back as written, so the copy was removed "
                              f"({len(bad)} entr{'y' if len(bad) == 1 else 'ies'} differed). The app keeps running the lights.")
+
+    @staticmethod
+    def _take_back(api, dev, owned_set, persist):
+        """Delete every calendar entry of ours; leave everything else alone."""
+        for cid in sorted(owned_set):
+            try:
+                api.calendar_delete(dev, cid)
+                owned_set.discard(cid)
+            except TrimlightError:
+                pass                    # still recorded as ours; removed on the next sync
+        persist()
 
     def remove(self, api, dev_ids, now: datetime, note=lambda m, lvl=logging.INFO: None) -> bool:
         """Turn the safety net off: delete only what it created. False if

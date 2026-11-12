@@ -144,9 +144,10 @@ const ICONS = {
   map: '<path d="M3.5 11 12 4.5l8.5 6.5"/><path d="M5.5 9.8V19.5h13V9.8"/><circle cx="12" cy="13" r="2.2"/><path d="M12 15.2v2.3"/>',
   lights: '<path d="M4 7h16M4 12h16M4 17h16"/><circle cx="8" cy="7" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="10" cy="17" r="1.6"/>',
   time: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
+  music: '<path d="M9 17.5V6.5l10-2.2v11"/><circle cx="6.6" cy="17.6" r="2.4"/><circle cx="16.6" cy="15.4" r="2.4"/><path d="M9 9.6l10-2.2"/>',
   settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
 };
-const TABS = [['home','Home'],['patterns','Patterns'],['create','Create'],['map','House map'],['schedule','Schedule'],['lights','Lights'],['time','Date & Time'],['settings','Settings'],['manual','Manual']];
+const TABS = [['home','Home'],['patterns','Patterns'],['create','Create'],['map','House map'],['schedule','Schedule'],['music','Music'],['lights','Lights'],['time','Date & Time'],['settings','Settings'],['manual','Manual']];
 const icon = n => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[n]}</svg>`;
 function buildRibbon() {
   $('#ribbon').innerHTML = TABS.map(([k, l]) => `<button data-tab="${k}">${icon(k)}<span>${l}</span></button>`).join('');
@@ -182,12 +183,15 @@ async function loadCatalog() { if (!S.catalog) S.catalog = await api('catalog');
 async function loadDevices(force) { if (!S.devices || force) S.devices = await api('devices'); return S.devices; }
 async function refreshStatus() {
   try { S.status = await api('status'); } catch (e) { setPill('bad', "Can't reach the app"); throw e; }
-  const st = S.status;
+  statusPill(S.status);
+  return S.status;
+}
+function statusPill(st) {
   if (st.setup_only) setPill('', 'Setup needed');
   else if (st.setup && st.setup.problem) setPill('bad', 'Check settings');
+  else if (st.target.reason === 'music') setPill('ok', 'Music show');
   else if (st.error) setPill('bad', "Can't reach lights");
   else setPill('ok', st.target.on ? 'Lights on' : 'Lights off');
-  return st;
 }
 function setPill(kind, text) { const p = $('#pill'); p.className = 'pill' + (kind ? ' ' + kind : ''); p.textContent = text; }
 
@@ -340,6 +344,7 @@ VIEWS.home = async () => {
     document.body.classList.toggle('flashing', t.reason === 'flash');
     let head = t.on ? 'The lights are on' : 'The lights are off', sub;
     if (t.reason === 'flash') { head = 'Security flash'; sub = `${t.effect} until ${st.flash.until}, then back to normal.`; }
+    else if (t.reason === 'music') { head = 'Music show'; sub = `${st.music.scheduled ? t.source + ': t' : 'T'}he controller\u2019s music mode runs the lights${st.music.until ? ' until ' + st.music.until : ' until the show is stopped'}. Stop it on the Music tab.`; }
     else if (t.reason === 'manual') sub = (t.on ? `${t.effect}, set by hand` : 'Turned off by hand') + (nextTxt ? `. The schedule takes over at ${nextTxt}.` : '.');
     else if (t.on && t.reason === 'weather') sub = `${t.source}: ${t.effect} until ${st.window.end}, instead of ${st.window.rule}.`;
     else if (t.on && st.window) sub = `${st.window.rule}: ${t.effect} until ${st.window.end}.` + (t.delegated ? ' The controller is running tonight from its own timer, so the lights go off on time even if this computer stops.' : '');
@@ -351,7 +356,7 @@ VIEWS.home = async () => {
     band(sm.dawn ?? sm.sunrise, sm.sunrise, 'var(--twilight)'); band(sm.sunrise, sm.sunset, 'var(--day)'); band(sm.sunset, sm.dusk ?? sm.sunset, 'var(--twilight)');
     st.strip.forEach(w => sky.push(`<div class="lit" title="${esc(w.rule)}" style="left:${pct(w.start)};width:calc(${pct(w.end)} - ${pct(w.start)})"></div>`));
     sky.push(`<div class="now" style="left:${pct(st.now_min)}"></div>`);
-    const canAdjust = t.on && t.reason !== 'flash';
+    const canAdjust = t.on && t.reason !== 'flash' && t.reason !== 'music';
     const lv = st.levels;
     const wx = st.weather;
     let prevAbbr = null;
@@ -379,7 +384,7 @@ VIEWS.home = async () => {
             <div class="levels" aria-disabled="${!canAdjust}" style="margin-top:12px">
               ${[['brightness', 'Brightness'], ['speed', 'Speed']].map(([k, l]) => `<label>${l}<input type="range" min="0" max="255" data-level="${k}" value="${lv[k] ?? 128}" ${!canAdjust || lv[k] == null ? 'disabled' : ''}><output>${lv[k] == null ? '—' : Math.round(lv[k] / 2.55) + '%'}</output></label>`).join('')}
             </div>
-            <p class="note" style="margin-top:8px">${!t.on ? 'Turn the lights on to adjust them.' : t.reason === 'flash' ? 'Locked during the security flash.' : lv.brightness == null ? 'Levels appear once the controller reports this saved pattern.' : lv.adjusted ? 'Adjusted by hand until the next scheduled change.' : 'Changes last until the next scheduled change.'}</p>
+            <p class="note" style="margin-top:8px">${!t.on ? 'Turn the lights on to adjust them.' : t.reason === 'flash' ? 'Locked during the security flash.' : t.reason === 'music' ? 'Set in the Trimlight app during a music show.' : lv.brightness == null ? 'Levels appear once the controller reports this saved pattern.' : lv.adjusted ? 'Adjusted by hand until the next scheduled change.' : 'Changes last until the next scheduled change.'}</p>
           </div>
         </div>
         <div class="stack">
@@ -1053,6 +1058,122 @@ function colorPanel(box) {
   };
 }
 
+/* ---------------------------------------------------------------- music */
+const SHOW_LENGTHS = [[30, '30 minutes'], [60, '1 hour'], [90, '1½ hours'], [120, '2 hours'], [180, '3 hours'], [0, 'Until I stop it']];
+const fmtMin = n => n % 60 === 0 ? `${n / 60} hour${n === 60 ? '' : 's'}` : n > 60 ? `${Math.floor(n / 60)} h ${n % 60} min` : `${n} minutes`;
+VIEWS.music = async () => {
+  const m = $('#main');
+  m.innerHTML = `<div class="view"><p class="muted">Loading…</p></div>`;
+  const viewer = role() === 'viewer';
+  const render = st => {
+    if (S.view !== 'music') return;
+    const s = S.settings, mc = s.music || {}, shows = mc.shows || [];
+    if (st.setup_only) { m.innerHTML = `<div class="view"><div class="panel"><h2>Music</h2><p>Finish setup first (Home).</p></div></div>`; return; }
+    const mu = st.music || {}, def = mc.minutes || 60;
+    const lens = SHOW_LENGTHS.some(([v]) => v === def) ? SHOW_LENGTHS : [[def, fmtMin(def)], ...SHOW_LENGTHS];
+    const state = mu.active
+      ? `<div class="callout" style="border-color:var(--lamp)"><b>${mu.scheduled ? `Show night \u201c${esc(mu.source)}\u201d is on` : 'A music show is on'}</b>${mu.until ? ` until ${esc(mu.until)}` : ', until you stop it'}.
+         This app isn\u2019t sending anything to the lights, so the controller\u2019s music mode can run them. ${mu.scheduled ? 'Stopping ends it for tonight only.' : ''}</div>`
+      : `<p class="note">The lights follow the schedule now${mu.next ? `. Next show night: <b>${esc(mu.next.name)}</b>, ${esc(mu.next.day)} ${esc(mu.next.start)} \u2013 ${esc(mu.next.end)}` : ''}.</p>`;
+    m.innerHTML = `<div class="view">
+      <div class="panel-head"><h2>Music</h2></div>
+      <div class="cols wide-left">
+        <div class="stack">
+          <div class="panel stack"><h2>Music show</h2>${state}
+            ${mu.active
+              ? `<div class="row"><button class="primary" data-mstop ${viewer ? 'disabled' : ''}>Stop the show</button></div>`
+              : `<div class="row"><label class="field">How long<select id="mlen">${lens.map(([v, l]) => `<option value="${v}" ${v === def ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>
+                 <button class="primary" data-mstart ${viewer ? 'disabled' : ''} ${st.flash?.active ? 'disabled title="A security flash is running"' : ''}>Start a music show</button></div>`}
+            <p class="note">Starting a show doesn\u2019t make the lights dance by itself: it keeps this app from changing them while the controller\u2019s music mode runs. Choosing a pattern, Return to schedule or a security flash interrupts the show.</p>
+          </div>
+          <div class="panel stack"><h2>Then, on the controller</h2>
+            <ol class="howto">
+              <li>On a phone on your <b>home Wi-Fi</b> (music doesn\u2019t work away from home), open the <b>Trimlight Edge</b> app, choose your controller and tap <b>Music</b>.</li>
+              <li>Choose <b>Auxiliary IN</b> if a player is plugged into the port on top of the controller (best: no delay, and the phone can be put away). Or choose <b>Microphone</b> and set the phone near the speaker.</li>
+              <li>Pick a music pattern and set <b>Music Sensitivity</b>, then start the music.</li>
+              <li>When you\u2019re done, press <b>Stop the show</b> here (or let it end on its own). The scheduled pattern comes back.</li>
+            </ol>
+            <p class="note">The Trimlight app can only switch music mode on over home Wi-Fi, and Trimlight\u2019s cloud (which this app uses) has no music controls. See \u201cMusic shows\u201d in the Manual for wiring a computer or speaker to the Aux port.</p>
+          </div>
+        </div>
+        <div class="stack">
+          <div class="panel stack"><div class="panel-head"><h2>Show nights</h2><button class="small" data-maddshow ${viewer ? 'hidden' : ''}>Add a show night</button></div>
+            <p class="note">On these nights this app steps aside by itself, so a show started in the Trimlight app isn\u2019t switched back to the schedule.</p>
+            <div class="list">${shows.length ? shows.map((r, i) => `<div class="item"><div class="grow"><span class="name">${esc(r.name)}</span>
+                <div class="sub">${esc(humanDates(r))} \u00b7 ${esc(humanDays(r.days))} \u00b7 ${esc(humanT(r.on))} \u2192 ${esc(humanT(r.off))}</div></div>
+                ${viewer ? '' : `<button class="small ghost" data-meditshow="${i}">Edit</button><button class="small ghost danger" data-mdelshow="${i}" aria-label="Delete ${esc(r.name)}">Delete</button>`}</div>`).join('')
+              : '<p class="muted">None yet. Add one for nights you plan a show, like Fridays and Saturdays in December.</p>'}</div>
+          </div>
+          <div class="panel stack"><h2>Show length</h2>
+            <div class="row"><label class="field">Usual length (minutes)<input type="number" id="mdef" min="5" max="360" value="${def}" ${viewer ? 'disabled' : ''}></label>
+              <button class="small" data-msavedef ${viewer ? 'hidden' : ''}>Save</button></div>
+            <p class="note">The length chosen first above, and for a show started from a webhook or Home Assistant.</p>
+          </div>
+        </div>
+      </div></div>`;
+  };
+  try { render(await refreshStatus()); } catch (e) { m.innerHTML = `<div class="view"><p class="callout warn">${esc(e.message)}</p></div>`; return; }
+  S.timers.push(setInterval(async () => { if (!document.hidden && !$('#dlg').open) render(await refreshStatus()); }, 15000));
+  const act = (body, btn) => busy(btn, async () => { S.status = await api('action', { body }); statusPill(S.status); render(S.status); }).catch(() => {});
+  m.onclick = async e => {
+    const b = e.target.closest('button'); if (!b) return; const d = b.dataset;
+    if (d.mstart !== undefined) act({ action: 'music', minutes: +$('#mlen').value }, b);
+    else if (d.mstop !== undefined) act({ action: 'stop_music' }, b);
+    else if (d.maddshow !== undefined) showDialog();
+    else if (d.meditshow) showDialog(+d.meditshow);
+    else if (d.mdelshow) {
+      const shows = S.settings.music?.shows || [];
+      if (await confirmBox('Delete show night?', `\u201c${esc(shows[+d.mdelshow].name)}\u201d will be removed.`, 'Delete', true)) {
+        const n = clone(S.settings); n.music = { ...(n.music || {}), shows: [...shows] }; n.music.shows.splice(+d.mdelshow, 1);
+        await busy(null, () => saveSettings(n, 'Deleted')).catch(() => {}); VIEWS.music();
+      }
+    } else if (d.msavedef !== undefined) {
+      const v = Math.round(+$('#mdef').value);
+      if (!(v >= 5 && v <= 360)) return toast('Use 5 to 360 minutes.', true);
+      const n = clone(S.settings); n.music = { ...(n.music || {}), minutes: v };
+      busy(b, () => saveSettings(n)).then(() => VIEWS.music()).catch(() => {});
+    }
+  };
+};
+function showDialog(idx) {
+  const shows = S.settings.music?.shows || [];
+  const r = idx === undefined ? { name: '', on: 'sunset + 30', off: '21:00', days: ['fri', 'sat'], dates: '12-01..12-31' } : shows[idx];
+  const [ds, de] = r.dates ? String(r.dates).split('..') : ['12-01', '12-31'];
+  const days = !r.days || r.days === 'all' ? DAYS : r.days === 'weekdays' ? DAYS.slice(0, 5) : r.days === 'weekends' ? DAYS.slice(5) : r.days.map(x => x.slice(0, 3).toLowerCase());
+  return dialog(`<h2>${idx === undefined ? 'New show night' : 'Edit show night'}</h2>
+    <label class="field">Name<input type="text" name="name" maxlength="50" required value="${esc(r.name)}" placeholder="e.g. Christmas shows"></label>
+    <div class="stack" style="gap:8px"><span class="small" style="font-weight:650">When in the year</span>
+      <label class="check"><input type="radio" name="season" value="all" ${!r.dates ? 'checked' : ''}> All year</label>
+      <label class="check"><input type="radio" name="season" value="range" ${r.dates ? 'checked' : ''}> Only between</label>
+      <div class="row" data-range ${r.dates ? '' : 'hidden'}>${mdSelect('ds', ds)}<span class="muted">and</span>${mdSelect('de', de || ds)}</div></div>
+    <div class="stack" style="gap:8px"><span class="small" style="font-weight:650">Days of the week</span>
+      <div class="chips">${DAYS.map(d => `<label class="check" style="gap:6px"><input type="checkbox" name="day" value="${d}" ${days.includes(d) ? 'checked' : ''}>${DAYNAMES[d]}</label>`).join('')}</div></div>
+    <div class="cols" style="gap:10px">${timeField('on', 'Show starts', r.on)}${timeField('off', 'Show ends', r.off)}</div>
+    <p class="hint">Between these times this app leaves the lights alone. After the end time the schedule takes over again.</p>`,
+  async f => {
+    const out = { name: f.name.value.trim() };
+    if (!out.name) throw new Error('Give the show night a name.');
+    if (shows.some((x, i) => i !== idx && x.name === out.name)) throw new Error('Another show night already has that name.');
+    if (f.season.value === 'range') {
+      const md = n => `${String(f[n + '_m'].value).padStart(2, '0')}-${String(Math.max(1, Math.min(31, +f[n + '_d'].value || 1))).padStart(2, '0')}`;
+      out.dates = `${md('ds')}..${md('de')}`;
+    }
+    const dsel = $$('input[name=day]:checked', f).map(x => x.value);
+    if (!dsel.length) throw new Error('Pick at least one day.');
+    if (dsel.length < 7) out.days = dsel;
+    out.on = readT(f, 'on'); out.off = readT(f, 'off');
+    const n = clone(S.settings); n.music = { minutes: 60, ...(n.music || {}) }; n.music.shows = [...(n.music.shows || [])];
+    if (idx === undefined) n.music.shows.push(out); else n.music.shows[idx] = out;
+    await saveSettings(n, 'Show night saved'); VIEWS.music();
+  }, { onOpen: f => {
+    f.addEventListener('change', e => {
+      if (e.target.name === 'season') $$('[data-range]', f).forEach(x => x.hidden = e.target.value !== 'range');
+      const k = e.target.dataset.tkind;
+      if (k) { const clock = e.target.value === 'clock'; $(`[data-tsun="${k}"]`, f).hidden = clock; $(`[data-tclock="${k}"]`, f).hidden = !clock; }
+    });
+  } });
+}
+
 VIEWS.lights = async (opts = {}) => {
   const m = $('#main');
   if (!opts.keep) { S.portDraft = null; m.innerHTML = '<div class="view"><h2>Lights</h2><p class="muted">Asking the controller…</p></div>'; }
@@ -1321,7 +1442,8 @@ VIEWS.settings = async () => {
     if (d.logout !== undefined) { await api('logout', { body: {} }).catch(() => {}); token.set(null); boot(); }
     if (d.regen !== undefined && await confirmBox('Make a new token?', 'Anything using the old token stops working until you update it.', 'Make new token'))
       busy(b, () => api('webhook', { body: { enable: true } })).then(() => VIEWS.settings()).catch(() => {});
-    if (d.copy) { const el = $('#' + d.copy); el.select(); navigator.clipboard?.writeText(el.value).then(() => toast('Copied'), () => document.execCommand('copy')); }
+    if (d.copy) { const el = $('#' + d.copy); el.select(); const manual = () => toast(/Mac|iPhone|iPad/.test(navigator.platform) ? 'Selected. Press \u2318C to copy.' : 'Selected. Press Ctrl+C to copy.');
+      if (navigator.clipboard?.writeText) navigator.clipboard.writeText(el.value).then(() => toast('Copied'), manual); else manual(); }
     if (d.wizard !== undefined) wizard(0);
     if (d.port !== undefined) {
       const np = +$('#pport').value;

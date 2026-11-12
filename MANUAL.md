@@ -1,7 +1,7 @@
 # EaveLuxOS: User Manual
 ### The Intelligent Lighting Control Platform
 
-Version 3.8.0 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
+Version 3.9.0 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
 
 EaveLuxOS is a free, community-made lighting control platform. Today it runs
 **Trimlight Edge** permanent lights. It is not made, sold, endorsed or
@@ -40,17 +40,18 @@ manual refers to "Trimlight's guide", that's the document it means.
 13. [Schedule](#13-schedule)
 14. [Weather rules](#14-weather-rules)
 15. [Security flash](#15-security-flash)
-16. [Safety net](#16-safety-net)
-17. [Lights: ports, bulbs and LED settings](#17-lights-ports-bulbs-and-led-settings)
-18. [Date and time](#18-date-and-time)
-19. [Settings](#19-settings)
-20. [Home Assistant and webhooks](#20-home-assistant-and-webhooks)
-21. [Share patterns with other owners](#21-share-patterns-with-other-owners)
-22. [Update, move or uninstall](#22-update-move-or-uninstall)
-23. [Test with your controller](#23-test-with-your-controller)
-24. [Troubleshooting](#24-troubleshooting)
-25. [Questions and answers](#25-questions-and-answers)
-26. [License](#26-license)
+16. [Music shows](#16-music-shows)
+17. [Safety net](#17-safety-net)
+18. [Lights: ports, bulbs and LED settings](#18-lights-ports-bulbs-and-led-settings)
+19. [Date and time](#19-date-and-time)
+20. [Settings](#20-settings)
+21. [Home Assistant and webhooks](#21-home-assistant-and-webhooks)
+22. [Share patterns with other owners](#22-share-patterns-with-other-owners)
+23. [Update, move or uninstall](#23-update-move-or-uninstall)
+24. [Test with your controller](#24-test-with-your-controller)
+25. [Troubleshooting](#25-troubleshooting)
+26. [Questions and answers](#26-questions-and-answers)
+27. [License](#27-license)
 
 ---
 
@@ -188,13 +189,13 @@ the app.
      In Google Maps, right-click your house and the coordinates appear at the
      top of the menu. In the Americas, longitude is negative.
    - Leave **Daylight saving time** on **Automatic** unless you have a reason
-     not to (see section 18).
+     not to (see section 19).
    - Click **Save and continue**.
 5. **Phone access.** Create your **Administrator account**: a user name
    (`admin` unless you change it) and a password of at least 8 characters.
    Phones and other computers use it to sign in. You can skip this if you'll
    only ever use the app on this computer, and add accounts for other people
-   later (section 19).
+   later (section 20).
 6. **Done.** Click **Go to Home**.
 
 You start with sample patterns and a sample schedule. The schedule turns the
@@ -231,7 +232,7 @@ can use them (see section 10).
    starts**.
 
 On Linux, it starts when you log in. To make it start at power-on without
-anyone logging in, see section 24.
+anyone logging in, see section 25.
 
 Also turn off sleep in the computer's power settings, so the computer never
 goes to sleep.
@@ -250,7 +251,7 @@ A phone stays signed in until it goes **8 hours without being used**, and
 never longer than **7 days** (an Administrator can change the first number
 under **Settings › Accounts**). The sign-in is stored for this
 app's exact address, including the port, so other web apps on the same
-computer never see it. If you change the app's port (section 19), or update
+computer never see it. If you change the app's port (section 20), or update
 from a version before 2.3.2, each phone signs in once more.
 
 > **Tip:** The address can change when your router restarts. To keep it fixed,
@@ -272,6 +273,16 @@ from a version before 2.3.2, each phone signs in once more.
 > **Away from home:** The app only works on your home network, which is
 > deliberate. Never "port forward" it on your router. For remote access, use a
 > VPN that connects you to your home network (many routers include one).
+>
+> **If you put a reverse proxy in front of the app** (Caddy, nginx, Tailscale
+> Serve, cloudflared), the app tells outside requests apart from this computer
+> by the `X-Forwarded-For` header the proxy adds. Caddy, Tailscale Serve and
+> cloudflared add it on their own. nginx needs
+> `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;` in its
+> `location` block. Anything that forwards without adding that header (`ssh -L`,
+> `socat`, a TCP-only tunnel) can't be told apart from a browser on this
+> computer, so first turn on **Settings › Require signing in on this computer
+> too**.
 
 ## 9. Home
 
@@ -354,7 +365,7 @@ This works like the color circles in the Trimlight app.
    first if you want it in the Trimlight Edge app too.
 
 When **color correction** is on (see
-[Lights](#17-lights-ports-bulbs-and-led-settings)), the lights get adjusted
+[Lights](#18-lights-ports-bulbs-and-led-settings)), the lights get adjusted
 colors so they look like the preview. Tick **Exact colors** to send this
 pattern's colors unchanged, for example colors you already tuned by eye on the
 house.
@@ -419,7 +430,7 @@ This is the "Isolated Front Peak" example from Trimlight's guide:
 | 4 | Blue | 25 | Bulbs 67–91 blue |
 
 The sequence then repeats for the rest of the lights. Bulb numbers follow the
-port setup on the Lights tab (section 17), so get that right first.
+port setup on the Lights tab (section 18), so get that right first.
 
 ### Tips from Trimlight's guide
 
@@ -440,7 +451,7 @@ name sections of roofline.
 
 1. Open **House map**. The **Bulb finder** shows bulb **1** of your address
    space. That's the total number of bulbs, taken from the controller's ports
-   (section 17).
+   (section 18).
 2. Tap **Show on house**. That one bulb lights up and everything else goes
    dark.
 3. Step with **‹** and **›**. **Move by** sets the step size (1, 5, 10 or 25).
@@ -667,11 +678,92 @@ daylight.
 1. On the **Schedule** tab, under **Security flash**, choose a pattern
    (Security white is included) and the minutes, then tap **Save**.
 2. Start it from **Home › Security flash**, or from a motion sensor through
-   Home Assistant (section 20).
+   Home Assistant (section 21).
 
 Starting it again while it's running restarts the timer. **Stop flash** ends it.
 
-## 16. Safety net
+## 16. Music shows
+
+The Trimlight controller can make the lights dance to music on its own: it
+listens to sound and moves the pattern with the beat. That **music mode** is
+switched on in the Trimlight Edge app, and only over your home Wi-Fi.
+Trimlight's cloud, which this app uses, has no music controls.
+
+What this app adds is a way to **step aside** during a show. Normally, if the
+Trimlight app changes the lights, this app notices within a few minutes and
+puts the schedule back, and the next scheduled change would cut the show off.
+During a music show this app sends nothing to the controller: no patterns, no
+checks, no timer copies.
+
+### Start a show
+
+1. On the **Music** tab, choose **How long** (or **Until I stop it**) and tap
+   **Start a music show**. Home and the status pill now say *Music show*.
+2. On a phone on your **home Wi-Fi**, open the **Trimlight Edge** app, choose
+   your controller and tap **Music**.
+3. Choose where the sound comes from:
+   - **Auxiliary IN**: a player plugged into the port on top of the
+     controller. This is the best choice: there's no delay, other sounds don't
+     affect it, and you can put the phone away.
+   - **Microphone**: the phone listens. Keep it close to a speaker; voices and
+     traffic affect the lights too.
+   - **Player**: MP3 files stored on the phone. Streaming apps (Spotify, Apple
+     Music, Pandora, Amazon Music) don't work here.
+4. Pick a music pattern and set **Music Sensitivity**, then start the music.
+5. When you're done, tap **Stop the show** on the Music tab, or let it end on
+   its own. The scheduled pattern comes back within a few seconds.
+
+Choosing a pattern, **Return to schedule** or a security flash ends or
+interrupts the show. The flash still wins, because it's for security; after a
+flash the controller shows the flash pattern, so start music mode again in the
+Trimlight app if the show should go on. Brightness and speed are set in the
+Trimlight app during a show.
+
+### Show nights
+
+For shows you plan, like Fridays and Saturdays in December, add a **show
+night** on the Music tab. It has the same dates, days of the week and start
+and end times (sunset, dusk or a set time) as a schedule rule. Between those
+times this app steps aside by itself, so a show you start in the Trimlight app
+isn't switched back to the schedule. **Stop the show** during a show night
+ends it for that night only.
+
+A show night doesn't start the music by itself: start music mode in the
+Trimlight app (or leave the controller on Auxiliary IN with the player ready).
+
+### Play the music from a computer
+
+A computer that's on anyway, such as the one running this app, makes a good
+show player:
+
+1. Run an auxiliary (aux) audio cable from the computer's headphone or line
+   output to the aux port on top of the controller. Check the port on your
+   controller for the plug size before you buy the cable, and choose an
+   outdoor-rated cable for any run outside.
+2. To hear the music too, send the same sound to your speakers: a headphone
+   splitter, or a speaker system with a line output, feeds both.
+3. Start with the computer's volume around half and adjust **Music
+   Sensitivity** in the Trimlight app until the beat shows clearly.
+4. Make a playlist for the show, start the show here, select **Auxiliary IN**
+   in the Trimlight app, then press play.
+
+### From Home Assistant or a webhook
+
+The webhook actions `music` and `stop_music` start and stop a show (section 21).
+`music` takes an optional `{"minutes": 60}`; `{"minutes": 0}` means until
+stopped, and with no body it uses the usual length set on the Music tab.
+
+### Limits
+
+- This app can't switch music mode on or off; that still takes the Trimlight
+  app on your home Wi-Fi.
+- During a show, the safety net isn't updated and the controllers aren't
+  checked. Both resume when the show ends.
+- The beat-matching is the controller's own. Trimlight's cloud is far too slow
+  (a quarter to a full second per command) to drive the lights in time with
+  music from here.
+
+## 17. Safety net
 
 Normally, the app computer runs your lights. If it's off, unplugged or offline,
 nothing turns the lights on or off. The **safety net** fixes that by also
@@ -736,7 +828,7 @@ copying the next few nights into the controller's **own timers**.
 - To remove it, untick **On**. The app deletes its entries and "Auto" patterns
   from the controller.
 
-## 17. Lights: ports, bulbs and LED settings
+## 18. Lights: ports, bulbs and LED settings
 
 These settings are stored **on the controller itself**. They match the
 controller's Settings screen in the Trimlight Edge app.
@@ -807,7 +899,7 @@ richer and less pale. To keep one pattern exactly as it is, open it in
 **Create** and tick **Exact colors**. Only an Administrator can change color
 correction.
 
-## 18. Date and time
+## 19. Date and time
 
 - **The clock** shows the app computer's time, which your schedule uses. The
   computer keeps it correct over the internet. If your phone and the computer
@@ -831,7 +923,7 @@ correction.
     set. **Use the real time** undoes it. This only affects the controllers'
     own clocks, not this app's schedule. Most people never need it.
 
-## 19. Settings
+## 20. Settings
 
 - **Trimlight account:** change your Client ID or Client Secret. Leave the
   secret box empty to keep the saved one. **Test and save** checks them with
@@ -862,7 +954,7 @@ correction.
     makes that account an Administrator). `python3 main.py users` lists the
     accounts.
 - **Phones and other computers:** the address to use on your home Wi-Fi.
-- **Share and back up:** export or import patterns and schedules (section 21).
+- **Share and back up:** export or import patterns and schedules (section 22).
 - **App address:** shows the port the app uses (8787 unless you change it).
   To change it, type a port from 1024 to 65535, such as 8790, and tap
   **Restart on new port**. The app checks the port is free, moves there in a
@@ -870,7 +962,7 @@ correction.
   and Home Screen icons on your phones. On a computer without a screen, run
   `python3 main.py port 8790` in the app folder and restart the app.
 - **Start automatically:** see section 7.
-- **Webhooks:** see section 20.
+- **Webhooks:** see section 21.
 - **Version history:** every save is kept, up to the last 100. Tap
   **Restore** to go back to the patterns, schedule and house map from that
   moment. Your account, phones and app address stay as they are. The restore
@@ -880,7 +972,7 @@ correction.
 - **Quit the app:** stops the app. This is on the app computer only, and the
   schedule stops until you start the app again.
 
-## 20. Home Assistant and webhooks
+## 21. Home Assistant and webhooks
 
 Webhooks let other systems control the lights. For example, a motion sensor
 can start the security flash at night.
@@ -902,6 +994,8 @@ can start the security flash at night.
 | `off` | Turn off | |
 | `resume` | Return to schedule | |
 | `levels` | Brightness or speed | `{"brightness": 120}` (0–255) |
+| `music` | Start a music show (section 16) | `{"minutes": 60}`; `0` until stopped |
+| `stop_music` | End the music show | |
 
 ### Home Assistant example
 
@@ -931,7 +1025,7 @@ python3 main.py allow-host lights.home.example
 To undo it, add `--remove`. For safety, this list can only be changed on the
 app computer, not from the app's screens.
 
-## 21. Share patterns with other owners
+## 22. Share patterns with other owners
 
 **To share:**
 
@@ -952,7 +1046,7 @@ app computer, not from the app's screens.
 
 Export is also a good backup before big changes.
 
-## 22. Update, move or uninstall
+## 23. Update, move or uninstall
 
 **Update to a new version**
 
@@ -1022,7 +1116,7 @@ automatically** and **App address** aren't used: Docker restarts the
 container, and the port is set in `.env`. Back up the volume, for example
 with `docker compose stop`, then copy it, then `docker compose start`.
 
-## 23. Test with your controller
+## 24. Test with your controller
 
 Some things can only be checked on real hardware. The guided hardware test
 checks them one by one and saves a report. It takes about 10 minutes, and you
@@ -1050,43 +1144,44 @@ Before changing anything, the test saves the controller's full state as
 Ctrl+C. The report is saved as `hardware-test-….txt` in the data folder.
 Sharing it helps other Trimlight owners know what works on their firmware.
 
-## 24. Troubleshooting
+## 25. Troubleshooting
 
 | Problem | What to do |
 |---|---|
-| Another program uses port 8787 | The app moves to the next free port by itself and remembers it. To pick one, use **Settings › App address** (section 19). |
+| Another program uses port 8787 | The app moves to the next free port by itself and remembers it. To pick one, use **Settings › App address** (section 20). |
 | The browser says it can't connect | The app isn't running. Double-click the launcher. On Mac or Linux, keep its window open. |
 | "Trimlight didn't accept these" | Re-enter the Client ID and Secret. They're case-sensitive, so check for spaces. Also check the computer's clock is correct, because Trimlight's sign-in uses the time. |
 | "Can't reach lights" on Home | Check the controller is online in the Trimlight Edge app and the computer has internet. The app retries automatically. |
 | Lights are on or off at the wrong time | **Date & Time:** check the location, time zone and Daylight saving (Automatic). Check the computer's own clock. Check **Schedule › Coming up**. |
 | A different pattern than expected is showing | Look at the Home headline. It names the rule, weather rule or manual change in charge. Check priorities on the Schedule tab. |
 | The lights turned back on after I switched them off in the Trimlight app | That's by design (section 6). Use **Turn off** in this app instead. |
-| Colors are wrong (red shows as green) | **Lights › Color order** (section 17). |
+| Colors are wrong (red shows as green) | **Lights › Color order** (section 18). |
 | My phone can't open the address | The phone must be on home Wi-Fi, not mobile data. The computer's address may have changed, so check **Settings**, and consider a reserved IP. |
 | The phone says "create an account" | On the app computer, go to **Settings › Accounts** and add one. |
 | "These settings were changed on another device" | Someone saved changes from another phone or computer at the same time. The latest settings have been loaded; make your change again. |
-| "Unknown host name" | You used a name the app doesn't know. Use the IP address, or run `python3 main.py allow-host NAME` on the app computer (section 20). |
+| "Unknown host name" | You used a name the app doesn't know. Use the IP address, or run `python3 main.py allow-host NAME` on the app computer (section 21). |
 | Weather isn't working | Weather rules are US only. Check **Weather: On** on the Schedule tab. Home shows the current reading or the error. |
 | On Linux, it doesn't start at power-on until someone logs in | Run `loginctl enable-linger` once in a terminal. That's the only command in this manual. |
 | The controller shows offline, or nothing responds | Use the controller steps in Trimlight's guide ("Basic Troubleshooting"). **1)** Unplug the controller for 30 seconds, then let it boot for a few minutes. **2)** If the **Network Connected** light isn't green, press the **STA/AP** button briefly until it is (blue-light mode can't be reached by this app). **3)** A factory reset is a last resort; see the question below. |
 | A rule never seems to run | Check for a **"Never runs"** note on the Schedule tab (section 13) and raise that rule's priority. |
 | Safety net says "Not armed" | Read the reason shown. Most often the controller's library is full, or it was offline. Tap **Update now** to retry; the app also retries on its own every 30 minutes. |
-| The finder lights the wrong spot | Check the port layout on the Lights tab (section 17). Bulb numbers follow it. |
+| The finder lights the wrong spot | Check the port layout on the Lights tab (section 18). Bulb numbers follow it. |
 | "The settings database couldn't be read" | Rare, usually after a disk problem. The app kept the damaged file, restored your patterns and schedule from its plain-text copy (`settings.last-good.json`), and asks you to enter your Trimlight account and app password again. |
-| I changed something and want it back | **Settings › Version history**: tap **Restore** next to an earlier save (section 19). |
+| I changed something and want it back | **Settings › Version history**: tap **Restore** next to an earlier save (section 20). |
 | Forgot a password | Ask an Administrator to set a new one under **Settings › Accounts**, or on the app computer run `python3 main.py reset-password NAME`. |
 | "This account can only view" | You're signed in as a Viewer. An Administrator can make you an Editor. |
 | Something else | The log is **eaveluxos.log** in your data folder (on Windows `%LOCALAPPDATA%\EaveLuxOS`). |
 
-## 25. Questions and answers
+## 26. Questions and answers
 
 **Does this replace the Trimlight Edge app?** For scheduling, yes. Keep the
 Trimlight Edge app for:
 - Pairing and Wi-Fi setup.
 - Firmware updates.
 - Groups of controllers.
-- **Music mode.** Trimlight's guide says it only works on the local network,
-  so it isn't available through the cloud API this app uses.
+- **Switching music mode on.** Trimlight's guide says music only works on the
+  local network, so it isn't available through the cloud API this app uses.
+  The **Music** tab keeps this app from interfering while it runs (section 16).
 - The **lightning and snowflake** overlays: in the Trimlight app's library,
   press and hold a pattern.
 - Alexa and Google Home skills.
@@ -1108,13 +1203,13 @@ assistant once more.
 **Does it work with Alexa or Google Home?** Trimlight's own skills keep
 working alongside this app, but a voice change lasts only until this app's
 next scheduled change or its 5-minute check (section 6). Home Assistant users
-can control this app directly (section 20).
+can control this app directly (section 21).
 
 **Does it work without internet?** The schedule and sun times are calculated
 on your computer. However, every command goes through Trimlight's cloud,
 exactly as the Trimlight app's commands do. If the internet is down, the app
 waits and catches up as soon as it's back. With the **safety net** on (section
-16), the controller also runs the coming nights from its own timers while the
+17), the controller also runs the coming nights from its own timers while the
 app or internet is down.
 
 **What does the app keep on my computer, and is anything stored on the
@@ -1156,7 +1251,7 @@ refused rather than silently overwriting the first.
 sent to all the controllers you selected. The Lights tab manages each one
 separately.
 
-## 26. License
+## 27. License
 
 EaveLuxOS is free software released under the **MIT License**:
 

@@ -1,7 +1,7 @@
 # EaveLuxOS
 ### The Intelligent Lighting Control Platform
 
-By **Christopher A. Tankelewicz (ThinkTank4n6)** · MIT License · version 3.8.0
+By **Christopher A. Tankelewicz (ThinkTank4n6)** · MIT License · version 3.9.0
 
 EaveLuxOS currently works with **Trimlight Edge** permanent-lighting controllers.
 Its scheduling, mapping and design tools are built to grow to other brands.
@@ -55,6 +55,9 @@ owner and are used here only to say which hardware EaveLuxOS works with.*
 - **Accounts with roles:** Administrators, Editors (patterns, schedules, house
   map, light controls) and Viewers (look only).
 - **A different pattern each night,** in any order you choose.
+- **Music shows that don't get cut off.** Start a show (or plan show nights)
+  and this app leaves the lights to the controller's music mode instead of
+  switching them back to the schedule mid-song.
 - **Optional safety net:** copies the next nights into the controller's own
   timers, so the lights still run if the computer is off. It backs up the
   controller first, verifies every write, and never touches your own timers.
@@ -156,6 +159,7 @@ get an app icon.
 | **Patterns** | Your patterns, the patterns saved in the Trimlight app, and all 180 built-in effects. You can try any of them on your lights. |
 | **Create** | The pattern designer: pick colors, set bulbs per color, or paint single bulbs, ranges and every Nth bulb, choose an animation, preview it, and save. |
 | **Schedule** | Rules (sun-based or set times, date ranges, days, rotation, brightness, priority), plus weather rules, the security flash, and importing timers from the Trimlight app. |
+| **Music** | Music shows: steps aside while the controller's own music mode (started in the Trimlight app) makes the lights dance, for a set time or on planned show nights. |
 | **Lights** | Bulbs per port (Simple mode) or exact bulb ranges, including mirrored ports (Advanced mode). Also the LED chip type, color order, color test and controller name. |
 | **Date & Time** | Location, time zone, daylight saving mode, today's sun times and the controller clock. |
 | **House map** | Bulb finder, photos of each side, automatic roofline detection, landmarks, zones and the flat diagram. |
@@ -205,8 +209,14 @@ The scheduler checks these from highest to lowest:
 - The computer running the app can always use it. Other devices must sign in.
   Before any account exists, they need the 6-digit setup code shown in the
   app's window or log. A request that came through a reverse proxy or tunnel
-  on the app computer (Caddy, nginx, Tailscale Serve, cloudflared) is treated
-  as another device, never as this computer.
+  on the app computer (Caddy, Tailscale Serve, cloudflared) is treated as
+  another device, never as this computer, because those add an
+  `X-Forwarded-For` header. **nginx doesn't add it by default**: add
+  `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;` to its
+  `location` block. A proxy or port forward that adds no such header (nginx
+  without that line, `ssh -L`, `socat`, a TCP-only tunnel) looks exactly like a
+  browser on this computer, so turn on **Settings › Require signing in on this
+  computer too** before using one.
 - Sign-ins are short: they end after **8 hours without use** (an Administrator
   can choose 1 hour to 7 days) and always **7 days** after signing in.
   Changing your password signs you out on every other device; changing or

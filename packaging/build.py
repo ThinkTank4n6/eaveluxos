@@ -31,7 +31,7 @@ SEP = ";" if os.name == "nt" else ":"
 
 
 def version() -> str:
-    m = re.search(r'VERSION = "([^"]+)"', (ROOT / "eaveluxos" / "server.py").read_text(encoding="utf-8"))
+    m = re.search(r'VERSION = "([^"]+)"', (ROOT / "eaveluxos" / "version.py").read_text(encoding="utf-8"))
     return m.group(1) if m else "0.0.0"
 
 

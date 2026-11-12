@@ -89,7 +89,7 @@ class Live(unittest.TestCase):
         self.call("/api/password", {"new": "porchlights1"})
         tok = self.call("/api/login", {"password": "porchlights1"}, PROXY)[1]["token"]
         phone = {**PROXY, "X-Session": tok}
-        self.app.fails["127.0.0.1"] = [time.time()] * 10
+        self.app.fails["203.0.113.66"] = [time.time()] * 10   # counted per client behind the proxy
         self.assertEqual(self.call("/api/password", {"current": "x", "new": "another-pass1"}, phone)[0], 429)
 
     def test_password_change_signs_out_other_devices(self):

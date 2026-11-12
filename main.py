@@ -66,7 +66,9 @@ def setup_logging():
     except OSError:
         log_dir = None
     handlers = [RotatingFileHandler(log_dir / "eaveluxos.log", maxBytes=1_000_000, backupCount=3)] if log_dir else []
-    if sys.stdout and sys.stdout.isatty() or "pythonw" not in sys.executable.lower():
+    # Only log to a console that exists: a windowed (pythonw or bundled)
+    # app has no stderr, and a handler on None just swallows errors.
+    if sys.stderr is not None and (sys.stderr.isatty() or "pythonw" not in sys.executable.lower()):
         handlers.append(logging.StreamHandler())
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", handlers=handlers)
 
@@ -74,6 +76,18 @@ def setup_logging():
 def already_running(port: int) -> bool:
     from eaveluxos.server import probe_app
     return probe_app(port)
+
+
+def holder_is_app(port: int, wait: float = 15.0) -> bool:
+    """The port is taken: is it a copy of this app that's still starting up?
+    Ask again for a little while before deciding it's another program."""
+    deadline = time.time() + wait
+    while True:
+        if already_running(port):
+            return True
+        if time.time() >= deadline:
+            return False
+        time.sleep(1)
 
 
 def configured_port() -> tuple[str, int]:
@@ -115,6 +129,13 @@ def cmd_run(open_browser: bool):
             break
         except OSError:
             tried.append(candidate)
+            if candidate == port and holder_is_app(port):
+                # Another copy holds our port but was still starting when we
+                # first asked; don't open a second scheduler on the next port.
+                print(f"EaveLuxOS is already running. Opening {url}")
+                if open_browser:
+                    webbrowser.open(url)
+                return 0
     if server is None:
         return fatal(f"EaveLuxOS couldn't start: ports {port}-{port + 19} are all in use by other programs. "
                      "Choose another with: python3 main.py port NUMBER")
@@ -127,6 +148,9 @@ def cmd_run(open_browser: bool):
         settings["service"] = {**settings.get("service", {}), "web_port": port}
         app.store.save_settings(settings)
     url = f"{getattr(app, 'scheme', 'http')}://localhost:{port}/"
+    # Answer on the port right away, so a copy started a moment later sees
+    # this one instead of moving to another port.
+    threading.Thread(target=server.serve_forever, daemon=True, name="web").start()
     app.start()  # the port is ours now, so this is the only scheduler
     try:
         from eaveluxos import autostart
@@ -136,7 +160,6 @@ def cmd_run(open_browser: bool):
             logging.getLogger("eaveluxos").info("Start automatically now starts this copy (%s).", HERE)
     except Exception:
         pass
-    threading.Thread(target=server.serve_forever, daemon=True, name="web").start()
     log.info("EaveLuxOS is running. Open %s on this computer.", url)
     from eaveluxos.server import lan_addresses
     for ip in lan_addresses():
@@ -295,9 +318,10 @@ def main(argv):
         except ValueError as e:
             print(e, file=sys.stderr)
             return 2
-        store.end_all_sessions() if not found else None
-        print(f"Password for {args[0].lower()} is set{' (new Administrator account)' if not found else ''}, "
-              "and that account is signed out everywhere.")
+        # save_user already signs a changed account out everywhere; a new
+        # account has no sign-ins, and nobody else's should end.
+        print(f"Password for {args[0].lower()} is set" + (" (new Administrator account)." if not found
+                                                         else ", and that account is signed out everywhere."))
         return 0
     if cmd == "port":
         try:

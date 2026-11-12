@@ -1,5 +1,75 @@
 # Changelog
 
+## 3.9.0: music shows
+
+- **New Music tab.** Trimlight's controller makes the lights dance to music
+  on its own, but its music mode can only be switched on in the Trimlight
+  app over home Wi-Fi; Trimlight's cloud has no music controls. Until now this
+  app would notice the change and put the schedule back mid-song. **Start a
+  music show** (for a set time or until stopped) and this app sends nothing to
+  the controller (no patterns, checks or timer copies) until the show ends,
+  then sends the scheduled pattern in full.
+- **Show nights:** planned shows with dates, days and sunset or clock times,
+  like schedule rules. Stopping one ends it for that night only.
+- A security flash still interrupts a show. Choosing a pattern or Return to
+  schedule ends it. Brightness and speed are left to the Trimlight app during
+  a show.
+- Home and the status pill say *Music show* while one runs.
+- Webhook and Home Assistant actions `music` and `stop_music`.
+- Manual section 16, Music shows: how to start the controller's music mode,
+  and wiring a computer to the controller's aux input. Later sections are
+  renumbered.
+- `tools/music-capture/`: a guide and a report tool for recording how the
+  Trimlight app switches music mode on over the home network (research for a
+  later version). The tool reads pcap and pcapng captures and needs nothing but
+  Python.
+- 22 new tests (190 total).
+
+## 3.8.1: security and reliability fixes
+
+- **Security: a request hidden in the body of another request is no longer
+  run.** Through a reverse proxy that reuses its connection (Caddy does by
+  default), an outside request could carry a second request that the app
+  took as coming from this computer, with full Administrator rights. Every
+  request body is now read in full, and once a connection has carried a
+  proxied request, nothing else on it counts as this computer.
+- **Daylight saving: the night clocks fall back no longer turns the lights on
+  a second time.** A rule ending between 1:00 and 2:00 that night switched
+  off, then on again an hour later. Schedules now compare real moments, not
+  clock readings, and a security flash lasts its real length across the change.
+- **Weather never holds up the lights.** A slow National Weather Service
+  could stall scheduled changes, buttons and the Home screen for up to a minute.
+- **Never two schedulers:** a copy started while another was still starting
+  no longer moves to the next port and runs alongside it, and moving to a new
+  port waits for the old scheduler to stop and stops a new copy that fails.
+- **Safety net:** a timer copy changed or cleared in the Trimlight app is
+  noticed at the next check (about 5 minutes), and the app drives the lights
+  itself until it has copied it again. A copy that fails halfway is taken back
+  instead of left half old, half new.
+- **Import:** Replace everything keeps your house map and safety-net
+  settings (exports don't include them). Add to mine keeps imported rules on
+  their own pattern when a pattern with the same name already exists here.
+- **Database:** a full disk, a locked file or a folder that can't be written
+  no longer gets the database set aside as damaged and settings restored from
+  the last good copy; the app reports the problem and changes nothing.
+- **Sign-in:** behind a proxy, failed sign-ins are counted per visitor instead
+  of for everyone at once (IPv6 per /64). "Require signing in on this
+  computer" stays on if the encryption key is lost.
+- Status reads no longer change anything; `reset-password` for a new account
+  no longer signs everyone else out; a full disk while writing the recovery
+  copy no longer stops a save from taking effect; bad numbers in an address
+  give a clear error instead of "Something went wrong".
+- "Snow Showers" counts as snow only, not rain. The Lights tab reads several
+  controllers at once.
+- README and manual: what a reverse proxy must send (nginx needs one extra
+  line), and when to require signing in on this computer.
+- Housekeeping: one version number for the app (`eaveluxos/version.py`), so the
+  Trimlight and weather requests stop reporting "3.1"; the deprecated
+  `document.execCommand` copy fallback and the `apple-mobile-web-app-capable`-only
+  tag are replaced; two messages no longer point to a command and a file that
+  don't exist any more.
+- 24 new tests (168 total).
+
 ## 3.8.0: gamma-corrected colors
 
 - **Color correction (gamma)** on the Lights tab. Colors picked on a screen

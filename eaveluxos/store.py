@@ -311,6 +311,20 @@ def copy_install(src: Path, dest: Path) -> None:
             pass   # a log file in use, for example; nothing important
 
 
+class _Damaged(sqlite3.DatabaseError):
+    """PRAGMA quick_check found damage."""
+
+
+def _is_damage(e: sqlite3.DatabaseError) -> bool:
+    """Only real damage justifies setting the database aside. A locked file,
+    a full disk, a read-only or network folder (OperationalError) are
+    conditions to report, not reasons to throw away accounts and history."""
+    if isinstance(e, _Damaged):
+        return True
+    code = getattr(e, "sqlite_errorcode", None)
+    return code is not None and (code & 0xFF) in (sqlite3.SQLITE_CORRUPT, sqlite3.SQLITE_NOTADB)
+
+
 class Conflict(Exception):
     """Settings were changed (by another device or tool) since the caller loaded them."""
 
@@ -390,6 +404,7 @@ class Store:
                                  "The old data folder isn't used any more; you can delete it once everything looks right.")
         self._cache, self._cache_rev = None, None
         self._sec_cache, self._sec_rev = None, None
+        self._sec_unreadable: set[str] = set()
         self.con = self._open()
         self.box = self._open_secretbox()
         if self._get_meta("schema") is None:
@@ -431,12 +446,16 @@ class Store:
             con = self._connect()
             ok = con.execute("PRAGMA quick_check").fetchone()[0]
             if ok != "ok":
-                raise sqlite3.DatabaseError(ok)
+                raise _Damaged(ok)
         except sqlite3.DatabaseError as e:
             try:
                 con.close()
             except Exception:
                 pass
+            if not _is_damage(e):
+                raise sqlite3.OperationalError(
+                    f"The settings database {self.db_path} couldn't be opened ({e}). It wasn't changed. "
+                    "Check that the disk isn't full and the folder can be written, then start the app again.") from e
             stamp = time.strftime("%Y%m%d-%H%M%S")
             for suffix in ("", "-wal", "-shm"):
                 f = Path(str(self.db_path) + suffix)
@@ -805,7 +824,14 @@ class Store:
                 con.execute("ROLLBACK")
                 raise
             self._cache, self._cache_rev = data, cur + 1
-            _atomic_write(self.last_good_path, data)  # plain-text recovery copy
+            try:
+                _atomic_write(self.last_good_path, data)  # plain-text recovery copy
+            except OSError as e:
+                # The save itself is committed; failing here would make the
+                # caller skip applying it. Report and carry on.
+                import logging
+                logging.getLogger("eaveluxos").warning("Couldn't update %s (%s); the settings were saved.",
+                                                       self.last_good_path.name, e)
             return cur + 1
 
     # ---------------------------------------------------------------- history
@@ -825,15 +851,24 @@ class Store:
         with self.lock:
             srev = self._get_meta("secrets_rev")
             if self._sec_cache is None or self._sec_rev != srev:
-                out = {}
+                out, unreadable = {}, set()
                 for k, v in self.con.execute("SELECT key, value FROM secrets"):
                     try:
                         out[k] = json.loads(self.box.open(k, v))
                     except (secretbox.SecretKeyError, ValueError):
-                        pass   # unreadable (key missing/wrong): treated as not set; a warning is shown
+                        unreadable.add(k)   # key missing/wrong: treated as not set; a warning is shown
                 self._sec_cache = out
+                self._sec_unreadable = unreadable
                 self._sec_rev = srev
             return self._sec_cache
+
+    def local_login_required(self) -> bool:
+        """Must a browser on this computer sign in? A setting that can't be
+        decrypted (secret.key lost or replaced) counts as on: losing the key
+        must never quietly remove a protection. It only applies once an
+        account exists, so this computer can't be locked out of setup."""
+        sec = self.secrets
+        return bool(sec.get("local_login") or "local_login" in self._sec_unreadable) and self.has_users()
 
     def save_secrets(self, **changes):
         with self.lock:

@@ -31,7 +31,7 @@ import threading
 import time
 import urllib.parse
 import urllib.request
-from datetime import datetime
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from zoneinfo import available_timezones
@@ -40,7 +40,7 @@ from . import autostart, catalog
 from .api import TrimlightAPI, TrimlightError
 from .controller import Controller
 from .safety import SafetyNet
-from .schedule import ConfigError, Effect, SetupNeeded, build_config, color_gamma, tz_info
+from .schedule import ConfigError, Effect, SetupNeeded, add_real, build_config, color_gamma, tz_info
 from .store import Conflict, Store, check_password, hash_password, needs_rehash
 
 _DUMMY_HASH = hash_password("timing-equalizer-not-a-password")
@@ -64,7 +64,7 @@ def doc_path(name: str) -> Path | None:
         if f.is_file():
             return f
     return None
-VERSION = "3.8.0"
+from .version import VERSION  # noqa: E402  (kept importable from here)
 COOKIE = "tls_session"
 MAX_BODY = 2_000_000
 # Headers a reverse proxy or tunnel adds. A request carrying any of them came
@@ -75,6 +75,32 @@ LOCAL_SUFFIXES = ("", ".local", ".lan", ".home", ".home.arpa", ".localdomain", "
 COMMON_TZ = ["America/New_York", "America/Chicago", "America/Denver", "America/Phoenix", "America/Los_Angeles",
              "America/Anchorage", "Pacific/Honolulu", "America/Halifax", "America/St_Johns", "America/Toronto",
              "America/Vancouver", "Europe/London", "Europe/Dublin", "Australia/Sydney", "Pacific/Auckland"]
+
+
+class _Reauth:
+    """Session hash -> password confirmed until. Used from every request
+    thread, so all access is under one lock."""
+    def __init__(self):
+        self._d: dict[str, float] = {}
+        self._lock = threading.Lock()
+
+    def valid(self, key: str, now: float) -> bool:
+        with self._lock:
+            for k in [k for k, t in self._d.items() if t <= now]:
+                del self._d[k]
+            return self._d.get(key, 0) > now
+
+    def grant(self, key: str, until: float):
+        with self._lock:
+            self._d[key] = until
+
+    def pop(self, key: str):
+        with self._lock:
+            self._d.pop(key, None)
+
+    def clear(self):
+        with self._lock:
+            self._d.clear()
 
 
 class ApiError(Exception):
@@ -162,7 +188,7 @@ class App:
         self.thread = None
         self.fails: dict[str, list] = {}
         self.fails_lock = threading.Lock()
-        self.reauth: dict[str, float] = {}   # session hash -> password confirmed until
+        self.reauth = _Reauth()              # session hash -> password confirmed until
         self.rebuild()
 
     # ------------------------------------------------------------ lifecycle
@@ -347,7 +373,7 @@ class App:
                 if r.name in running[d]:   # runs for at least part of its window
                     wins += 1
                 else:                      # covered the whole time: by whom?
-                    other = sch.active_window(w.start + (w.end - w.start) / 2)
+                    other = sch.active_window(add_real(w.start, (w.end.astimezone(timezone.utc) - w.start.astimezone(timezone.utc)) / 2))
                     if other:
                         beaten[other.rule.name] += 1
             info = {"applies": applies, "wins": wins, "blocked_by": None, "hint": ""}
@@ -395,42 +421,63 @@ class App:
     def _restart_on(self, old: int, new: int):
         import os
         import subprocess
-        import sys
         time.sleep(0.6)  # let the reply reach the browser
         # Only our own service entries set this (see autostart.py). INVOCATION_ID
         # isn't usable: desktop terminals started by systemd carry it too.
         supervised = "1" in (os.environ.get("EAVELUXOS_SUPERVISED"), os.environ.get("LUMAOS_SUPERVISED"),
                              os.environ.get("TRIMLIGHT_SUPERVISED"))  # service files from earlier names
-        if self.ctrl:  # never two schedulers at once
+
+        def put_port_back():
+            n = copy.deepcopy(self.store.settings)
+            n["service"] = {**n.get("service", {}), "web_port": old}
+            self.store.save_settings(n)
+
+        # Never two schedulers at once: the new copy may only start once this
+        # one's scheduler has really stopped. A safety-net sync can take a
+        # while (a dozen cloud calls), so wait for it rather than give up.
+        if self.ctrl:
             self.ctrl.stop_event.set()
             if self.thread:
-                self.thread.join(timeout=10)
+                self.thread.join(timeout=120)
+                if self.thread.is_alive():
+                    log.error("Couldn't move to port %s: the scheduler didn't stop; staying on %s.", new, old)
+                    put_port_back()
+                    self.ctrl.stop_event.clear()   # the same thread carries on; no second one
+                    return
         if supervised:
             log.info("Restarting on port %s (the system service restarts the app).", new)
             os._exit(0)
-        main = self.base / "main.py"
         kw = {"cwd": str(self.base), "stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
         if os.name == "nt":
             kw["creationflags"] = 0x00000008 | 0x00000200  # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
         else:
             kw["start_new_session"] = True
+        proc = None
         try:
             from . import autostart
-            subprocess.Popen(autostart.launch_command(self.base), **kw)
-            for _ in range(30):
+            proc = subprocess.Popen(autostart.launch_command(self.base), **kw)
+            deadline = time.time() + 60          # a Pi or a one-file bundle can be slow to start
+            while time.time() < deadline:
                 time.sleep(0.5)
-                try:
-                    if probe_app(new):
-                        log.info("Now running on port %s. This copy (port %s) is closing.", new, old)
-                        os._exit(0)
-                except Exception:
-                    pass
+                if probe_app(new):
+                    log.info("Now running on port %s. This copy (port %s) is closing.", new, old)
+                    os._exit(0)
+                if proc.poll() is not None:
+                    raise RuntimeError(f"the new copy exited (code {proc.returncode})")
             raise RuntimeError("the new copy didn't answer")
         except Exception as e:  # put everything back the way it was
+            # Stop the new copy first, so it can't go on scheduling next to us.
+            if proc is not None and proc.poll() is None:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+            if probe_app(new):   # it came up after all (or survived): let it take over
+                log.info("The copy on port %s answered late; this copy (port %s) is closing.", new, old)
+                os._exit(0)
             log.error("Couldn't move to port %s (%s); staying on %s.", new, e, old)
-            n = copy.deepcopy(self.store.settings)
-            n["service"] = {**n.get("service", {}), "web_port": old}
-            self.store.save_settings(n)
+            put_port_back()
             if self.ctrl:
                 self.ctrl.stop_event.clear()
                 self.thread = None
@@ -466,11 +513,24 @@ class App:
             listing = api.list_devices()
         except TrimlightError as e:
             raise ApiError(str(e), 502)
-        for d in listing:
+        # Ask every controller at once: one at a time, a slow cloud (15 s per
+        # call) made this screen take minutes with several controllers.
+        from concurrent.futures import ThreadPoolExecutor
+        now = self.now()
+
+        def detail(dev_id):
+            try:
+                return api.get_device(dev_id, now)
+            except TrimlightError as e:
+                return e
+        with ThreadPoolExecutor(max_workers=max(1, min(4, len(listing)))) as pool:
+            details = list(pool.map(detail, [d.get("deviceId") for d in listing]))
+        for d, det in zip(listing, details):
             item = {"id": d.get("deviceId"), "name": d.get("name"), "online": d.get("connectivity") == 1,
                     "selected": not chosen or d.get("deviceId") in chosen}
             try:
-                det = api.get_device(item["id"], self.now())
+                if isinstance(det, TrimlightError):
+                    raise det
                 item.update({"name": det.get("name", item["name"]), "ports": det.get("ports", []),
                              "ic": det.get("ic"), "colorOrder": det.get("colorOrder"),
                              "firmware": det.get("fwVersionName"), "switch": det.get("switchState"),
@@ -641,20 +701,45 @@ class App:
         cur = copy.deepcopy(self.store.settings)
         if body.get("mode") == "replace":
             keep = {k: cur.get(k) for k in ("location", "service", "setup_done", "controller") if k in cur}
+            # Exports leave out the house map and safety-net settings, so a
+            # file without them must not erase this home's copies.
+            for k in ("map", "safety"):
+                if k not in incoming and k in cur:
+                    keep[k] = cur[k]
             new = {**incoming, **keep}
         else:  # merge: add patterns and rules that don't exist yet
             new = cur
             effs = new.setdefault("effects", {})
             added = 0
+            renamed = {}   # incoming key -> key used here (same key, different pattern)
             for k, v in (incoming.get("effects") or {}).items():
                 if k not in effs:
                     effs[k] = v
                     added += 1
+                elif _canon(effs[k]) != _canon(v):
+                    # Same key but a different pattern: add it under a new key,
+                    # so imported rules keep the pattern they were made with.
+                    i = 2
+                    while f"{k}_{i}" in effs:
+                        i += 1
+                    nk = f"{k}_{i}"
+                    effs[nk] = {**v, "label": f"{v.get('label', k)} ({i})"} if isinstance(v, dict) else v
+                    renamed[k] = nk
+                    added += 1
+
+            def rekey(r):
+                if not (renamed and isinstance(r, dict)):
+                    return r
+                e = r.get("effect")
+                e = [renamed.get(x, x) for x in e] if isinstance(e, list) else renamed.get(e, e)
+                return {**r, "effect": e}
             for key in ("rules", "weather_rules"):
-                names = {r.get("name") for r in new.get(key, [])}
+                names = {r.get("name") for r in new.get(key, []) if isinstance(r, dict)}
                 for r in incoming.get(key) or []:
+                    if not isinstance(r, dict):
+                        raise ApiError("That file isn't a EaveLuxOS export.")
                     if r.get("name") not in names:
-                        new.setdefault(key, []).append(r)
+                        new.setdefault(key, []).append(rekey(r))
                         added += 1
             if not added:
                 raise ApiError("Everything in that file is already here (matched by name).")
@@ -711,7 +796,15 @@ def make_server(app: App, host: str, port: int):
             else, so a request carrying proxy headers is never local."""
             if not is_local_addr(self.client_address[0]):
                 return False
-            return not any(self.headers.get(h) is not None for h in PROXY_HEADERS)
+            if any(self.headers.get(h) is not None for h in PROXY_HEADERS):
+                # One handler serves every request on a keep-alive connection.
+                # A proxy reuses its upstream connection for many outside
+                # clients, so once a connection has carried a proxied request,
+                # nothing else on it counts as this computer.
+                self._via_proxy = True
+            return not self._via_proxy
+
+        _via_proxy = False
 
         _u = _UNSET
 
@@ -720,7 +813,7 @@ def make_server(app: App, host: str, port: int):
             password on this computer too" is on), a signed-in account, a
             setup session, or None. Looked up once per request."""
             if self._u is _UNSET:
-                if self._local() and not app.store.secrets.get("local_login"):
+                if self._local() and not app.store.local_login_required():
                     self._u = dict(LOCAL_USER)
                 else:
                     self._u = app.store.session_user(self._token())
@@ -829,6 +922,30 @@ def make_server(app: App, host: str, port: int):
                 ctype += "; charset=utf-8"
             self._send(200, f.read_bytes(), ctype)
 
+        def _client_key(self) -> str:
+            """Who to count failed sign-ins against. Through a proxy on this
+            computer, every client arrives from 127.0.0.1, so use the address
+            the proxy reports (the last X-Forwarded-For hop is the one the
+            proxy added itself; earlier ones are the client's to invent).
+            IPv6 clients are counted per /64, since one home or phone gets a
+            whole /64 and can pick a new address for every try."""
+            peer = self.client_address[0]
+            ip = peer
+            if is_local_addr(peer):
+                xff = self.headers.get("X-Forwarded-For")
+                for v in ((xff.split(",")[-1] if xff else None), self.headers.get("X-Real-IP"),
+                          self.headers.get("CF-Connecting-IP"), self.headers.get("True-Client-IP")):
+                    if v and v.strip():
+                        ip = v.strip()
+                        break
+            try:
+                a = ipaddress.ip_address(ip.removeprefix("::ffff:") if ip.startswith("::ffff:") and "." in ip else ip)
+            except ValueError:
+                return "proxy:" + ip[:64]
+            if a.version == 6:
+                return str(ipaddress.ip_network(f"{a}/64", strict=False))
+            return str(a)
+
         def _too_many(self, ip) -> bool:
             now = time.time()
             with app.fails_lock:
@@ -857,11 +974,9 @@ def make_server(app: App, host: str, port: int):
                 return
             key = hashlib.sha256(tok.encode()).hexdigest()
             now = time.time()
-            for k in [k for k, t in app.reauth.items() if t <= now]:
-                app.reauth.pop(k, None)
-            if app.reauth.get(key, 0) > now:
+            if app.reauth.valid(key, now):
                 return
-            ip = self.client_address[0]
+            ip = self._client_key()
             if self._too_many(ip):
                 raise ApiError("Too many tries. Wait 10 minutes.", 429)
             if given is None:
@@ -869,7 +984,7 @@ def make_server(app: App, host: str, port: int):
             if not check_password(str(given), ph):
                 self._failed(ip)
                 raise ApiError("That password isn't right.", 403, reauth=True)
-            app.reauth[key] = now + REAUTH_SECONDS
+            app.reauth.grant(key, now + REAUTH_SECONDS)
 
         # -------------------------------------------------------- GET
         def do_HEAD(self):
@@ -892,6 +1007,14 @@ def make_server(app: App, host: str, port: int):
             self._u = _UNSET
             if not self._host_ok():
                 return
+            try:
+                # Always consume a body, even on GET/HEAD: bytes left on a
+                # keep-alive connection would be read as the next request
+                # (request smuggling through a reverse proxy).
+                self._read_raw()
+            except ApiError as e:
+                self.close_connection = True
+                return self._json(e.code, {"error": str(e)})
             url = urllib.parse.urlparse(self.path)
             path, q = url.path, {k: v[0] for k, v in urllib.parse.parse_qs(url.query).items()}
             if path in DOCS:
@@ -927,6 +1050,8 @@ def make_server(app: App, host: str, port: int):
                 return self._json(200, r)
             except ApiError as e:
                 return self._json(e.code, {"error": str(e)})
+            except ValueError:
+                return self._json(400, {"error": "A value in the address isn't valid."})
             except Exception:
                 log.exception("GET %s failed", path)
                 return self._json(500, {"error": "Something went wrong. Details are in the log."})
@@ -968,7 +1093,7 @@ def make_server(app: App, host: str, port: int):
                 from .store import SESSION_IDLE_CHOICES, SESSION_MAX_DAYS
                 out.update({"client_id": s.get("client_id", ""),
                             "secret_hint": ("••••" + s["client_secret"][-4:]) if s.get("client_secret") else "",
-                            "webhook_token": s.get("webhook_token"), "local_login": bool(s.get("local_login")),
+                            "webhook_token": s.get("webhook_token"), "local_login": app.store.local_login_required(),
                             "autostart": autostart.status(app.base), "python": platform.python_version(),
                             "data_dir": str(app.store.dir), "session_idle_hours": app.store.session_idle_hours(),
                             "session_idle_choices": list(SESSION_IDLE_CHOICES), "session_max_days": SESSION_MAX_DAYS})
@@ -978,7 +1103,7 @@ def make_server(app: App, host: str, port: int):
             if path == "/api/safety":
                 return app.safety_status()
             if path == "/api/history":
-                return app.store.history(int(q.get("limit", 30)))
+                return app.store.history(max(1, min(100, int(q.get("limit", 30)))))
             if path == "/api/photos":
                 d = app.store.dir / "photos"
                 return sorted(f.stem for f in d.glob("*.jpg")) if d.is_dir() else []
@@ -1011,7 +1136,7 @@ def make_server(app: App, host: str, port: int):
                 return
             url = urllib.parse.urlparse(self.path)
             path = url.path
-            ip = self.client_address[0]
+            ip = self._client_key()
             try:
                 self._read_raw()  # always consume the body, even for early refusals
                 if path.startswith("/api/hook/"):
@@ -1024,7 +1149,7 @@ def make_server(app: App, host: str, port: int):
                     tok = self._token()
                     if tok:
                         app.store.end_session(tok)
-                        app.reauth.pop(hashlib.sha256(tok.encode()).hexdigest(), None)
+                        app.reauth.pop(hashlib.sha256(tok.encode()).hexdigest())
                     return self._json(200, {"ok": True})
                 if not self._authed():
                     return self._json(401, {"error": "Sign in first."})
@@ -1096,6 +1221,17 @@ def make_server(app: App, host: str, port: int):
                     ctrl.start_flash(b.get("minutes"))
                 elif a == "stop_flash":
                     ctrl.stop_flash()
+                elif a == "music":
+                    # minutes: a number, 0 for "until I stop it", or left out
+                    # for the length set on the Music screen.
+                    m = b.get("minutes", ctrl.cfg.music["minutes"])
+                    try:
+                        m = int(m or 0)
+                    except (TypeError, ValueError):
+                        raise ApiError("Show length must be a whole number of minutes.") from None
+                    ctrl.start_music(m or None)
+                elif a == "stop_music":
+                    ctrl.stop_music()
                 else:
                     raise ApiError("Unknown action.")
                 return ctrl.status()
@@ -1221,7 +1357,11 @@ def make_server(app: App, host: str, port: int):
                 return app.safety_status()
             if path == "/api/safety/daily_off":
                 api = app.client()
-                n = sum(app.safety.disable_app_daily_timers(api, dev, app.now()) for dev in app.target_devices())
+                import contextlib
+                # Same lock as the scheduler's own cloud writes (and its safety
+                # sync), so the two never write to a controller at once.
+                with (app.ctrl.apply_lock if app.ctrl else contextlib.nullcontext()):
+                    n = sum(app.safety.disable_app_daily_timers(api, dev, app.now()) for dev in app.target_devices())
                 return {"ok": True, "turned_off": n}
             if path == "/api/port":
                 return app.change_port(b.get("port"))
@@ -1263,7 +1403,7 @@ def make_server(app: App, host: str, port: int):
                 created = app.store.save_user(None, name, "admin", password=new)
                 tok = self._first_account_token(created["id"])
                 return {"ok": True, **({"token": tok} if tok else {})}
-            ip = self.client_address[0]
+            ip = self._client_key()
             if self._too_many(ip):
                 raise ApiError("Too many tries. Wait 10 minutes.", 429)
             if not check_password(str(b.get("current", "")), app.store.password_hash_of(u["id"]) or _DUMMY_HASH):
@@ -1300,7 +1440,7 @@ def make_server(app: App, host: str, port: int):
                 log.warning("Rejected webhook from %s (bad token)", self.client_address[0])
                 return self._json(403, {"error": "bad token"})
             body = {**q, **data, "action": url.path.rsplit("/", 1)[-1]}
-            if body["action"] not in ("flash", "stop_flash", "on", "off", "resume", "levels"):
+            if body["action"] not in ("flash", "stop_flash", "on", "off", "resume", "levels", "music", "stop_music"):
                 return self._json(400, {"error": "unknown action"})
             self._post("/api/action", body)
             app.ctrl.note(f"Webhook '{body['action']}' from {self.client_address[0]}")

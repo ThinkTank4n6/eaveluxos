@@ -16,6 +16,8 @@ import time
 import urllib.error
 import urllib.request
 
+from .version import VERSION
+
 BASE_URL = os.environ.get("TRIMLIGHT_API_BASE", "https://trimlight.ledhue.com/trimlight")
 
 
@@ -77,7 +79,7 @@ class TrimlightAPI:
             "S-Timestamp": str(ts),
             "Content-Type": "application/json",
             "Accept": "application/json",
-            "User-Agent": "EaveLuxOS/3.1",
+            "User-Agent": f"EaveLuxOS/{VERSION}",
         }
         data = json.dumps(body).encode() if body is not None else None
         req = urllib.request.Request(self.base_url + path, data=data, headers=headers, method=method)

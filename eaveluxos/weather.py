@@ -17,6 +17,8 @@ import time
 import urllib.error
 import urllib.request
 
+from .version import VERSION
+
 log = logging.getLogger("eaveluxos.weather")
 NWS = "https://api.weather.gov"
 STALE_AFTER = 2 * 3600
@@ -24,12 +26,15 @@ STALE_AFTER = 2 * 3600
 _PATTERNS = [
     ("storm", r"thunder|t-?storm|tstm"),
     ("snow", r"snow|flurr|sleet|ice pellet|wintry|blizzard|freezing (rain|drizzle)"),
-    ("rain", r"rain|shower|drizzle"),
+    ("rain", r"rain|shower|drizzle"),   # see _RAIN
     ("fog", r"fog|haze|mist|smoke"),
     ("wind", r"wind|breezy|blustery"),
     ("cloudy", r"cloud|overcast"),
     ("clear", r"clear|sunny|fair"),
 ]
+
+
+_RAIN = r"rain|shower|drizzle"
 
 
 def classify(text: str, forecast: bool = False) -> set:
@@ -41,6 +46,10 @@ def classify(text: str, forecast: bool = False) -> set:
         parts = [p for p in re.split(r"\s+then\s+", t) if "chance" not in p]
         t = " ".join(parts)
     tags = {tag for tag, pat in _PATTERNS if re.search(pat, t)}
+    # "Snow Showers" / "Snow Shower" is snow, not rain: only call it rain if
+    # rain is named some other way too ("Rain and Snow Showers").
+    if "rain" in tags and not re.search(_RAIN, re.sub(r"snow\s+showers?", "snow", t)):
+        tags.discard("rain")
     if "partly" in t or "mostly sunny" in t or "mostly clear" in t:
         tags.discard("cloudy")
     return tags
@@ -55,9 +64,10 @@ class WeatherService:
         self.lat, self.lon = round(lat, 4), round(lon, 4)
         self.use = use
         self.every = check_minutes * 60
-        self.ua = f"EaveLuxOS/3.1 ({contact or 'home lighting'})"
+        self.ua = f"EaveLuxOS/{VERSION} ({contact or 'home lighting'})"
         self.fetch = fetch or self._fetch_json
-        self.lock = threading.Lock()
+        self.lock = threading.Lock()           # guards the readings only (never held across network calls)
+        self._refresh_lock = threading.Lock()  # one refresh at a time
         self.endpoints = None  # (hourly forecast URL, stations URL)
         self.station = None
         self.observed = None   # {"text","temp_f","time"}
@@ -77,36 +87,56 @@ class WeatherService:
             raise RuntimeError(f"NWS unreachable: {getattr(e, 'reason', e)}") from None
 
     def refresh(self, force=False):
+        """Fetch new readings. The network calls happen with no lock held:
+        current() is called by the scheduler and every status request, and
+        must never wait on a slow NWS. Only one refresh runs at a time."""
         now = time.time()
         if not force and now < self.next_try:
             return
-        with self.lock:
+        if not self._refresh_lock.acquire(blocking=False):
+            return  # another refresh is already in progress
+        try:
+            with self.lock:
+                endpoints, station = self.endpoints, self.station
+            observed = forecast = None
             try:
-                if self.endpoints is None:
+                if endpoints is None:
                     p = self.fetch(f"{NWS}/points/{self.lat},{self.lon}")["properties"]
-                    self.endpoints = (p["forecastHourly"], p["observationStations"])
-                hourly_url, stations_url = self.endpoints
+                    endpoints = (p["forecastHourly"], p["observationStations"])
+                hourly_url, stations_url = endpoints
                 if self.use in ("observed", "either"):
-                    if self.station is None:
+                    if station is None:
                         feats = self.fetch(stations_url)["features"]
-                        self.station = feats[0]["properties"]["stationIdentifier"]
-                    o = self.fetch(f"{NWS}/stations/{self.station}/observations/latest")["properties"]
-                    self.observed = {"text": o.get("textDescription") or "",
-                                     "temp_f": c_to_f((o.get("temperature") or {}).get("value")),
-                                     "time": o.get("timestamp")}
+                        station = feats[0]["properties"]["stationIdentifier"]
+                    o = self.fetch(f"{NWS}/stations/{station}/observations/latest")["properties"]
+                    observed = {"text": o.get("textDescription") or "",
+                                "temp_f": c_to_f((o.get("temperature") or {}).get("value")),
+                                "time": o.get("timestamp")}
                 if self.use in ("forecast", "either"):
                     per = self.fetch(hourly_url)["properties"]["periods"][0]
                     t = per.get("temperature")
                     if per.get("temperatureUnit") == "C" and t is not None:
                         t = c_to_f(t)
-                    self.forecast = {"text": per.get("shortForecast") or "", "temp_f": t, "time": per.get("startTime")}
+                    forecast = {"text": per.get("shortForecast") or "", "temp_f": t, "time": per.get("startTime")}
+            except (RuntimeError, KeyError, IndexError, TypeError) as e:
+                err = str(e) if isinstance(e, RuntimeError) else f"Unexpected NWS data ({e.__class__.__name__})"
+                with self.lock:
+                    self.endpoints, self.station = endpoints, station   # keep what was learned
+                    self.error = err
+                    self.next_try = now + min(self.every, 300)
+                log.warning("Weather check failed: %s", err)
+                return
+            with self.lock:
+                self.endpoints, self.station = endpoints, station
+                if observed is not None:
+                    self.observed = observed
+                if forecast is not None:
+                    self.forecast = forecast
                 self.updated = now
                 self.error = None
                 self.next_try = now + self.every
-            except (RuntimeError, KeyError, IndexError, TypeError) as e:
-                self.error = str(e) if isinstance(e, RuntimeError) else f"Unexpected NWS data ({e.__class__.__name__})"
-                self.next_try = now + min(self.every, 300)
-                log.warning("Weather check failed: %s", self.error)
+        finally:
+            self._refresh_lock.release()
 
     def _obs_fresh(self) -> bool:
         """Some stations report hours late; ignore observations over 2 hours old."""

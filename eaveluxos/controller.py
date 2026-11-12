@@ -27,6 +27,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
 from .api import TrimlightAPI, TrimlightError
+from .schedule import add_real, ts
 from .weather import WeatherService
 
 log = logging.getLogger("eaveluxos")
@@ -43,6 +44,9 @@ class Target:
     source: str | None = None    # rule or weather-rule name
     until: datetime | None = None
     delegated: bool = False      # the controller runs this night from its own timer
+    weather_match: str | None = None  # best-matching weather rule (shown even when it doesn't win)
+    adjusted: bool = False       # slider levels set by hand apply to this target
+    hands_off: bool = False      # a music show: the controller's music mode runs the lights
 
 
 class Controller:
@@ -56,6 +60,8 @@ class Controller:
         self.override = None                  # {"on": bool, "effect": key, "since": dt}
         self.adjust: dict = {}                # slider levels {"brightness": n, "speed": n}
         self.flash = None                     # {"until": dt}
+        self.music = None                     # music show from the button: {"until": dt | None, "since": dt}
+        self.music_skipped = None             # key of a show night stopped early (don't restart it)
         self.sched_key = None
         self.applied_key = None
         self.fail_count = 0
@@ -118,8 +124,8 @@ class Controller:
         found = find(lib)
         if found is None:
             what = f"id {effect.saved_id}" if effect.saved_id is not None else f"named '{effect.saved_name}'"
-            raise TrimlightError(f"No saved effect {what} on this controller. "
-                                 f"Run 'python3 main.py effects' to see what's saved.")
+            raise TrimlightError(f"No saved pattern {what} on this controller. "
+                                 "Open Patterns \u203a In the Trimlight app to see what's saved.")
         return found
 
     @staticmethod
@@ -185,86 +191,122 @@ class Controller:
         return all(self.safety.ready(d["deviceId"], today) for d in self.devices)
 
     def _weather_pick(self, window):
-        """Highest-priority matching weather rule that outranks the window's rule."""
-        self.weather_match = None
+        """(rule, match): the highest-priority matching weather rule if it
+        outranks the window's rule, and the name of the best match (for
+        display). Reads only; never changes state."""
         if not (self.weather and self.cfg.weather_rules):
-            return None
+            return None, None
         cur = self.weather.current()
         if not cur["fresh"]:
-            return None
+            return None, None
         for wr in sorted(self.cfg.weather_rules, key=lambda r: (-r.priority, r.order)):
             if wr.matches(cur["tags"], cur["temp_f"]):
-                self.weather_match = wr.name
-                return wr if window and wr.priority > window.rule.priority else None
-        return None
+                return (wr if window and wr.priority > window.rule.priority else None), wr.name
+        return None, None
 
-    def _target(self) -> Target:
+    def _target(self, commit: bool = True) -> Target:
+        """What the lights should be doing now. Only the scheduler (and the
+        actions that call tick) commit the transitions found on the way
+        (a flash or preview ending, manual settings ending at a scheduled
+        change); status reads pass commit=False and change nothing."""
         now = self.cfg.loc.now()
         w = self.cfg.schedule.active_window(now)
         sched_key = w.key if w else "off"
+        override, adjust, flash, notes = self.override, self.adjust, self.flash, []
         if sched_key != self.sched_key:
             # The first check after startup isn't a scheduled *change*; don't
             # throw away something the user set in the app's first seconds.
             if self.sched_key is not None:
-                if self.override or self.adjust:
-                    self.note("Scheduled change reached, so manual settings ended.")
-                self.override = None
-                self.adjust = {}
-            self.sched_key = sched_key
+                if override or adjust:
+                    notes.append("Scheduled change reached, so manual settings ended.")
+                override, adjust = None, {}
+
+        def done(t: Target) -> Target:
+            t.adjusted = bool(adjust) and t.reason != "flash" and t.on
+            if commit:
+                self.sched_key = sched_key
+                self.override, self.adjust, self.flash = override, adjust, flash
+                self.weather_match = t.weather_match
+                for n in notes:
+                    self.note(n)
+            return t
 
         # 1. security flash
-        if self.flash:
-            if now < self.flash["until"]:
+        if flash:
+            if ts(now) < ts(flash["until"]):
                 eff = self.cfg.effects[self.cfg.security["effect"]]
-                return Target(f"flash|{self.flash['until'].isoformat()}", True, eff, {}, "flash", "Security flash",
-                              self.flash["until"])
-            self.flash = None
-            self.note("Security flash ended.")
+                return done(Target(f"flash|{flash['until'].isoformat()}", True, eff, {}, "flash", "Security flash",
+                                   flash["until"]))
+            flash = None
+            notes.append("Security flash ended.")
 
-        lv = json.dumps(self.adjust, sort_keys=True)
-        # 2. manual
-        if self.override and self.override.get("expires") and time.time() > self.override["expires"]:
-            self.override = None
-            self.adjust = {}
-            self.note("Preview ended; back on the schedule.")
-        if self.override:
-            o = self.override
+        # 2. music show (button, then show nights): this app steps aside
+        music, skipped = self.music, self.music_skipped
+        if music and music.get("until") and ts(now) >= ts(music["until"]):
+            music = None
+            notes.append("Music show ended; back on the schedule.")
+        show_w = None
+        msched = self.cfg.music.get("schedule")
+        if msched is not None:
+            show_w = msched.active_window(now)
+            if show_w is not None and show_w.key == skipped:
+                show_w = None
+        if music:
+            t = Target(f"music|button|{music['since'].isoformat()}", True, None, {}, "music", "Music show",
+                       music.get("until"), hands_off=True)
+        elif show_w is not None:
+            t = Target(f"music|{show_w.key}", True, None, {}, "music", show_w.rule.name, show_w.end, hands_off=True)
+        else:
+            t = None
+        if commit:
+            self.music = music
+        if t is not None:
+            return done(t)
+
+        # 3. manual
+        if override and override.get("expires") and time.time() > override["expires"]:
+            override, adjust = None, {}
+            notes.append("Preview ended; back on the schedule.")
+        if override:
+            o = override
             eff = (o.get("obj") or self.cfg.effects.get(o.get("effect"))) if o["on"] else None
             if o["on"] and eff is None:  # pattern was deleted
-                self.override = None
-                return self._target()
-            return Target(f"manual|{o['on']}|{o.get('effect')}|{o['since'].isoformat()}|{lv}",
-                          o["on"], eff, dict(self.adjust) if o["on"] else {}, "manual")
+                override = None
+            else:
+                lv = json.dumps(adjust, sort_keys=True)
+                return done(Target(f"manual|{o['on']}|{o.get('effect')}|{o['since'].isoformat()}|{lv}",
+                                   o["on"], eff, dict(adjust) if o["on"] else {}, "manual"))
         if not w:
-            self._weather_pick(None)
-            return Target("off|timer" if self._safety_ready() else "off", False)
-        # 3. weather / 4. schedule, with rotation
-        wr = self._weather_pick(w)
+            _, match = self._weather_pick(None)
+            return done(Target("off|timer" if self._safety_ready() else "off", False, weather_match=match))
+        # 4. weather / 5. schedule, with rotation
+        wr, match = self._weather_pick(w)
         rule = wr or w.rule
         if wr is None:
             eff, step = w.rule.pick(w.start, now)
         elif len(rule.effects) > 1 and rule.rotate_minutes:
-            elapsed = max(0, int((now - w.start).total_seconds() // 60))
+            elapsed = max(0, int((ts(now) - ts(w.start)) // 60))
             step = elapsed // rule.rotate_minutes
             eff = rule.effects[step % len(rule.effects)]
         else:
             step, eff = 0, rule.effects[0]
         # A weather rule keeps the scheduled rule's levels (e.g. late-night dim)
         # unless it sets its own.
-        levels = {**w.rule.levels, **(wr.levels if wr else {}), **self.adjust}
+        levels = {**w.rule.levels, **(wr.levels if wr else {}), **adjust}
         reason = "weather" if wr else "schedule"
         # Hand plain scheduled nights to the controller's own timer (safety
         # net), so the lights still go OFF if this app dies mid-evening. Only
         # when entering the window from armed-off (or already handed over):
         # switching to Timer mode part-way through a night is avoided because
         # it isn't confirmed that the controller re-lights immediately.
-        if not wr and not self.adjust:
+        if not wr and not adjust:
             entry_end = self._delegation_end(w, eff, now)
             prev = self.applied_key or ""
-            if entry_end and now < entry_end - timedelta(minutes=2) and (prev == "off|timer" or prev.startswith(w.key + "|timer")):
-                return Target(f"{w.key}|timer|{step}", True, eff, levels, "schedule", rule.name, w.end, delegated=True)
+            if entry_end and ts(now) < ts(entry_end) - 120 and (prev == "off|timer" or prev.startswith(w.key + "|timer")):
+                return done(Target(f"{w.key}|timer|{step}", True, eff, levels, "schedule", rule.name, w.end,
+                                   delegated=True, weather_match=match))
         key = f"{w.key}|{reason}|{rule.name}|{step}|{json.dumps(levels, sort_keys=True)}"
-        return Target(key, True, eff, levels, reason, rule.name, w.end)
+        return done(Target(key, True, eff, levels, reason, rule.name, w.end, weather_match=match))
 
     def _delegation_end(self, w, eff, now):
         """When the controller holds a verified timer entry matching this
@@ -292,6 +334,19 @@ class Controller:
             with self.lock:
                 t = self._target()
                 due = t.key != self.applied_key and time.time() >= self.next_try
+            if due and t.hands_off:
+                # A music show: send nothing, so the controller's music mode
+                # isn't interrupted. What it shows afterward is unknown, so the
+                # next pattern is sent in full.
+                with self.lock:
+                    self.applied_key = t.key
+                    self.known_on = False
+                    self.fail_count = 0
+                    self.last_error = None
+                self.note(f"Music show: this app is leaving the lights to the controller's music mode [{t.source}]")
+                return
+            if t.hands_off:
+                return                       # no checks or timer copies during a show either
             if due:
                 try:
                     self._apply(t.on, t.effect, t.levels, timer_off=t.key == "off|timer", delegated=t.delegated)
@@ -325,7 +380,7 @@ class Controller:
         # A sync is a dozen cloud calls under the command lock. Don't start one
         # right before a scheduled on/off; it runs on the next pass after it.
         nxt = self.cfg.schedule.next_change(now)
-        if nxt is not None and nxt - now < timedelta(minutes=3):
+        if nxt is not None and ts(nxt) - ts(now) < 180:
             return
         if not self.cfg.safety["enabled"]:
             if now_ts >= self.safety.retry_at and not self.safety.remove(self.api, ids, now, self.note):
@@ -346,6 +401,13 @@ class Controller:
         out = []
         for d in self.devices:
             det = self.api.get_device(d["deviceId"], self.cfg.loc.now())
+            if self.safety:
+                msg = self.safety.check_live(d["deviceId"], det)
+                if msg:
+                    self.note(f"{det.get('name', d.get('name'))}: {msg}", logging.WARNING)
+                    with self.lock:   # leave Timer mode now; don't wait for the next sync
+                        self.applied_key = None
+                        self._kick()
             self.saved[d["deviceId"]] = {str(e.get("name", "")).strip().lower(): e for e in det.get("effects", [])}
             out.append({"name": det.get("name", d.get("name")), "id": d["deviceId"],
                         "online": det.get("connectivity") == 1, "switch_raw": det.get("switchState"),
@@ -399,6 +461,7 @@ class Controller:
         with self.lock:
             if on and obj is None and effect_key not in self.cfg.effects:
                 raise ValueError(f"Unknown pattern '{effect_key}'")
+            self._end_music("a pattern was chosen")
             key = effect_key if obj is None else f"_try:{obj.label}:{hash(json.dumps(obj.payload, sort_keys=True))}"
             self.override = {"on": on, "effect": key, "obj": obj, "since": self.cfg.loc.now(),
                              "expires": time.time() + expires_min * 60 if expires_min else None}
@@ -408,6 +471,9 @@ class Controller:
 
     def resume(self):
         with self.lock:
+            if self._end_music("back to the schedule"):
+                self.applied_key = None
+                self.known_on = False
             if self.override or self.adjust:
                 self.note("Back on the schedule.")
             self.override = None
@@ -422,6 +488,8 @@ class Controller:
                 raise ValueError("The lights are off, so there's nothing to adjust.")
             if t.reason == "flash":
                 raise ValueError("Brightness and speed can't be changed during a security flash.")
+            if t.reason == "music":
+                raise ValueError("During a music show, brightness is set in the Trimlight app's music mode.")
             for k, v in (("brightness", brightness), ("speed", speed)):
                 if v is not None:
                     v = int(v)
@@ -431,12 +499,72 @@ class Controller:
             self._kick()
         self.tick()
 
+    # ------------------------------------------------------------ music
+    def _end_music(self, why: str) -> bool:
+        """Stop a running show (the button's, or tonight's show night). Lock held."""
+        now = self.cfg.loc.now()
+        ended = False
+        if self.music:
+            self.music = None
+            ended = True
+        msched = self.cfg.music.get("schedule")
+        w = msched.active_window(now) if msched is not None else None
+        if w is not None and w.key != self.music_skipped:
+            self.music_skipped = w.key           # this one show night only
+            ended = True
+        if ended:
+            self.note(f"Music show stopped ({why}); back on the schedule.")
+        return ended
+
+    def _music_status(self, t, now, fmt) -> dict:
+        msched = self.cfg.music.get("schedule")
+        nxt = None
+        if msched is not None:
+            for k in range(0, 35):
+                for p in msched.day_plans(now.date() + timedelta(days=k)):
+                    if ts(p.start) > ts(now) and p.window.key != self.music_skipped:
+                        nxt = p
+                        break
+                if nxt:
+                    break
+        return {"active": t.reason == "music", "source": t.source if t.reason == "music" else None,
+                "scheduled": t.reason == "music" and not t.key.startswith("music|button|"),
+                "until": fmt(t.until) if t.reason == "music" and t.until else None,
+                "minutes": self.cfg.music["minutes"], "shows": len(self.cfg.music["shows"]),
+                "next": {"name": nxt.window.rule.name, "start": fmt(nxt.start), "end": fmt(nxt.end),
+                         "day": nxt.start.strftime("%a %b %d").replace(" 0", " ")} if nxt else None}
+
+    def start_music(self, minutes: int | None = None):
+        """Step aside so the controller's music mode can run: until stopped,
+        or for `minutes`. 0 or None with until_stopped means no end time."""
+        with self.lock:
+            if self.flash:
+                raise ValueError("A security flash is running. Stop it first.")
+            now = self.cfg.loc.now()
+            until = None
+            if minutes:
+                minutes = max(5, min(6 * 60, int(minutes)))
+                until = add_real(now, timedelta(minutes=minutes))
+            self.music = {"since": now, "until": until}
+            self.override, self.adjust = None, {}
+            self._kick()
+            self.note("Music show started " + (f"for {minutes} min." if until else "(until stopped)."))
+        self.tick()
+
+    def stop_music(self):
+        with self.lock:
+            self._end_music("stopped")
+            self.applied_key = None              # send the scheduled pattern in full
+            self.known_on = False
+            self._kick()
+        self.tick()
+
     def start_flash(self, minutes: int | None = None):
         if not self.cfg.security["effect"]:
-            raise ValueError("No security flash is set up. Add a [security] section to config.toml.")
+            raise ValueError("No security flash is set up. Choose a pattern for it on the Schedule screen.")
         minutes = max(1, min(240, int(minutes or self.cfg.security["minutes"])))
         with self.lock:
-            until = self.cfg.loc.now() + timedelta(minutes=minutes)
+            until = add_real(self.cfg.loc.now(), timedelta(minutes=minutes))
             extended = bool(self.flash)
             self.flash = {"until": until}
             self._kick()
@@ -474,8 +602,11 @@ class Controller:
     # ------------------------------------------------------------ loop
     def run_forever(self):
         self.note("Scheduler started.")
-        threading.Thread(target=self._weather_loop, daemon=True, name="weather").start()
+        wt = None
         while not self.stop_event.is_set():
+            if wt is None or not wt.is_alive():   # (re)start it, e.g. after a cancelled port move
+                wt = threading.Thread(target=self._weather_loop, daemon=True, name="weather")
+                wt.start()
             try:
                 self.tick()
             except Exception:  # never let the loop die
@@ -513,12 +644,12 @@ class Controller:
 
         sun = loc.sun(now.date())
         with self.lock:
-            t = self._target()
-            override = bool(self.override)
-            adjusted = bool(self.adjust)
+            t = self._target(commit=False)   # a status read changes nothing
+            override = t.reason == "manual"
+            adjusted = t.adjusted
             synced = t.key == self.applied_key
             err = self.last_error
-            wmatch = self.weather_match
+            wmatch = t.weather_match
         w = sch.active_window(now)
         days = []
         for i in range(8):
@@ -575,6 +706,7 @@ class Controller:
             "flash": {"available": bool(self.cfg.security["effect"]), "minutes": self.cfg.security["minutes"],
                       "active": t.reason == "flash", "until": fmt(t.until) if t.reason == "flash" else None},
             "override": override,
+            "music": self._music_status(t, now, fmt),
             "window": {"rule": w.rule.name, "start": fmt(w.start), "end": fmt(w.end)} if w else None,
             "next_change": fmt(nxt), "next_change_day": nxt.strftime("%a") if nxt and nxt.date() != now.date() else None,
             "sun": {k: fmt(v) for k, v in sun.items()},

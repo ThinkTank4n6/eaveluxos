@@ -29,6 +29,27 @@ class ConfigError(Exception):
     pass
 
 
+# ---------------------------------------------------------------- instants
+# Python compares and subtracts two datetimes that share a tzinfo by their
+# wall-clock reading and ignores `fold`, so on the night clocks fall back
+# 01:15 EST would sort before 01:30 EDT. Every comparison, duration and
+# "plus N minutes" on real moments goes through these instead.
+def ts(dt: datetime) -> float:
+    """The real moment, as a POSIX timestamp."""
+    return dt.timestamp()
+
+
+def add_real(dt: datetime, delta: timedelta) -> datetime:
+    """dt plus elapsed time (not plus wall-clock time), in dt's zone."""
+    return (dt.astimezone(timezone.utc) + delta).astimezone(dt.tzinfo)
+
+
+def normalize(dt: datetime) -> datetime:
+    """Map a wall time that doesn't exist (spring forward) onto the real
+    moment it names, with the zone's correct offset."""
+    return dt.astimezone(timezone.utc).astimezone(dt.tzinfo)
+
+
 # ---------------------------------------------------------------- time exprs
 _SUN_RE = re.compile(r"^(sunrise|sunset|dawn|dusk)\s*(?:([+-])\s*(\d+)\s*(?:m|min|mins|minutes)?)?$", re.I)
 _CLOCK_RE = re.compile(r"^(\d{1,2}):(\d{2})\s*(am|pm)?$", re.I)
@@ -64,12 +85,14 @@ class TimeExpr:
 
     def resolve(self, d: date, loc) -> datetime | None:
         if self.clock is not None:
-            # zoneinfo picks the right offset for that date (EST vs EDT).
-            return datetime.combine(d, self.clock, tzinfo=loc.tz)
+            # zoneinfo picks the right offset for that date (EST vs EDT). In
+            # the repeated hour (fold 0) this is the first 01:30; a time
+            # skipped by spring forward is moved to the moment it names.
+            return normalize(datetime.combine(d, self.clock, tzinfo=loc.tz))
         base = loc.sun(d)[self.sun_event]
         if base is None:
             return None
-        return base + timedelta(minutes=self.offset_min)
+        return add_real(base, timedelta(minutes=self.offset_min))
 
 
 # ---------------------------------------------------------------- location
@@ -325,6 +348,9 @@ class Window:
     def key(self) -> str:
         return f"on|{self.rule.name}|{self.start.isoformat()}"
 
+    def covers(self, now: datetime) -> bool:
+        return ts(self.start) <= ts(now) < ts(self.end)
+
 
 
 @dataclass
@@ -384,7 +410,7 @@ class Rule:
             return self.effects[i], f"n{window_start.date().isoformat()}"
         if not self.rotate_minutes:
             return self.effects[0], 0
-        elapsed = max(0, int((now - window_start).total_seconds() // 60))
+        elapsed = max(0, int((ts(now) - ts(window_start)) // 60))
         step = elapsed // self.rotate_minutes
         return self.effects[step % len(self.effects)], step
 
@@ -436,11 +462,11 @@ class Rule:
         if start is None:
             return None
         end = self.off.resolve(d, loc)
-        if end is None or end <= start:
+        if end is None or ts(end) <= ts(start):
             end = self.off.resolve(d + timedelta(days=1), loc)
-            if end is not None and end - start > timedelta(hours=MAX_WINDOW_HOURS):
+            if end is not None and ts(end) - ts(start) > MAX_WINDOW_HOURS * 3600:
                 return None
-        if end is None or end <= start:
+        if end is None or ts(end) <= ts(start):
             return None
         return Window(self, start, end)
 
@@ -488,7 +514,7 @@ class Schedule:
         for rule in self.rules:
             for d in (today, today - timedelta(days=1)):
                 w = self._window(rule, d)
-                if w and w.start <= now < w.end:
+                if w and w.covers(now):
                     live.append(w)
         return min(live, key=_rank) if live else None
 
@@ -505,16 +531,20 @@ class Schedule:
         overlap, the higher priority wins and the other only fills the gaps."""
         ws = [w for dd in (d - timedelta(days=1), d, d + timedelta(days=1))
               for r in self.rules if (w := self._window(r, dd))]
-        edges = sorted({t for w in ws for t in (w.start, w.end)})
+        # Edges as real moments (UTC), so the two 01:30s of a fall-back night
+        # stay distinct; shown in local time again below.
+        utc = timezone.utc
+        edges = sorted({t.astimezone(utc) for w in ws for t in (w.start, w.end)})
         plans: list[Plan] = []
         for a, b in zip(edges, edges[1:]):
             w = self.active_window(a + (b - a) / 2)
             if not w:
                 continue
-            if plans and plans[-1].window.key == w.key and plans[-1].end == a:
-                plans[-1].end = b
+            la, lb = a.astimezone(self.loc.tz), b.astimezone(self.loc.tz)
+            if plans and plans[-1].window.key == w.key and ts(plans[-1].end) == ts(a):
+                plans[-1].end = lb
             else:
-                plans.append(Plan(w, a, b))
+                plans.append(Plan(w, la, lb))
         return [p for p in plans if p.window.start.date() == d]
 
     def next_change(self, now: datetime) -> datetime | None:
@@ -527,8 +557,8 @@ class Schedule:
             for r in self.rules:
                 w = self._window(r, d)
                 if w:
-                    edges.update(t for t in (w.start, w.end) if t > now)
-        for t in sorted(edges):
+                    edges.update(t for t in (w.start, w.end) if ts(t) > ts(now))
+        for t in sorted(edges, key=ts):
             w = self.active_window(t)
             if (w.key if w else "off") != cur_key:
                 return t
@@ -603,6 +633,49 @@ class Config:
     client_secret: str
     ui_password: str | None
     webhook_token: str | None
+    music: dict = field(default_factory=lambda: {"minutes": 60, "schedule": None, "shows": []})
+
+
+class _MusicShow:
+    """Stands in for a pattern in a show night: during a show the lights are
+    run by the Trimlight app's music mode, not by a pattern from here."""
+    label = "Music show"
+    kind = "music"
+    payload: dict = {}
+
+
+MUSIC_MAX_MINUTES = 6 * 60
+
+
+def build_music(raw: dict, loc) -> dict:
+    """The [music] settings: show length for the button, and show nights
+    (when this app steps aside so the controller's music mode can run)."""
+    mc = raw.get("music") or {}
+    if not isinstance(mc, dict):
+        raise ConfigError("Music settings are damaged.")
+    try:
+        minutes = int(mc.get("minutes", 60))
+    except (TypeError, ValueError):
+        raise ConfigError("Music show length must be a whole number of minutes.") from None
+    if not 5 <= minutes <= MUSIC_MAX_MINUTES:
+        raise ConfigError(f"Music show length must be 5 to {MUSIC_MAX_MINUTES} minutes.")
+    shows_c = mc.get("shows") or []
+    if not isinstance(shows_c, list) or len(shows_c) > 50:
+        raise ConfigError("Up to 50 show nights can be set.")
+    token = {"__music__": _MusicShow()}
+    shows = []
+    for i, c in enumerate(shows_c):
+        if not isinstance(c, dict):
+            raise ConfigError("A show night is damaged.")
+        name = str(c.get("name") or f"Show night {i + 1}").strip()[:60]
+        rule = Rule.from_config(i, {**c, "name": name, "effect": "__music__"}, token)
+        rule.name = name
+        shows.append(rule)
+    names = [r.name for r in shows]
+    if len(names) != len(set(names)):
+        raise ConfigError("Two show nights have the same name. Give each one its own name.")
+    return {"minutes": minutes, "schedule": Schedule(shows, loc) if shows else None,
+            "shows": [{"name": r.name} for r in shows]}
 
 
 def _load_dotenv(path: Path):
@@ -689,6 +762,7 @@ def build_config(raw: dict, secrets: dict, need_secrets: bool = True) -> Config:
         client_id=cid, client_secret=secret,
         ui_password=os.environ.get("TRIMLIGHT_UI_PASSWORD") or None,
         webhook_token=hook,
+        music=build_music(raw, loc),
     )
 
 
