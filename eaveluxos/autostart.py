@@ -112,7 +112,8 @@ def set_enabled(app_dir: Path, enabled: bool) -> dict:
     path.parent.mkdir(parents=True, exist_ok=True)
     if system == "Windows":
         quoted = " ".join(f'""{c}""' if " " in c or "\\" in c else c for c in cmd)
-        path.write_text(f'CreateObject("Wscript.Shell").Run "{quoted}", 0, False\r\n')
+        # Windows Script Host reads .vbs files in the system code page, not UTF-8.
+        path.write_text(f'CreateObject("Wscript.Shell").Run "{quoted}", 0, False\r\n', encoding="locale")
     elif system == "Darwin":
         path.write_text(encoding="utf-8", data=f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

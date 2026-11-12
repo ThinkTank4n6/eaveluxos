@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.7.1: controller backups on Windows
+
+- **Fix:** controller backups made in quick succession could overwrite each
+  other on Windows, whose clock can report the same microsecond twice. Each
+  backup now gets a name of its own (found by GitHub's new Windows test run).
+- 1 new test (132 total).
+
 ## 3.7.0: one data folder on Windows
 
 - **Windows keeps all data in `%LOCALAPPDATA%\EaveLuxOS`**, for every version

@@ -96,6 +96,27 @@ class SafetyOwnership(unittest.TestCase):
             shutil.rmtree(d, ignore_errors=True)
 
 
+class BackupNames(unittest.TestCase):
+    def test_backups_made_in_the_same_clock_tick_are_all_kept(self):
+        """Windows' clock can repeat a microsecond; no backup may overwrite another."""
+        from unittest import mock
+        import eaveluxos.safety as safety_mod
+        d = Path(tempfile.mkdtemp())
+        try:
+            net = SafetyNet(d)
+            frozen = datetime(2026, 12, 10, 12, 0, 0, 123456)
+            with mock.patch.object(safety_mod, "datetime", wraps=datetime) as dt:
+                dt.now.return_value = frozen
+                names = [net._backup("TL-EDGE-01", {"n": i}) for i in range(5)]
+            self.assertEqual(len(set(names)), 5)
+            files = sorted((d / "controller-backups").glob("TL-EDGE-01-2026*.json"))
+            self.assertEqual([json.loads(f.read_text(encoding="utf-8"))["n"] for f in files], [0, 1, 2, 3, 4])   # in order
+            import re
+            self.assertTrue(all(re.fullmatch(r"[A-Za-z0-9_-]+-\d{8}-\d{6}-\d{6}\.json", n) for n in names))   # downloadable
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+
 @unittest.skipUnless(lan_addresses(), "needs a LAN address to act as a phone")
 class Browser(unittest.TestCase):
     @classmethod

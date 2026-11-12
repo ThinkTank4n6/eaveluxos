@@ -64,7 +64,7 @@ def doc_path(name: str) -> Path | None:
         if f.is_file():
             return f
     return None
-VERSION = "3.7.0"
+VERSION = "3.7.1"
 COOKIE = "tls_session"
 MAX_BODY = 2_000_000
 # Headers a reverse proxy or tunnel adds. A request carrying any of them came

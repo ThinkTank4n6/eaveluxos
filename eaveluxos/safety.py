@@ -146,8 +146,19 @@ class SafetyNet:
         original = self.backup_dir / f"{dev_id}-original.json"
         if not original.exists():
             original.write_text(body, encoding="utf-8")
-        name = f"{dev_id}-{datetime.now().strftime('%Y%m%d-%H%M%S-%f')}.json"  # unique, sortable
-        (self.backup_dir / name).write_text(body, encoding="utf-8")
+        # Unique, sortable names. Windows' clock can return the same
+        # microsecond for backups made in quick succession, so never reuse a
+        # name: step forward a microsecond until it's free ("x" refuses to
+        # overwrite).
+        t = datetime.now()
+        while True:
+            name = f"{dev_id}-{t.strftime('%Y%m%d-%H%M%S-%f')}.json"
+            try:
+                with open(self.backup_dir / name, "x", encoding="utf-8") as f:
+                    f.write(body)
+                break
+            except FileExistsError:
+                t += timedelta(microseconds=1)
         files = sorted(f for f in self.backup_dir.glob(f"{dev_id}-*.json") if f != original)
         for old in files[:-20]:
             old.unlink(missing_ok=True)
