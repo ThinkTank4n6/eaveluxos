@@ -45,12 +45,20 @@ jobs:
             dist/*.dmg
             dist/*.deb
             dist/*.tar.gz
-      - if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
+  # One job attaches everything, so the release notes are written once (with
+  # one upload per build machine, each added its own "Full Changelog" line),
+  # and files are attached only when all four builds succeeded.
+  publish:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
         with:
-          files: |
-            dist/*.zip
-            dist/*.dmg
-            dist/*.deb
-            dist/*.tar.gz
+          path: dist
+          merge-multiple: true
+      - run: ls -l dist
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
           generate_release_notes: true

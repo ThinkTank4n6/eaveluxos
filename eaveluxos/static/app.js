@@ -1431,7 +1431,7 @@ VIEWS.map = async () => {
               <div class="row"><input type="text" id="zname" maxlength="60" placeholder="e.g. Garage roof" class="grow" style="flex:1"><button class="small" data-savezone ${F.range ? '' : 'disabled'}>Save ${F.range ? `${F.bulb}–${F.end}` : 'range'}</button></div>
               ${F.range ? '' : '<p class="note">Turn on <b>Select a range</b> in the finder to save a section of roofline.</p>'}
               <div class="list">${md.zones.length ? md.zones.map((z, i) => `<div class="item"><div class="grow"><div class="name">${esc(z.name)}</div><div class="sub">Bulbs ${z.start}–${z.end} (${z.end - z.start + 1})</div></div>
-                <button class="small" data-gozone="${i}">Show</button><button class="small ghost danger" data-delzone="${i}" aria-label="Delete ${esc(z.name)}">✕</button></div>`).join('')
+                <button class="small" data-gozone="${i}">Show</button><button class="small ghost" data-editzone="${i}" aria-label="Edit ${esc(z.name)}">Edit</button><button class="small ghost danger" data-delzone="${i}" aria-label="Delete ${esc(z.name)}">✕</button></div>`).join('')
                 : '<p class="muted small">Zones are named sections, like "garage roof", that you can paint in Create.</p>'}</div></div>
           </div>
         </div>
@@ -1516,6 +1516,7 @@ VIEWS.map = async () => {
       return busy(b, () => saveMap(mp => mp.landmarks.push({ name: nm, bulb: F.bulb, side: F.side }), `Saved \u201c${nm}\u201d as bulb ${F.bulb}`)).then(render).catch(() => {}); }
     if (d.gozone) { const z = md.zones[+d.gozone]; F.range = true; F.bulb = z.start; F.end = z.end; render(); return busy(b, show).catch(() => {}); }
     if (d.delzone) return busy(b, () => saveMap(mp => mp.zones.splice(+d.delzone, 1), 'Zone deleted')).then(render).catch(() => {});
+    if (d.editzone) return zoneDialog(+d.editzone, F, render);
     if (d.savezone !== undefined) { const nm = $('#zname').value.trim(); if (!nm) return toast('Type a zone name first.', true);
       return busy(b, () => saveMap(mp => mp.zones.push({ name: nm, start: F.bulb, end: F.end }), `Saved zone \u201c${nm}\u201d`)).then(render).catch(() => {}); }
     if (d.addside !== undefined) return dialog(`<h2>Add a side</h2><label class="field">Name<input type="text" name="nm" maxlength="30" placeholder="e.g. Shed"></label>`, async f => {
@@ -1847,6 +1848,47 @@ function painterChange(D, t) {
   if (t.id === 'ppick') { P.color = t.value.toUpperCase(); VIEWS.createRender(); return true; }
   if (t.id === 'pzone' && t.value !== '') { const z = mapData().zones[+t.value]; P.from = Math.min(z.start, N); P.to = Math.min(z.end, N); VIEWS.createRender(); return true; }
   return false;
+}
+
+/* Edit a zone: fix its name or bulb numbers (for example after a counting
+   mistake), check it by lighting it, then save. */
+function zoneDialog(i, F, rerender) {
+  const md = mapData(), z = md.zones[i], T = addressSpace();
+  if (!z) return;
+  const read = f => {
+    const name = f.zn.value.trim(), start = Number(f.zs.value), end = Number(f.ze.value);
+    if (!name) throw new Error('Give the zone a name.');
+    if (md.zones.some((o, j) => j !== i && o.name.trim().toLowerCase() === name.toLowerCase())) throw new Error(`There's already a zone named \u201c${name}\u201d.`);
+    if (!Number.isInteger(start) || !Number.isInteger(end)) throw new Error('Bulb numbers must be whole numbers.');
+    if (start < 1 || end > T) throw new Error(`Bulbs go from 1 to ${T}.`);
+    if (end < start) throw new Error('The last bulb can\u2019t be before the first.');
+    return { name, start, end };
+  };
+  dialog(`<h2>Edit zone</h2>
+    <label class="field">Name<input type="text" name="zn" maxlength="60" required value="${esc(z.name)}"></label>
+    <div class="row"><label class="field">First bulb<input type="number" name="zs" min="1" max="${T}" value="${z.start}"></label>
+      <label class="field">Last bulb<input type="number" name="ze" min="1" max="${T}" value="${z.end}"></label></div>
+    <p class="note" data-zcount>${z.end - z.start + 1} bulbs, out of ${T}.</p>
+    <div class="row"><button type="button" class="small" data-zlight>Light these bulbs</button>
+      ${F.range ? `<button type="button" class="small ghost" data-zfinder>Use the finder's range (${F.bulb}\u2013${F.end})</button>` : ''}</div>
+    <p class="note">Light the zone to check it on the house before saving. The schedule comes back by itself 10 minutes after the last change.</p>`,
+    async f => {
+      const v = read(f);
+      await saveMap(mp => { mp.zones[i] = { ...mp.zones[i], ...v }; }, `Zone \u201c${v.name}\u201d saved`);
+      rerender();
+    }, { ok: 'Save zone', onOpen: f => {
+      const count = () => { const a = Number(f.zs.value), b = Number(f.ze.value); $('[data-zcount]', f).textContent = Number.isInteger(a) && Number.isInteger(b) && b >= a ? `${b - a + 1} bulbs, out of ${T}.` : 'Check the bulb numbers.'; };
+      f.zs.oninput = f.ze.oninput = count;
+      f.addEventListener('click', e => {
+        const b = e.target.closest('button'); if (!b) return;
+        if (b.dataset.zfinder !== undefined) { f.zs.value = F.bulb; f.ze.value = F.end; count(); }
+        if (b.dataset.zlight !== undefined) {
+          let v; try { v = read(f); } catch (err) { return toast(err.message, true); }
+          busy(b, () => api('action', { body: { action: 'try', effect: highlightDef(v.start, v.end, T, F.color), minutes: 10 } }))
+            .then(() => toast(`Showing bulbs ${v.start}\u2013${v.end}`)).catch(() => {});
+        }
+      });
+    } });
 }
 
 /* Paint-by-zone dialog for the designer. */

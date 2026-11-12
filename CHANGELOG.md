@@ -1,5 +1,17 @@
 # Changelog
 
+## 3.7.2: editable zones
+
+- **House map zones can be edited:** each zone has an **Edit** button to fix
+  its name or first and last bulb (for example after a counting mistake),
+  with **Light these bulbs** to check it on the house before saving, and
+  **Use the finder's range** to take the bulb finder's selection.
+- **Release notes appear once.** The four build machines used to attach their
+  files to the release one by one, each adding its own "Full Changelog" line.
+  Now one final job attaches everything, and only when all four builds
+  succeeded.
+- 2 new tests (134 total).
+
 ## 3.7.1: controller backups on Windows
 
 - **Fix:** controller backups made in quick succession could overwrite each

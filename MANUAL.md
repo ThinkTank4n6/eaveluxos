@@ -1,7 +1,7 @@
 # EaveLuxOS: User Manual
 ### The Intelligent Lighting Control Platform
 
-Version 3.7.1 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
+Version 3.7.2 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
 
 EaveLuxOS is a free, community-made lighting control platform. Today it runs
 **Trimlight Edge** permanent lights. It is not made, sold, endorsed or
@@ -475,6 +475,13 @@ name and tap **Save bulb N**. A pin on a photo also creates a landmark. Tap
 Zones are named sections, such as "Garage roof = bulbs 84–138". Tick
 **Select a range**, set the first and last bulb, type a name and tap
 **Save**. You can then paint zones in Create (section 11).
+
+To fix a zone (for example if a bulb count was off), tap **Edit** next to it.
+Change the name or the first and last bulb; **Light these bulbs** shows the
+zone on the house so you can check it, and **Use the finder's range** copies
+the bulb finder's current selection. Tap **Save zone**. **Show** lights a zone
+and ✕ deletes it. Patterns you already painted with a zone keep their colors;
+paint them again to use the new bulbs.
 
 ### Address space
 
