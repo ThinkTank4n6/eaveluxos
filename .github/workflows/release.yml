@@ -1,0 +1,56 @@
+# Publish a release with a version tag (for example v3.2.2), or push the tag
+# from the command line, and GitHub tests the code, then builds:
+#   Windows       EaveLuxOS-Windows.zip
+#   macOS         EaveLuxOS-macOS.dmg (Apple silicon)
+#   Linux PC      eaveluxos_<ver>_amd64.deb + EaveLuxOS-Linux-x86_64.tar.gz
+#   Raspberry Pi  eaveluxos_<ver>_arm64.deb + EaveLuxOS-Linux-aarch64.tar.gz (64-bit Pi OS)
+# Linux builds run on Ubuntu 22.04 so they also work on older systems such as
+# Raspberry Pi OS (a program built on newer Linux needs newer system libraries).
+# The arm64 runner is free for public repositories.
+name: Build executables
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install tzdata cryptography
+      - run: python -m unittest
+  build:
+    needs: test
+    strategy:
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-22.04, ubuntu-22.04-arm]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install pyinstaller==6.11.1 pillow==11.0.0 tzdata==2024.2 cryptography==44.0.0
+      - run: python packaging/build.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: EaveLuxOS-${{ matrix.os }}
+          path: |
+            dist/*.zip
+            dist/*.dmg
+            dist/*.deb
+            dist/*.tar.gz
+      - if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.zip
+            dist/*.dmg
+            dist/*.deb
+            dist/*.tar.gz
+          generate_release_notes: true

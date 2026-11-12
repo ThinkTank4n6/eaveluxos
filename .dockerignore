@@ -1,0 +1,13 @@
+.git
+.github
+data
+dist
+build
+tests
+packaging
+**/__pycache__
+*.db
+*.db-*
+.env
+secret.key
+tls

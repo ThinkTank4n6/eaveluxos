@@ -1,0 +1,41 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: MIT. Copyright (c) 2026 Christopher A. Tankelewicz (ThinkTank4n6) -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#171628" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#FFFFFF" media="(prefers-color-scheme: light)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="EaveLuxOS">
+<title>EaveLuxOS · Intelligent Lighting Control</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div class="top" id="top" hidden>
+  <div class="brand">
+    <img class="logo" src="logo-mark.svg" alt="" width="28" height="28">
+    <span class="brandname"><b>EaveLuxOS</b><small>Intelligent lighting control</small></span>
+    <span class="pill" id="pill">Starting…</span>
+    <span class="pill who" id="who" hidden></span>
+  </div>
+  <nav class="ribbon" id="ribbon" aria-label="Sections"></nav>
+</div>
+<p class="callout viewonly" id="viewonly" hidden>You're signed in as a Viewer: you can look around, but changes and light controls are turned off. An Administrator can give you Editor access.</p>
+<main id="main"></main>
+<footer class="legal" id="legal">
+  <span id="legalver">EaveLuxOS</span> · Copyright (c) 2026 Christopher A. Tankelewicz (ThinkTank4n6) ·
+  Released under the <a href="docs/LICENSE.txt" target="_blank" rel="noopener license">MIT License</a>
+</footer>
+<dialog id="dlg"></dialog>
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+<script src="markdown.js"></script>
+<script src="roofline.js"></script>
+<script src="painter.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

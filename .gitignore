@@ -1,0 +1,23 @@
+# NEVER commit your data folder: it holds your Trimlight credentials,
+# password hash, sign-ins, house photos and controller backups.
+data/
+*.db
+*.db-wal
+*.db-shm
+.env
+config.toml
+secrets*.json
+settings*.json
+sessions*.json
+hardware-test-*.txt
+hwtest-backup-*.json
+secret.key
+tls/
+
+# Python and build output
+__pycache__/
+*.pyc
+build/
+dist/
+*.spec
+.venv/

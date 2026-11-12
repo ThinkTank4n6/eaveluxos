@@ -1,0 +1,30 @@
+# SPDX-License-Identifier: MIT
+# EaveLuxOS as a container. Copy env.example to .env first (optional).
+#   docker compose up -d --build
+#   docker compose logs eaveluxos      # shows the 6-digit setup code on first start
+services:
+  eaveluxos:
+    build: .
+    image: eaveluxos:local
+    restart: unless-stopped
+    user: "10001:10001"              # never root
+    read_only: true                  # only /data and /tmp are writable
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 256m
+    env_file:
+      - path: .env
+        required: false
+    ports:
+      # This computer only, unless BIND_ADDRESS is set to the server's LAN
+      # address in .env. Don't publish it to the internet; use a VPN.
+      - "${BIND_ADDRESS:-127.0.0.1}:${HOST_PORT:-8787}:8787"
+    volumes:
+      - eaveluxos-data:/data
+    stop_grace_period: 20s
+volumes:
+  eaveluxos-data:
