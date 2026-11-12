@@ -1,7 +1,7 @@
 # EaveLuxOS: User Manual
 ### The Intelligent Lighting Control Platform
 
-Version 3.6.0 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
+Version 3.7.0 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
 
 EaveLuxOS is a free, community-made lighting control platform. Today it runs
 **Trimlight Edge** permanent lights. It is not made, sold, endorsed or
@@ -159,11 +159,14 @@ install it with your system's software installer (the package is `python3`).
 > **Tip:** Launching it twice is safe. A second launch only opens the browser
 > to the copy that's already running.
 
-> **If it doesn't start:** on Windows a message box explains why. If the app
-> folder can't be written (for example, it's inside Program Files), the app
-> keeps its data in your user folder instead: `%LOCALAPPDATA%\EaveLuxOS`
-> on Windows, `~/Library/Application Support/EaveLuxOS` on a Mac, or
-> `~/.local/share/eaveluxos` on Linux.
+> **If it doesn't start:** on Windows a message box explains why.
+
+> **Where your data is kept:** on **Windows**, always in
+> `%LOCALAPPDATA%\EaveLuxOS` (for example `C:\Users\you\AppData\Local\EaveLuxOS`),
+> whichever version you run, so you never copy it between versions. On a Mac,
+> the app uses `~/Library/Application Support/EaveLuxOS`; on Linux, the
+> `data` folder next to `main.py` (or `~/.local/share/eaveluxos` if that
+> can't be written). **Settings › Setup and about** shows the folder in use.
 
 ## 5. The setup assistant
 
@@ -212,8 +215,8 @@ The app and the Trimlight Edge app shouldn't both be scheduling the lights.
    disable any **calendar events**. Use **Schedule › Import from Trimlight app**
    first (section 13) if you want to keep them.
 
-You can keep using the Trimlight Edge app to design patterns. Trimlight
-Scheduler can use them (see section 10).
+You can keep using the Trimlight Edge app to design patterns. EaveLuxOS
+can use them (see section 10).
 
 > **Good to know:** Every 5 minutes EaveLuxOS checks that the lights
 > are doing what the schedule says. If someone turns them off in the Trimlight
@@ -671,8 +674,8 @@ copying the next few nights into the controller's **own timers**.
 ### What it does
 
 - Each day, and whenever you change the schedule, it writes one controller
-  calendar entry per night. Each entry has that night's pattern and on/off
-  times.
+  calendar entry for each time the lights come on (two a day if you have a
+  morning and an evening rule). Each entry has its pattern and on/off times.
 - The patterns it needs are saved in the controller's library with names
   starting **"Auto "**, such as "Auto Warm white". They take up a few of the
   controller's 60 pattern spaces. Your own patterns in the Trimlight app are
@@ -904,14 +907,34 @@ Export is also a good backup before big changes.
 
 1. Quit the app (**Settings › Quit the app**).
 2. Unzip the new version.
-3. Copy the **data** folder from your old eaveluxos folder into the
-   new one. It holds your database, photos and backups. Versions before 3.0
-   kept settings in JSON files; 3.0 imports them into the database on first
-   start and keeps the old files, renamed `….migrated-….json`.
-4. Start the new version with its launcher.
+3. **Windows:** nothing to copy. Your data stays in `%LOCALAPPDATA%\EaveLuxOS`
+   for every version.
+   **Mac and Linux from source:** copy the **data** folder from your old
+   eaveluxos folder into the new one. It holds your database, photos and
+   backups.
+4. Start the new version with its launcher. On Windows, **Start
+   automatically** switches to the new version by itself.
 
-**Move to a new computer:** install Python on the new computer, copy the whole
-eaveluxos folder (including **data**), and start it there. The
+**First start of 3.7 or newer on Windows:** the app copies your settings
+from the earlier version's `data` folder into `%LOCALAPPDATA%\EaveLuxOS` and
+says where they came from. It looks next to itself and in sibling version
+folders (for example `Downloads\eaveluxos-3.6.0\eaveluxos\data`) and uses the
+most recently used one. The old folder isn't changed; delete it once
+everything looks right. If it picked the wrong one, quit the app, delete
+`%LOCALAPPDATA%\EaveLuxOS`, copy the right `data` folder next to the new
+`main.py`, and start again.
+
+**Portable (USB stick):** put an empty file named `portable.txt` next to
+`main.py` or `EaveLuxOS.exe`; the app then keeps its data in `data` next to
+itself on Windows too.
+
+Versions before 3.0 kept settings in JSON files; 3.0 imports them into the
+database on first start and keeps the old files, renamed
+`….migrated-….json`.
+
+**Move to a new computer:** install Python on the new computer, copy the
+eaveluxos folder and your data folder (on Windows `%LOCALAPPDATA%\EaveLuxOS`;
+put it in the same place on the new computer), and start it there. The
 safety net picks up where it left off, because its records are in the data
 folder. Turn off
 **Start automatically** on the old computer and quit the app there first.
@@ -921,7 +944,8 @@ Two computers running it at once would both control the lights.
 
 1. Turn off **Start automatically**.
 2. Quit the app.
-3. Delete the folder.
+3. Delete the app folder, and on Windows also `%LOCALAPPDATA%\EaveLuxOS`
+   (your settings; keep a copy if you might come back).
 
 Nothing else is left on the computer.
 
@@ -1001,7 +1025,7 @@ Sharing it helps other Trimlight owners know what works on their firmware.
 | I changed something and want it back | **Settings › Version history**: tap **Restore** next to an earlier save (section 19). |
 | Forgot a password | Ask an Administrator to set a new one under **Settings › Accounts**, or on the app computer run `python3 main.py reset-password NAME`. |
 | "This account can only view" | You're signed in as a Viewer. An Administrator can make you an Editor. |
-| Something else | The log is in **data/eaveluxos.log** in the app folder. |
+| Something else | The log is **eaveluxos.log** in your data folder (on Windows `%LOCALAPPDATA%\EaveLuxOS`). |
 
 ## 25. Questions and answers
 
@@ -1044,9 +1068,11 @@ app or internet is down.
 
 **What does the app keep on my computer, and is anything stored on the
 controller?** Your settings, patterns, schedule, house map, version history,
-credentials and sign-ins are in one database file, `data/eaveluxos.db`.
-Readable only by your account, it's a standard SQLite file. Photos, controller
-backups and the log are in the same `data` folder.
+credentials and sign-ins are in one database file, `eaveluxos.db`, in your
+data folder (on Windows `%LOCALAPPDATA%\EaveLuxOS`; elsewhere usually `data`
+next to the app; see section 4). Readable only by your account, it's a
+standard SQLite file. Photos, controller backups and the log are in the same
+folder.
 
 Nothing has to be stored on the controller. The app writes to it only when
 you ask: the safety net's copy of the coming nights, and patterns you choose
@@ -1054,7 +1080,7 @@ to also add to the Trimlight app's library.
 
 To back everything up while the app runs, use
 `python3 main.py backup ~/trimlight-backup.db`. Or quit the app and copy the
-`data` folder.
+data folder.
 
 **Is my information safe?**
 - Your secret stays on the app computer, in `data/eaveluxos.db`, readable only

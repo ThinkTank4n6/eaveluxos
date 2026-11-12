@@ -1,7 +1,7 @@
 # EaveLuxOS
 ### The Intelligent Lighting Control Platform
 
-By **Christopher A. Tankelewicz (ThinkTank4n6)** · MIT License · version 3.6.0
+By **Christopher A. Tankelewicz (ThinkTank4n6)** · MIT License · version 3.7.0
 
 EaveLuxOS currently works with **Trimlight Edge** permanent-lighting controllers.
 Its scheduling, mapping and design tools are built to grow to other brands.
@@ -85,7 +85,9 @@ computer.
 - Unzip it into a folder you'll keep and double-click `EaveLuxOS.exe`.
 - If Windows says "Windows protected your PC", click **More info › Run
   anyway** (the app isn't code-signed).
-- Settings are kept in a `data` folder next to the program.
+- Settings are kept in `%LOCALAPPDATA%\EaveLuxOS` (for example
+  `C:\Users\you\AppData\Local\EaveLuxOS`), the same folder for every version,
+  so updating is just unzipping the new version and starting it.
 
 **Mac (Apple silicon, M1 and newer):** `EaveLuxOS-macOS.dmg`
 - Open it and drag **EaveLuxOS** into **Applications**.
@@ -231,6 +233,23 @@ dropped and `no-new-privileges`. By default it only listens on the server
 itself (`127.0.0.1:8787`); set `BIND_ADDRESS` in `.env` to the server's LAN
 address to use it from phones. Nobody counts as "this computer" in a
 container, so everyone signs in, starting with the setup code from the log.
+
+## Where your data is kept
+
+- **Windows:** always `%LOCALAPPDATA%\EaveLuxOS`, whichever version or copy
+  of the app you run (from source or the `.exe`). The first time 3.7 or newer
+  starts, it copies your settings there from the earlier version's `data`
+  folder (the newest one it finds next to it or in a sibling version folder,
+  such as `Downloads\eaveluxos-3.6.0\eaveluxos\data`); the old folder is left
+  as it was. "Start automatically" is also switched to the copy you run.
+  For a USB stick, put an empty `portable.txt` next to `main.py` or
+  `EaveLuxOS.exe` to keep data in `data` next to the app instead.
+- **Mac app:** `~/Library/Application Support/EaveLuxOS`.
+- **Linux and Raspberry Pi packages:** `~/.local/share/eaveluxos`; from source,
+  `data` next to `main.py`.
+- **Container:** the `eaveluxos-data` volume.
+
+**Settings › Setup and about** shows the folder in use.
 
 ## Home Assistant example
 

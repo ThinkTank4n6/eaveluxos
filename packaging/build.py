@@ -31,7 +31,7 @@ SEP = ";" if os.name == "nt" else ":"
 
 
 def version() -> str:
-    m = re.search(r'VERSION = "([^"]+)"', (ROOT / "eaveluxos" / "server.py").read_text())
+    m = re.search(r'VERSION = "([^"]+)"', (ROOT / "eaveluxos" / "server.py").read_text(encoding="utf-8"))
     return m.group(1) if m else "0.0.0"
 
 
@@ -120,7 +120,10 @@ def package_linux(binary: Path, ver: str, machine: str) -> list[Path]:
     # portable folder
     tar_out = DIST / f"EaveLuxOS-Linux-{machine}.tar.gz"
     with tarfile.open(tar_out, "w:gz") as t:
-        t.add(binary, "EaveLuxOS/eaveluxos")
+        def executable(ti):
+            ti.mode = 0o755   # Windows file systems don't keep the execute bit
+            return ti
+        t.add(binary, "EaveLuxOS/eaveluxos", filter=executable)
         for doc in DOCS:
             t.add(ROOT / doc, f"EaveLuxOS/{doc}")
     outs.append(tar_out)
@@ -137,7 +140,7 @@ def package_linux(binary: Path, ver: str, machine: str) -> list[Path]:
         shutil.copy(binary, root / "opt/eaveluxos/eaveluxos")
         os.chmod(root / "opt/eaveluxos/eaveluxos", 0o755)
         (root / "usr/bin/eaveluxos").symlink_to("/opt/eaveluxos/eaveluxos")
-        (root / "usr/share/applications/eaveluxos.desktop").write_text(DESKTOP.format(exec="/opt/eaveluxos/eaveluxos"))
+        (root / "usr/share/applications/eaveluxos.desktop").write_text(DESKTOP.format(exec="/opt/eaveluxos/eaveluxos"), encoding="utf-8")
         shutil.copy(ICON, root / "usr/share/icons/hicolor/512x512/apps/eaveluxos.png")
         for doc in ("README.md", "MANUAL.md", "CHANGELOG.md"):
             shutil.copy(ROOT / doc, root / f"usr/share/doc/eaveluxos/{doc}")
@@ -154,7 +157,7 @@ def package_linux(binary: Path, ver: str, machine: str) -> list[Path]:
             "Description: EaveLuxOS - The Intelligent Lighting Control Platform\n"
             " True sunrise/sunset scheduling, a pattern designer, house map and safety\n"
             " net for Trimlight Edge permanent lighting controllers. Settings are kept\n"
-            " per user in ~/.local/share/eaveluxos. Not affiliated with Trimlight.\n")
+            " per user in ~/.local/share/eaveluxos. Not affiliated with Trimlight.\n", encoding="utf-8")
         deb_out = DIST / f"eaveluxos_{ver}_{arch}.deb"
         subprocess.run(["dpkg-deb", "--root-owner-group", "--build", str(root), str(deb_out)], check=True,
                        stdout=subprocess.DEVNULL)

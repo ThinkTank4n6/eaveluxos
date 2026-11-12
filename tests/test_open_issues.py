@@ -2,6 +2,7 @@
 # Copyright (c) 2026 Christopher A. Tankelewicz (ThinkTank4n6)
 """Regression tests for the open-issues sweep (2.4.0)."""
 import json
+import os
 import shutil
 import tempfile
 import unittest
@@ -28,8 +29,8 @@ class Storage(unittest.TestCase):
         d = self.base / "data"
         d.mkdir()
         (d / "settings.json").write_text(json.dumps({"effects": {"mine": {"colors": ["#FF0000"], "counts": [1]}},
-                                                     "rules": [{"name": "N", "on": "sunset", "off": "23:00", "effect": "mine"}], "_rev": 7}))
-        (d / "secrets.json").write_text(json.dumps({"client_id": "abc", "client_secret": "s3"}))
+                                                     "rules": [{"name": "N", "on": "sunset", "off": "23:00", "effect": "mine"}], "_rev": 7}), encoding="utf-8")
+        (d / "secrets.json").write_text(json.dumps({"client_id": "abc", "client_secret": "s3"}), encoding="utf-8")
         st = Store(self.base)
         self.assertIn("mine", st.settings["effects"])
         self.assertEqual(st.settings["rules"][0]["name"], "N")
@@ -38,13 +39,14 @@ class Storage(unittest.TestCase):
         names = sorted(f.name for f in d.iterdir())
         self.assertTrue(any(n.startswith("settings.migrated-") for n in names))
         self.assertTrue(any(n.startswith("secrets.migrated-") for n in names))
-        self.assertEqual(oct(os.stat(d / "eaveluxos.db").st_mode & 0o777), "0o600")
+        if os.name != "nt":   # Windows uses ACLs, not mode bits (see store._restrict_windows)
+            self.assertEqual(oct(os.stat(d / "eaveluxos.db").st_mode & 0o777), "0o600")
 
     def test_damaged_legacy_file_is_kept_and_last_good_used(self):
         d = self.base / "data"
         d.mkdir()
-        (d / "settings.last-good.json").write_text(json.dumps({"effects": {"good": {"colors": ["#00FF00"], "counts": [1]}}}))
-        (d / "settings.json").write_text('{"effects": {"x": 1}, oops}')
+        (d / "settings.last-good.json").write_text(json.dumps({"effects": {"good": {"colors": ["#00FF00"], "counts": [1]}}}), encoding="utf-8")
+        (d / "settings.json").write_text('{"effects": {"x": 1}, oops}', encoding="utf-8")
         st = Store(self.base)
         self.assertIn("good", st.settings["effects"])
         self.assertTrue(st.warnings and "line" in st.warnings[0])
@@ -296,10 +298,11 @@ class Https(unittest.TestCase):
         d = Path(tempfile.mkdtemp())
         try:
             (d / "data" / "tls").mkdir(parents=True)
-            r = subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "2", "-subj", "/CN=localhost",
-                                "-keyout", str(d / "data/tls/key.pem"), "-out", str(d / "data/tls/cert.pem")], capture_output=True)
-            if r.returncode != 0:
-                self.skipTest("openssl not available")
+            try:   # the app's own make-cert (no openssl needed, so this runs on Windows too)
+                from eaveluxos.tlscert import make_cert
+                make_cert(d / "data" / "tls")
+            except RuntimeError:
+                self.skipTest("the cryptography package isn't installed")
             app = App(d)
             srv = make_server(app, "127.0.0.1", 0)
             port = srv.server_address[1]
@@ -360,7 +363,7 @@ class HardwareTestScript(unittest.TestCase):
             out = []
             code = hwtest.run(st, st.dir, ask=lambda q: answers, say=out.append, sleep=lambda s: None,
                               now=lambda: datetime(2026, 11, 20, 12, 0).astimezone())
-            report = next(st.dir.glob("hardware-test-*.txt")).read_text()
+            report = next(st.dir.glob("hardware-test-*.txt")).read_text(encoding="utf-8")
             after = F.STATE["dev"]
             return code, report, before, after
         finally:
@@ -418,12 +421,12 @@ class RenameCarryOver(unittest.TestCase):
                 run.return_value.returncode = 0
                 old = home / ".config/systemd/user/trimlight-scheduler.service"
                 old.parent.mkdir(parents=True)
-                old.write_text("[Service]\nEnvironment=TRIMLIGHT_SUPERVISED=1\n")
+                old.write_text("[Service]\nEnvironment=TRIMLIGHT_SUPERVISED=1\n", encoding="utf-8")
                 self.assertTrue(autostart.status(Path("/app"))["enabled"])
                 self.assertTrue(autostart.migrate_legacy(Path("/app")))
                 self.assertFalse(old.exists())
                 new = home / ".config/systemd/user/eaveluxos.service"
-                self.assertIn("EAVELUXOS_SUPERVISED=1", new.read_text())
+                self.assertIn("EAVELUXOS_SUPERVISED=1", new.read_text(encoding="utf-8"))
                 self.assertFalse(autostart.migrate_legacy(Path("/app")))   # nothing left to do
         finally:
             shutil.rmtree(home, ignore_errors=True)
@@ -454,7 +457,7 @@ class SecondRenameCarryOver(unittest.TestCase):
                 run.return_value.returncode = 0
                 old = home / ".config/systemd/user/lumaos.service"
                 old.parent.mkdir(parents=True)
-                old.write_text("[Service]\\n")
+                old.write_text("[Service]\\n", encoding="utf-8")
                 self.assertTrue(autostart.migrate_legacy(Path("/app")))
                 self.assertFalse(old.exists())
                 self.assertTrue((home / ".config/systemd/user/eaveluxos.service").exists())
@@ -472,8 +475,9 @@ class Executable(unittest.TestCase):
                 f"sys.path.insert(0, {str(root)!r}); import main; "
                 "from eaveluxos import autostart; "
                 "print(main.HERE); print(autostart.launch_command(main.HERE))")
-        out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, cwd=root).stdout.split("\n")
-        self.assertEqual(out[0], "/opt/EaveLuxOS")                       # data lives next to the executable
+        out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=root).stdout.split("\n")
+        # (On Windows, /opt/EaveLuxOS resolves to C:\\opt\\EaveLuxOS.)
+        self.assertEqual(out[0], str(Path("/opt/EaveLuxOS/EaveLuxOS").resolve().parent))   # data lives next to the executable
         self.assertEqual(out[1], "['/opt/EaveLuxOS/EaveLuxOS', 'run']")  # autostart and port moves run the exe
 
     def test_gitignore_keeps_private_data_out(self):
@@ -486,11 +490,11 @@ class Executable(unittest.TestCase):
             sh.copy(root / ".gitignore", d / ".gitignore")
             (d / "data" / "photos").mkdir(parents=True)
             for f in ("data/eaveluxos.db", "data/eaveluxos.db-wal", "data/photos/front.jpg", "data/settings.last-good.json"):
-                (d / f).write_text("private")
-            (d / "main.py").write_text("print(1)")
+                (d / f).write_text("private", encoding="utf-8")
+            (d / "main.py").write_text("print(1)", encoding="utf-8")
             subprocess.run(["git", "init", "-q"], cwd=d, check=True)
             subprocess.run(["git", "add", "-A"], cwd=d, check=True)
-            staged = subprocess.run(["git", "diff", "--cached", "--name-only"], cwd=d, capture_output=True, text=True).stdout.split()
+            staged = subprocess.run(["git", "diff", "--cached", "--name-only"], cwd=d, capture_output=True, text=True, encoding="utf-8", errors="replace").stdout.split()
             self.assertEqual(sorted(staged), [".gitignore", "main.py"])
         finally:
             sh.rmtree(d, ignore_errors=True)
@@ -531,7 +535,7 @@ class Packaging(unittest.TestCase):
         b.DIST = tmp / "dist"
         try:
             exe = tmp / "eaveluxos"
-            exe.write_text("#!/bin/sh\necho ok\n")
+            exe.write_text("#!/bin/sh\necho ok\n", encoding="utf-8")
             exe.chmod(0o755)
             outs = b.package_linux(exe, "9.9.9", "aarch64")
             tar = next(o for o in outs if o.suffix == ".gz")
@@ -540,9 +544,9 @@ class Packaging(unittest.TestCase):
             if sh.which("dpkg-deb"):
                 deb = next(o for o in outs if o.suffix == ".deb")
                 self.assertEqual(deb.name, "eaveluxos_9.9.9_arm64.deb")                # Raspberry Pi OS 64-bit
-                info = subprocess.run(["dpkg-deb", "-f", str(deb), "Architecture", "Version"], capture_output=True, text=True).stdout
+                info = subprocess.run(["dpkg-deb", "-f", str(deb), "Architecture", "Version"], capture_output=True, text=True, encoding="utf-8", errors="replace").stdout
                 self.assertIn("arm64", info)
-                files = subprocess.run(["dpkg-deb", "-c", str(deb)], capture_output=True, text=True).stdout
+                files = subprocess.run(["dpkg-deb", "-c", str(deb)], capture_output=True, text=True, encoding="utf-8", errors="replace").stdout
                 for f in ("./opt/eaveluxos/eaveluxos", "./usr/bin/eaveluxos", "eaveluxos.desktop", "apps/eaveluxos.png"):
                     self.assertIn(f, files)
         finally:

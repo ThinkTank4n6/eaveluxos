@@ -99,7 +99,7 @@ def _restrict_windows(path: Path, folder: bool = False) -> bool:
 def _atomic_write(path: Path, data: dict, private=False):
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=path.name, suffix=".tmp")
-    with os.fdopen(fd, "w") as f:
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
     if private:
         if os.name == "nt":
@@ -162,23 +162,57 @@ def _writable(d: Path) -> bool:
     try:
         d.mkdir(parents=True, exist_ok=True)
         probe = d / f".write-test-{os.getpid()}"
-        probe.write_text("ok")
+        probe.write_text("ok", encoding="utf-8")
         probe.unlink()
         return True
     except OSError:
         return False
 
 
+def _system() -> str:
+    import platform
+    return platform.system()
+
+
+DB_NAMES = ("eaveluxos.db", "lumaos.db", "trimlight.db")   # current name and earlier ones
+
+
+def portable(base: Path) -> bool:
+    """Portable mode keeps data in ./data next to the app on Windows too (for
+    running from a USB stick): a file named portable.txt next to main.py or
+    EaveLuxOS.exe, or EAVELUXOS_PORTABLE=1."""
+    return os.environ.get("EAVELUXOS_PORTABLE") == "1" or (base / "portable.txt").exists()
+
+
+def windows_home() -> Path:
+    return Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local") / "EaveLuxOS"
+
+
 def resolve_data_dir(base: Path) -> Path:
-    """Data normally lives in ./data next to main.py. If that folder can't be
-    written (for example the app was unzipped into Program Files), use the
-    per-user app-data folder instead of failing. EAVELUXOS_DATA_DIR overrides
-    both (the container image uses /data)."""
+    """Where the app keeps its data.
+    - EAVELUXOS_DATA_DIR, if set (the container image uses /data).
+    - Windows (3.7): always %LOCALAPPDATA%\\EaveLuxOS, so every version and
+      every copy of the app finds the same settings; updating is just unzip
+      and start. Earlier versions used ./data; Store moves it over once.
+      Portable mode (see portable()) keeps ./data instead.
+    - Elsewhere: ./data next to main.py, or the per-user app-data folder when
+      that can't be written (or inside a Mac app bundle)."""
     forced = os.environ.get("EAVELUXOS_DATA_DIR")
     if forced:
         root = Path(forced)
         if not _writable(root):
             raise OSError(f"EAVELUXOS_DATA_DIR ({root}) can't be written by this user.")
+        return root
+    if _system() == "Windows" and not portable(base):
+        root = windows_home()
+        for old in ("LumaOS", "TrimlightScheduler"):       # folders from before a rename
+            if not root.exists() and (root.parent / old).is_dir():
+                try:
+                    os.replace(root.parent / old, root)
+                except OSError:
+                    pass
+        if not _writable(root):
+            raise OSError(f"{root} can't be written by this user.")
         return root
     local = base / "data"
     # Never write inside a Mac app bundle (EaveLuxOS.app/Contents/MacOS):
@@ -186,8 +220,7 @@ def resolve_data_dir(base: Path) -> Path:
     in_app_bundle = any(p.suffix == ".app" for p in base.parents) or base.suffix == ".app"
     if not in_app_bundle and _writable(local):
         return local
-    import platform
-    system = platform.system()
+    system = _system()
     if system == "Windows":
         parent, new, olds = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local"), "EaveLuxOS", ("LumaOS", "TrimlightScheduler")
     elif system == "Darwin":
@@ -204,6 +237,78 @@ def resolve_data_dir(base: Path) -> Path:
     if not _writable(root):
         raise OSError(f"Neither {local} nor {root} can be written. Move the app folder somewhere you can save files, such as Documents.")
     return root
+
+
+def has_install(d: Path) -> bool:
+    """Does folder d hold EaveLuxOS data (a database, or a pre-3.0 JSON install)?"""
+    return any((d / n).is_file() for n in DB_NAMES) or ((d / "settings.json").is_file() and (d / "secrets.json").is_file())
+
+
+def previous_data_dir(base: Path, exclude: Path | None = None) -> Path | None:
+    """The data folder of an earlier copy of the app: ./data next to this one,
+    or in a sibling version folder such as Downloads\\eaveluxos-3.6.0\\eaveluxos\\data
+    (also EaveLuxOS-Windows\\EaveLuxOS\\data). Only folders that sit next to an
+    EaveLuxOS program count. The most recently used one wins."""
+    def is_app(folder: Path) -> bool:
+        return any((folder / n).is_file() for n in ("main.py", "EaveLuxOS.exe", "EaveLuxOS-cli.exe"))
+    found, seen = [], set()
+    candidates = [base / "data"]
+    # Unzipped as Downloads\\eaveluxos-3.6.0\\eaveluxos (version folder) or straight
+    # into Downloads\\eaveluxos: look one and two levels around both.
+    for parent, pattern in ((base.parent, "*/data"), (base.parent, "*/*/data"), (base.parent.parent, "*/*/data")):
+        try:
+            candidates += sorted(parent.glob(pattern))[:200]
+        except OSError:
+            pass
+    for d in candidates:
+        try:
+            if (exclude and d.resolve() == exclude.resolve()) or d.resolve() in seen:
+                continue
+            seen.add(d.resolve())
+            if d.is_dir() and is_app(d.parent) and has_install(d):
+                used = max((f.stat().st_mtime for f in d.iterdir() if f.is_file()), default=0)
+                found.append((d == base / "data", used, d))
+        except OSError:
+            continue
+    if not found:
+        return None
+    return max(found)[2]   # this copy's own ./data first, then the most recent
+
+
+def copy_install(src: Path, dest: Path) -> None:
+    """Copy an install's data folder: the database through SQLite's backup (a
+    consistent copy even with WAL files), everything else as files. Files
+    already in dest are kept. The source is never changed."""
+    dest.mkdir(parents=True, exist_ok=True)
+    if os.name == "nt":
+        _restrict_windows(dest, folder=True)        # before copying, so the files inherit it
+    db = next((src / n for n in DB_NAMES if (src / n).is_file()), None)
+    if db and not (dest / "eaveluxos.db").exists():
+        tmp = dest / "eaveluxos.db.copying"
+        tmp.unlink(missing_ok=True)
+        s_con = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=10)
+        d_con = sqlite3.connect(tmp)
+        try:
+            s_con.backup(d_con)
+        finally:
+            d_con.close()
+            s_con.close()
+        os.replace(tmp, dest / "eaveluxos.db")
+    import shutil
+    skip = {n + x for n in DB_NAMES for x in ("", "-wal", "-shm")}
+    for f in src.rglob("*"):
+        rel = f.relative_to(src)
+        if rel.parts[0] in skip or f.name.endswith(".copying"):
+            continue
+        target = dest / rel
+        try:
+            if f.is_dir():
+                target.mkdir(parents=True, exist_ok=True)
+            elif not target.exists():
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(f, target)
+        except OSError:
+            pass   # a log file in use, for example; nothing important
 
 
 class Conflict(Exception):
@@ -252,7 +357,7 @@ def read_service_settings(data_dir: Path) -> dict:
                 con.close()
             return json.loads(row[0]) if row else {}
         legacy = data_dir / "settings.json"
-        return json.loads(legacy.read_text()).get("service", {}) if legacy.exists() else {}
+        return json.loads(legacy.read_text(encoding="utf-8")).get("service", {}) if legacy.exists() else {}
     except (sqlite3.Error, OSError, ValueError, AttributeError):
         return {}
 
@@ -261,6 +366,13 @@ class Store:
     def __init__(self, base: Path):
         self.base = base
         self.dir = resolve_data_dir(base)
+        self.moved_from = None
+        if (_system() == "Windows" and not portable(base) and not os.environ.get("EAVELUXOS_DATA_DIR")
+                and not has_install(self.dir)):
+            src = previous_data_dir(base, exclude=self.dir)
+            if src:
+                copy_install(src, self.dir)
+                self.moved_from = src
         self.db_path = self.dir / "eaveluxos.db"
         self.last_good_path = self.dir / "settings.last-good.json"
         for old_name in ("lumaos.db", "trimlight.db"):    # earlier names: LumaOS, Trimlight Scheduler
@@ -272,6 +384,10 @@ class Store:
                         os.replace(f, Path(str(self.db_path) + suffix))
         self.lock = threading.RLock()
         self.warnings: list[str] = []   # shown in the app (e.g. a recovered database)
+        if self.moved_from:
+            self.warnings.append(f"Your settings were brought over from {self.moved_from} to {self.dir}. Every version of "
+                                 "EaveLuxOS now uses that folder, so to update you just unzip the new version and start it. "
+                                 "The old data folder isn't used any more; you can delete it once everything looks right.")
         self._cache, self._cache_rev = None, None
         self._sec_cache, self._sec_rev = None, None
         self.con = self._open()
@@ -288,13 +404,21 @@ class Store:
     # ---------------------------------------------------------------- database
     def _connect(self):
         con = sqlite3.connect(self.db_path, timeout=10, check_same_thread=False, isolation_level=None)
+        try:
+            self._prepare(con)
+        except BaseException:
+            con.close()   # otherwise Windows can't move a damaged file aside
+            raise
+        return con
+
+    @staticmethod
+    def _prepare(con):
         con.execute("PRAGMA journal_mode=WAL")
         con.execute("PRAGMA synchronous=FULL")      # survive a power cut mid-save
         con.execute("PRAGMA foreign_keys=ON")
         con.executescript(_SCHEMA)
         if "user_id" not in {r[1] for r in con.execute("PRAGMA table_info(sessions)")}:
             con.execute("ALTER TABLE sessions ADD COLUMN user_id TEXT")   # accounts (3.4)
-        return con
 
     def _open(self):
         new = not self.db_path.exists()
@@ -535,7 +659,7 @@ class Store:
     @staticmethod
     def _read(path: Path):
         try:
-            return json.loads(path.read_text())
+            return json.loads(path.read_text(encoding="utf-8"))
         except (FileNotFoundError, ValueError, OSError):
             return None
 

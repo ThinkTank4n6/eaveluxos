@@ -100,7 +100,7 @@ def run(store, data_dir: Path, ask=input, say=print, sleep=time.sleep, now=lambd
     # 2. read and back up ----------------------------------------------------
     det = api.get_device(dev_id, now())   # this also sends the current time (step 3 checks it)
     backup = data_dir / f"hwtest-backup-{dev_id}-{time.strftime('%Y%m%d-%H%M%S')}.json"
-    backup.write_text(json.dumps(det, indent=2))
+    backup.write_text(json.dumps(det, indent=2), encoding="utf-8")
     ports = det.get("ports", [])
     total = max([p.get("end", 0) for p in ports] + [1])
     rep.info += [f"Controller: {det.get('name')}  firmware {det.get('fwVersionName')}  chip {det.get('ic')}  order {det.get('colorOrder')}",
@@ -233,7 +233,7 @@ def run(store, data_dir: Path, ask=input, say=print, sleep=time.sleep, now=lambd
 
 def _finish(rep: Report, data_dir: Path, say) -> int:
     path = data_dir / f"hardware-test-{time.strftime('%Y%m%d-%H%M%S')}.txt"
-    path.write_text(rep.text())
+    path.write_text(rep.text(), encoding="utf-8")
     say("\n" + rep.text())
     say(f"Saved to {path}. Start the app again; it puts your schedule back on the lights.")
     return 0 if not any(r[1] == "FAIL" for r in rep.rows) else 1

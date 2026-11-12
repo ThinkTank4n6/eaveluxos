@@ -5,6 +5,7 @@ passwords, AES-GCM secrets at rest, short sliding sessions, password
 re-entry for security changes from phones, and make-cert."""
 import hashlib
 import json
+import os
 import shutil
 import sqlite3
 import ssl
@@ -157,7 +158,8 @@ class SecretsAtRest(unittest.TestCase):
         self.assertTrue(all(v.startswith("enc1:") for v in raw.values()))
         self.assertNotIn(b"s3cr3t-value-1234", (st.dir / "eaveluxos.db").read_bytes())
         self.assertEqual(st.secrets["client_secret"], "s3cr3t-value-1234")
-        self.assertEqual(oct((st.dir / "secret.key").stat().st_mode & 0o777), "0o600")
+        if os.name != "nt":   # Windows uses ACLs, not mode bits (see store._restrict_windows)
+            self.assertEqual(oct((st.dir / "secret.key").stat().st_mode & 0o777), "0o600")
         st.close()
         st2 = Store(self.dir)                                  # reopens with the same key
         self.assertEqual(st2.secrets["client_id"], "cid-1")
@@ -249,7 +251,8 @@ class MakeCert(unittest.TestCase):
             san = x509.load_pem_x509_certificate(cert.read_bytes()).extensions.get_extension_for_class(
                 x509.SubjectAlternativeName).value
             self.assertIn("lights.example.lan", san.get_values_for_type(x509.DNSName))
-            self.assertEqual(oct((d / "key.pem").stat().st_mode & 0o777), "0o600")
+            if os.name != "nt":   # Windows uses ACLs, not mode bits (see store._restrict_windows)
+                self.assertEqual(oct((d / "key.pem").stat().st_mode & 0o777), "0o600")
             with self.assertRaises(RuntimeError):
                 make_cert(d)                                    # won't overwrite without --force
         finally:

@@ -16,7 +16,7 @@ HERE = Path(__file__).resolve().parent
 class Painter(unittest.TestCase):
     @unittest.skipUnless(shutil.which("node"), "Node.js isn't installed")
     def test_painter_js(self):
-        r = subprocess.run(["node", str(HERE / "painter_check.js")], capture_output=True, text=True, timeout=60)
+        r = subprocess.run(["node", str(HERE / "painter_check.js")], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
         self.assertEqual(r.returncode, 0, r.stderr)
 
     def test_server_accepts_painted_patterns_and_enforces_limits(self):

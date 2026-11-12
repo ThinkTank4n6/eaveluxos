@@ -65,7 +65,7 @@ class SafetyNet:
         self.backup_dir = data_dir / "controller-backups"
         self.lock = threading.RLock()
         try:
-            self.state = json.loads(self.path.read_text())
+            self.state = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             self.state = {}
         self.state.setdefault("devices", {})
@@ -80,7 +80,7 @@ class SafetyNet:
 
     def _save(self):
         tmp = self.path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(self.state, indent=2))
+        tmp.write_text(json.dumps(self.state, indent=2), encoding="utf-8")
         os.replace(tmp, self.path)
 
     def ready(self, dev_id: str, today: date) -> bool:
@@ -145,9 +145,9 @@ class SafetyNet:
         body = json.dumps(detail, indent=2)
         original = self.backup_dir / f"{dev_id}-original.json"
         if not original.exists():
-            original.write_text(body)
+            original.write_text(body, encoding="utf-8")
         name = f"{dev_id}-{datetime.now().strftime('%Y%m%d-%H%M%S-%f')}.json"  # unique, sortable
-        (self.backup_dir / name).write_text(body)
+        (self.backup_dir / name).write_text(body, encoding="utf-8")
         files = sorted(f for f in self.backup_dir.glob(f"{dev_id}-*.json") if f != original)
         for old in files[:-20]:
             old.unlink(missing_ok=True)

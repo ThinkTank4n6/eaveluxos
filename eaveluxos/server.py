@@ -64,7 +64,7 @@ def doc_path(name: str) -> Path | None:
         if f.is_file():
             return f
     return None
-VERSION = "3.6.0"
+VERSION = "3.7.0"
 COOKIE = "tls_session"
 MAX_BODY = 2_000_000
 # Headers a reverse proxy or tunnel adds. A request carrying any of them came
@@ -979,7 +979,7 @@ def make_server(app: App, host: str, port: int):
                 f = app.safety.backup_dir / name
                 if not f.is_file():
                     raise ApiError("That backup no longer exists.", 404)
-                return json.loads(f.read_text())
+                return json.loads(f.read_text(encoding="utf-8"))
             if path == "/api/export":
                 data = copy.deepcopy(app.store.settings)
                 for k in ("location", "service", "setup_done", "_rev", "controller", "map", "safety"):

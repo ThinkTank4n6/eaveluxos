@@ -49,11 +49,11 @@ class Container(unittest.TestCase):
             app.store.close()
 
     def test_image_and_compose_never_run_as_root(self):
-        df = (ROOT / "Dockerfile").read_text()
+        df = (ROOT / "Dockerfile").read_text(encoding="utf-8")
         users = re.findall(r"^USER\s+(\S+)", df, re.M)
         self.assertEqual(users[-1], "10001:10001")
         self.assertIn("EAVELUXOS_DATA_DIR=/data", df)
-        compose = (ROOT / "compose.yaml").read_text()
+        compose = (ROOT / "compose.yaml").read_text(encoding="utf-8")
         for needle in ('user: "10001:10001"', "read_only: true", "cap_drop: [ALL]", "no-new-privileges:true",
                        "${BIND_ADDRESS:-127.0.0.1}"):
             self.assertIn(needle, compose)

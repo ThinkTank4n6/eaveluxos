@@ -72,6 +72,23 @@ def migrate_legacy(app_dir: Path) -> bool:
     return True
 
 
+def repoint(app_dir: Path) -> bool:
+    """Windows: if "Start automatically" is on but starts another copy of the
+    app (an older version's folder), make it start this one. Returns True if
+    it changed anything."""
+    system, path = _paths(app_dir)
+    if system != "Windows" or not path.exists():
+        return False
+    target = str(Path(launch_command(app_dir)[-2 if not getattr(sys, "frozen", False) else 0]))
+    try:
+        if target in path.read_text(encoding="locale", errors="replace"):
+            return False
+        set_enabled(app_dir, True)
+    except (OSError, RuntimeError):
+        return False
+    return True
+
+
 def status(app_dir: Path) -> dict:
     system, path = _paths(app_dir)
     note = None
@@ -97,7 +114,7 @@ def set_enabled(app_dir: Path, enabled: bool) -> dict:
         quoted = " ".join(f'""{c}""' if " " in c or "\\" in c else c for c in cmd)
         path.write_text(f'CreateObject("Wscript.Shell").Run "{quoted}", 0, False\r\n')
     elif system == "Darwin":
-        path.write_text(f"""<?xml version="1.0" encoding="UTF-8"?>
+        path.write_text(encoding="utf-8", data=f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
   <key>Label</key><string>com.eaveluxos</string>
@@ -109,7 +126,7 @@ def set_enabled(app_dir: Path, enabled: bool) -> dict:
 </dict></plist>
 """)
     else:
-        path.write_text(f"""[Unit]
+        path.write_text(encoding="utf-8", data=f"""[Unit]
 Description=EaveLuxOS
 After=network-online.target
 

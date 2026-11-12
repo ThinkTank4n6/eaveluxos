@@ -60,36 +60,36 @@ class Docs(unittest.TestCase):
         self.assertEqual(json.loads(body)["version"], VERSION)
 
     def test_footer_on_every_screen(self):
-        html = (STATIC / "index.html").read_text()
+        html = (STATIC / "index.html").read_text(encoding="utf-8")
         footer = html[html.index('<footer class="legal"'):html.index("</footer>")]
         self.assertIn(NOTICE, footer)
         self.assertIn('href="docs/LICENSE.txt"', footer)
         self.assertIn("MIT License", footer)
         self.assertIn('id="legalver"', footer)
         self.assertLess(html.index("<main"), html.index('<footer class="legal"'))   # outside the views, so always shown
-        js = (STATIC / "app.js").read_text()
+        js = (STATIC / "app.js").read_text(encoding="utf-8")
         self.assertIn("$('#legalver').textContent = `EaveLuxOS ${s.version}`", js)
         self.assertIn("['manual','Manual']", js)
 
     def test_credentials_page_linked(self):
         url = "https://trimlight.ledhue.com/trimlight/v1/api-credentials/apply"
-        manual = (ROOT / "MANUAL.md").read_text()
+        manual = (ROOT / "MANUAL.md").read_text(encoding="utf-8")
         sec2 = manual[manual.index("## 2. Get your Trimlight API credentials"):manual.index("## 3. Install Python")]
         self.assertIn("### How to obtain API credentials", sec2)
         self.assertIn(url, sec2)
         self.assertIn("Get API credentials", sec2)
-        self.assertEqual((STATIC / "app.js").read_text().count(f'href="{url}" target="_blank" rel="noopener noreferrer"'), 3)
-        self.assertIn(url, (ROOT / "README.md").read_text())
+        self.assertEqual((STATIC / "app.js").read_text(encoding="utf-8").count(f'href="{url}" target="_blank" rel="noopener noreferrer"'), 3)
+        self.assertIn(url, (ROOT / "README.md").read_text(encoding="utf-8"))
 
     def test_docs_ship_with_every_build(self):
-        build = (ROOT / "packaging" / "build.py").read_text()
+        build = (ROOT / "packaging" / "build.py").read_text(encoding="utf-8")
         self.assertIn("ROOT / 'MANUAL.md'", build)
         self.assertIn("ROOT / 'LICENSE'", build)
-        self.assertIn("MANUAL.md", (ROOT / "Dockerfile").read_text())
+        self.assertIn("MANUAL.md", (ROOT / "Dockerfile").read_text(encoding="utf-8"))
 
     @unittest.skipUnless(shutil.which("node"), "Node.js isn't installed")
     def test_markdown_renderer(self):
-        r = subprocess.run(["node", str(Path(__file__).parent / "markdown_check.js")], capture_output=True, text=True, timeout=60)
+        r = subprocess.run(["node", str(Path(__file__).parent / "markdown_check.js")], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
         self.assertEqual(r.returncode, 0, r.stderr)
 
 

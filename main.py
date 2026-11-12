@@ -77,9 +77,12 @@ def already_running(port: int) -> bool:
 
 
 def configured_port() -> tuple[str, int]:
-    from eaveluxos.store import read_service_settings
+    from eaveluxos.store import has_install, previous_data_dir, read_service_settings
     try:
-        svc = read_service_settings(data_dir())
+        d = data_dir()
+        if not has_install(d):          # first start on Windows: the earlier copy's port
+            d = previous_data_dir(HERE, exclude=d) or d
+        svc = read_service_settings(d)
         return str(svc.get("web_host", "0.0.0.0")), int(svc.get("web_port", 8787))
     except (OSError, ValueError, TypeError):
         return "0.0.0.0", 8787
@@ -129,6 +132,8 @@ def cmd_run(open_browser: bool):
         from eaveluxos import autostart
         if autostart.migrate_legacy(HERE):
             logging.getLogger("eaveluxos").info("Start-at-login entry updated to the EaveLuxOS name.")
+        elif autostart.repoint(HERE):
+            logging.getLogger("eaveluxos").info("Start automatically now starts this copy (%s).", HERE)
     except Exception:
         pass
     threading.Thread(target=server.serve_forever, daemon=True, name="web").start()

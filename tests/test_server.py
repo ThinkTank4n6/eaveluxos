@@ -68,7 +68,8 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(self.call("/api/settings", s)[0], 200)
         acct = json.dumps(self.call("/api/account")[1])
         self.assertNotIn(F.SECRET, acct)
-        self.assertEqual(oct(os.stat(self.dir / "data" / "eaveluxos.db").st_mode & 0o777), "0o600")
+        if os.name != "nt":   # Windows uses ACLs, not mode bits (see store._restrict_windows)
+            self.assertEqual(oct(os.stat(self.dir / "data" / "eaveluxos.db").st_mode & 0o777), "0o600")
 
     def test_2_csrf_header_required(self):
         self.assertEqual(self.call("/api/action", {"action": "off"}, {"Content-Type": "application/json"})[0], 403)
@@ -211,7 +212,7 @@ class LocalLogin(unittest.TestCase):
             shutil.copytree(Path(__file__).resolve().parent.parent / "eaveluxos", d / "eaveluxos")
             srv.shutdown(); srv.server_close(); app.store.close()   # 3.4: reset a named account
             out = subprocess.run([sys.executable, str(d / "main.py"), "reset-password", "admin", "--stdin"], input="fresh-password1\n",
-                                 capture_output=True, text=True, cwd=d)
+                                 capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=d)
             self.assertIn("is set", out.stdout)
             from eaveluxos.store import Store, check_password
             st = Store(d)

@@ -1,5 +1,42 @@
 # Changelog
 
+## 3.7.0: one data folder on Windows
+
+- **Windows keeps all data in `%LOCALAPPDATA%\EaveLuxOS`**, for every version
+  and every copy of the app (source or `.exe`). Updating is just unzip and
+  start; no more copying the `data` folder, and no more starting from scratch
+  when you forget.
+- **First start brings your settings over** from the earlier version's
+  `data` folder: its own, or the most recently used one in a sibling version
+  folder (for example `Downloads\eaveluxos-3.6.0\eaveluxos\data`). Only
+  folders next to an EaveLuxOS program count. The database is copied with
+  SQLite's backup (safe even mid-write), `secret.key`, photos and backups as
+  files. The old folder is never changed, and it only happens once.
+- **Start automatically follows the copy you run** on Windows, so an update
+  doesn't keep starting the old version at login.
+- **Portable mode:** an empty `portable.txt` next to the app keeps data in
+  `data` next to it (USB sticks).
+- Mac, Linux and container installs are unchanged.
+- 10 new tests (131 total).
+
+## 3.6.1: Windows fixes
+
+Found by running the tests on Windows.
+
+- **Damaged database recovery works on Windows.** A connection to the damaged
+  file stayed open, so Windows refused to move the file aside and the app
+  couldn't start. It's now closed first.
+- **Text files are always read and written as UTF-8.** Windows otherwise
+  uses its own code page, which fails on characters such as "–" or "✓" (for
+  example in the hardware test report).
+- **The Linux .tar.gz keeps the program executable** even if it's packaged on
+  Windows.
+- `.gitattributes` keeps the Mac and Linux launchers' line endings correct when
+  the project is committed from Windows.
+- Tests run on Windows: permission-bit checks only on Mac and Linux, the HTTPS
+  test uses the app's own `make-cert` instead of `openssl`, and GitHub now runs
+  the tests on Windows as well as Linux.
+
 ## 3.6.0: several schedules a day
 
 - **Morning and evening schedules on the same day**, like the Trimlight Edge

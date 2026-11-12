@@ -73,7 +73,7 @@ def load_key(data_dir: Path, restrict=None, create: bool = True) -> bytes | None
         return None
     key = os.urandom(32)
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    with os.fdopen(fd, "w") as f:
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
         f.write(key.hex() + "\n")
     if os.name == "nt" and restrict:
         restrict(path)

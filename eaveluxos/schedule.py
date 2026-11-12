@@ -561,7 +561,7 @@ class Config:
 def _load_dotenv(path: Path):
     if not path.exists():
         return
-    for line in path.read_text().splitlines():
+    for line in path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
@@ -646,7 +646,7 @@ def build_config(raw: dict, secrets: dict, need_secrets: bool = True) -> Config:
 
 def read_toml(path: Path) -> dict:
     try:
-        return tomllib.loads(path.read_text())
+        return tomllib.loads(path.read_text(encoding="utf-8"))
     except tomllib.TOMLDecodeError as e:
         raise ConfigError(f"{path.name} has a syntax error: {e}") from None
 
