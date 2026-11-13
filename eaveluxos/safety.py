@@ -35,6 +35,16 @@ from pathlib import Path
 from .api import TrimlightError
 
 log = logging.getLogger("eaveluxos.safety")
+
+
+def _resync(api, dev, now):
+    f = getattr(api, "resync", None)
+    if f:
+        f(dev, now)
+
+
+class CalendarConflict(ValueError):
+    """The Trimlight app's own calendar timers cover the coming nights."""
 _CAL_KEYS = ("effectId", "startDate", "endDate", "startTime", "endTime")
 MAX_EFFECTS = 60
 MAX_CALENDAR = 60
@@ -86,6 +96,7 @@ class SafetyNet:
             self.state = {}
         self.state.setdefault("devices", {})
         self.retry_at = 0.0
+        self.repaired = False
 
     # ---------------------------------------------------------------- state
     def _dev(self, dev_id: str) -> dict:
@@ -219,6 +230,7 @@ class SafetyNet:
         h = self.plan_hash(entries, slots)
         failed = False
         for dev in dev_ids:
+            self.repaired = False
             try:
                 self._sync_one(api, dev, entries, slots, now, cfg.safety["days"])
                 with self.lock:
@@ -243,12 +255,66 @@ class SafetyNet:
                              last_sync_label=now.strftime("%b %d, %I:%M %p").replace(" 0", " "))
                     self._save()
                 note(f"Safety net not updated: {e}", logging.WARNING)
+            if self.repaired:
+                note("Trimlight couldn't read the controller because two of the safety net's patterns had the same "
+                     "number; they were removed and it reads normally again.", logging.WARNING)
         import time as _t
         self.retry_at = _t.time() + (1800 if failed else 0)
         return not failed
 
+    def _user_effect_ids(self, dev: str) -> set:
+        """Pattern ids that were on the controller before this app ever wrote
+        to it (the -original backup): never deleted by a repair."""
+        try:
+            det = json.loads((self.backup_dir / f"{dev}-original.json").read_text(encoding="utf-8"))
+            return {e.get("id") for e in det.get("effects", []) or []}
+        except (OSError, ValueError, AttributeError):
+            return set()
+
+    def _read(self, api, dev: str, now: datetime) -> dict:
+        """Read the controller. If Trimlight's cloud can't read its copy of it
+        (two patterns with the same number: a save that the cloud numbered
+        twice), delete the patterns this app saved there and read again."""
+        try:
+            return api.get_device(dev, now)
+        except TrimlightError as e:
+            if not e.unreadable:
+                raise
+            first = e
+        with self.lock:
+            st = self._dev(dev)
+            mine = sorted(set(st["effects"].values()) - self._user_effect_ids(dev), key=str)
+        if not mine:
+            raise first
+        log.warning("Trimlight can't read the controller; removing the safety net's own patterns %s to repair it.", mine)
+        todo = list(mine)
+        for _ in range(4):   # a duplicate number needs one delete per copy
+            for eid in todo:
+                try:
+                    api.effect_delete(dev, eid)
+                except TrimlightError:
+                    pass
+            _resync(api, dev, now)
+            try:
+                det = api.get_device(dev, now, resync=False)
+            except TrimlightError as e:
+                if not e.unreadable:
+                    raise
+                continue
+            lib = {x.get("id") for x in det.get("effects", [])}
+            todo = [eid for eid in mine if eid in lib]
+            if todo:
+                continue        # readable again, but a copy of ours is still there
+            with self.lock:
+                st["effects"] = {k: v for k, v in st["effects"].items() if v in lib and v not in mine}
+                self._save()
+            self.repaired = True
+            log.warning("Repaired: Trimlight can read the controller again.")
+            return det
+        raise first
+
     def _sync_one(self, api, dev: str, entries, slots, now: datetime, days: int = 7):
-        det = api.get_device(dev, now)
+        det = self._read(api, dev, now)
         with self.lock:
             st = self._dev(dev)
             st["backup"] = self._backup(dev, det)
@@ -263,6 +329,32 @@ class SafetyNet:
         user_cal = [i for i in cal if i not in owned_cal and _cal_overlaps(cal[i], span)]
         if user_cal:
             conflicts.append(f"calendar:{len(user_cal)}")
+            # The controller refuses timers that cross its own calendar events
+            # ("The calendar schedules cannot be crossed"), and in Timer mode
+            # both would run anyway. Write nothing; take back what's ours.
+            for cid in list(owned_cal):
+                try:
+                    api.calendar_delete(dev, cid)
+                    owned_cal.remove(cid)
+                except TrimlightError:
+                    pass
+            for k, eid in list(owned_eff.items()):
+                try:
+                    api.effect_delete(dev, eid)
+                    owned_eff.pop(k)
+                except TrimlightError:
+                    pass
+            names = {e.get("id"): e.get("name") for e in det.get("effects", [])}
+            what = ", ".join(sorted({str(names.get(cal[i].get("effectId")) or "a pattern") for i in user_cal}))
+            with self.lock:
+                st.update(effects=dict(owned_eff), calendar=sorted(owned_cal), conflicts=conflicts, entries=[])
+                st.pop("written", None)
+                self._save()
+            raise CalendarConflict(
+                f"Not armed: the controller already has {len(user_cal)} calendar timer{'s' if len(user_cal) != 1 else ''} "
+                f"from the Trimlight app on the coming nights ({what}), and it won't take a second set on the same "
+                "nights. Those timers already run the lights without this computer. To use the safety net instead, "
+                "delete them in the Trimlight Edge app (your schedule here is unaffected), then choose Update now.")
 
         # 1. patterns the entries need
         ids = {}
@@ -280,6 +372,7 @@ class SafetyNet:
             api.effect_delete(dev, owned_eff[k])
             owned_eff.pop(k)
             persist_effects()
+        taken = set(lib)
         for k, (eff, levels) in slots.items():
             if eff.kind == "saved":
                 want = (eff.saved_name or "").strip().lower()
@@ -294,11 +387,28 @@ class SafetyNet:
                 ids[k] = owned_eff[k]
                 continue
             payload["id"] = owned_eff.get(k, -1)
+            new = payload["id"] == -1
             r = api.save_effect(dev, payload) or {}
             if r.get("id") is None:
                 raise ValueError(f"The controller didn't confirm saving \u201c{eff.label}\u201d.")
+            if new and r["id"] in taken:
+                # Trimlight numbered a new pattern with a number already in
+                # use, which leaves its copy of the controller unreadable.
+                # Remove it (never the user's) and stop.
+                if r["id"] in set(owned_eff.values()) - self._user_effect_ids(dev):
+                    with self.lock:
+                        st["effects"] = {**owned_eff, k: r["id"]}
+                        self._save()
+                    self._read(api, dev, now)
+                raise ValueError("Trimlight gave a new pattern a number that was already in use, so the safety net "
+                                 "stopped. It will try again later.")
             ids[k] = owned_eff[k] = r["id"]
+            taken.add(r["id"])
             persist_effects()  # record ownership right away, so a failure later can't orphan it
+            if new:
+                # Let the cloud catch up before the next new pattern: saving
+                # two in a row can get both the same number.
+                _resync(api, dev, now)
 
         # 2. calendar entries: reuse our ids, then free ones; never touch the user's
         free = [i for i in range(MAX_CALENDAR) if i not in cal]
@@ -346,7 +456,7 @@ class SafetyNet:
             self._save()
 
         # 3. read back and verify every entry
-        det2 = api.get_device(dev, now)
+        det2 = self._read(api, dev, now)
         cal2 = {c.get("id"): c for c in det2.get("calendar", [])}
         lib2 = {e.get("id") for e in det2.get("effects", [])}
         bad = []
@@ -386,7 +496,7 @@ class SafetyNet:
             if not st or not (st.get("calendar") or st.get("effects")):
                 continue
             try:
-                det = api.get_device(dev, now)
+                det = self._read(api, dev, now)
                 with self.lock:
                     st["backup"] = self._backup(dev, det)
                 cal = {c.get("id") for c in det.get("calendar", [])}

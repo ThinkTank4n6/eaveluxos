@@ -160,7 +160,9 @@ class QuickApiTests(unittest.TestCase):
         self.assertEqual(st, 200, r)
         self.assertTrue(r["target"]["on"])
         self.assertEqual(r["target"]["reason"], "manual")
-        self.call("/api/action", {"action": "resume"})
+        st, r = self.call("/api/action", {"action": "resume", "force": True})   # Schedule tab: Run the schedule
+        self.assertEqual(st, 200, r)
+        self.assertNotEqual(r["target"]["reason"], "manual")
 
     def test_quit_from_another_device_is_refused(self):
         phone = {"X-Forwarded-For": "203.0.113.9"}

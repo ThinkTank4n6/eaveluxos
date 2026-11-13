@@ -47,6 +47,13 @@ class H(BaseHTTPRequestHandler):
             return self._ok({"total": len(devs), "current": 1, "data": [{k: x[k] for k in LIST_KEYS} for x in devs]})
         if p == "/device/get":
             if d["deviceId"] in STATE.get("fail_get", ()): return self._err(10003, "device not responding")
+            if STATE.get("fail_12006", 0) > 0:      # a passing out-of-step copy
+                STATE["fail_12006"] -= 1
+                return self._err(12006, "Device data could not be parsed. Please synchronize the device and retry.")
+            ids = [x["id"] for x in d["effects"]]
+            if len(set(ids)) != len(ids):   # what the real cloud does with two patterns numbered alike
+                return self._err(12006, "Device data could not be parsed. Please synchronize the device and retry. "
+                                        f"(unable to identify effect boundary, declared {len(ids)} and scanned {len(set(ids))} effect records)")
             return self._ok({k: v for k, v in d.items() if k != "deviceId"})
         if p == "/device/update":
             pl = body["payload"]
@@ -61,10 +68,14 @@ class H(BaseHTTPRequestHandler):
                 d["effects"] = [x for x in d["effects"] if x["id"] != e["id"]] + [e]
                 return self._ok({"id": e["id"]})
             if len(d["effects"]) >= 60: return self._err(10001, "library full")
-            used = {x["id"] for x in d["effects"]}
+            # "stale_shadow": like the real cloud, number new patterns from its
+            # last copy of the controller, refreshed only by notify-update-shadow.
+            used = STATE["shadow"] if STATE.get("stale_shadow") and STATE.get("shadow") is not None else {x["id"] for x in d["effects"]}
             e["id"] = min(i for i in range(60) if i not in used); d["effects"].append(e); return self._ok({"id": e["id"]})
         if p == "/device/effect/delete":
-            d["effects"] = [e for e in d["effects"] if e["id"] != body["payload"]["id"]]; return self._ok()
+            i = next((n for n, e in enumerate(d["effects"]) if e["id"] == body["payload"]["id"]), None)
+            if i is not None: d["effects"].pop(i)     # one record per delete
+            return self._ok()
         if p == "/device/calendar/save":
             c = dict(body["payload"])
             if STATE.get("corrupt_calendar"):
@@ -86,7 +97,8 @@ class H(BaseHTTPRequestHandler):
             e = next((x for x in d["effects"] if x["id"] == body["payload"]["id"]), None)
             if e is not None: d["currentEffect"] = dict(e)
             return self._ok()
-        if p == "/device/notify-update-shadow": return self._ok()
+        if p == "/device/notify-update-shadow":
+            STATE["shadow"] = {x["id"] for x in d["effects"]}; return self._ok()
         return self._err(10001, "unknown " + p)
     do_GET = do_POST = handle_any
 def start(port=0):

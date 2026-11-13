@@ -1,5 +1,53 @@
 # Changelog
 
+## 3.13.1: fix "Device data could not be parsed" (code 12006)
+
+- **Fixed:** turning the safety net on could break Trimlight's cloud copy of
+  the controller. Two new "Auto" patterns saved back to back could get the
+  same number from the cloud. After that, every read of the controller failed
+  with code 12006 ("declared 21 and scanned 20 effect records"), on the
+  Schedule tab and the Lights tab. The safety net now waits for the cloud to
+  catch up after each new pattern, and stops (and cleans up) if a number is
+  reused anyway.
+- **Repair:** when the controller can't be read and the safety net owns
+  patterns on it, it deletes its own "Auto" patterns (never ones that were
+  there before this app first wrote to the controller), asks the controller
+  to resync, and reads again. Turning the safety net off repairs it the same
+  way.
+- Every controller read now handles code 12006 by asking the controller to
+  resync and trying once more. The message says what's going on and what to
+  do.
+- **Fixed:** if the Trimlight app's own calendar timers cover the coming
+  nights, the controller refuses the safety net's timers ("The calendar
+  schedules cannot be crossed"), but patterns had already been saved and were
+  left behind. Now nothing is written, earlier "Auto" items are taken back,
+  and the message explains the choice.
+- **Safety:** while a controller can't be read, the Lights tab shows that its
+  port layout is unknown and turns off **Save to controller** and **Save
+  controller settings**. Before, it showed every port as off and let you save
+  that. The server also refuses a layout with every port off.
+
+## 3.13.0: Run the schedule
+
+- The Schedule tab has a **Right now** box that says what the lights are doing
+  (following the schedule, or set by hand) and a **Run the schedule** button
+  that's always there. It ends anything set by hand (a pattern, Off,
+  brightness or speed, a music show from the Music button, a security flash)
+  and sends the scheduled lights to the controller again in full, which also
+  undoes changes made in the Trimlight Edge app. Show nights keep running.
+- Webhooks: `resume` accepts `{"force": true}` to do the same.
+- Manual: new "Run the schedule" part in section 13.
+
+## 3.12.4: manual quick start for the ready-made download
+
+- The top of the manual now says that the downloads on the Releases page
+  include Python and everything else, so you skip installing Python and the
+  zip steps. It lists each download, how to start it, the first-run security
+  prompt, and where to continue (section 5).
+- Sections 1 and 3 of the manual, and the README's requirements, now say
+  Python is only needed when running from source.
+- No changes to the app itself.
+
 ## 3.12.3: GitHub build updates
 
 - GitHub's build and test workflows use the Node.js 24 versions of their

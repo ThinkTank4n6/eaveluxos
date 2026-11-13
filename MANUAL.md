@@ -1,7 +1,30 @@
 # EaveLuxOS: User Manual
 ### The Intelligent Lighting Control Platform
 
-Version 3.12.3 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
+Version 3.13.1 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
+
+> **Downloaded the ready-made app? You can skip most of the setup.**
+> The downloads on the project's GitHub **Releases** page
+> (https://github.com/ThinkTank4n6/eaveluxos/releases/latest) already include
+> Python and everything else the app needs. With one of them you **don't**
+> install Python, run `pip`, download `eaveluxos.zip` or use a launcher file.
+> Skip **section 3 (Install Python)** and the zip steps in **section 4**.
+>
+> | Computer | Download | To start it |
+> |---|---|---|
+> | Windows | `EaveLuxOS-Windows.zip` | Unzip it into a folder you'll keep and double-click `EaveLuxOS.exe`. If Windows says "Windows protected your PC", click **More info › Run anyway**. |
+> | Mac (M1 and newer) | `EaveLuxOS-macOS.dmg` | Drag **EaveLuxOS** into **Applications** and open it. If macOS blocks it, open **System Settings › Privacy & Security**, scroll down and click **Open Anyway**. |
+> | Linux PC | `eaveluxos_…_amd64.deb` (or `EaveLuxOS-Linux-x86_64.tar.gz`) | `sudo apt install ./<file>`, then start **EaveLuxOS** from the app menu. For the `.tar.gz`, unpack it and run `./eaveluxos`. |
+> | Raspberry Pi (64-bit) | `eaveluxos_…_arm64.deb` | `sudo apt install ./<file>`, then run `eaveluxos run`. |
+>
+> Your browser opens to the setup assistant. You still need your Trimlight
+> **Client ID** and **Client Secret** (section 2), then continue at
+> **section 5 (The setup assistant)**. Where this manual shows a command as
+> `python3 main.py …`, use `EaveLuxOS-cli.exe …` on Windows and `eaveluxos …`
+> on Linux or a Pi.
+>
+> Section 3 and the zip steps in section 4 are only for running EaveLuxOS
+> from its source code (for example on 32-bit Raspberry Pi OS).
 
 EaveLuxOS is a free, community-made lighting control platform. Today it runs
 **Trimlight Edge** permanent lights. It is not made, sold, endorsed or
@@ -63,7 +86,7 @@ manual refers to "Trimlight's guide", that's the document it means.
 | A Trimlight account with the controller paired to it | Done in the Trimlight Edge app: **Sign up**, then **+ › Add device** (Trimlight's guide, "Creating an Account" and "Pairing to a local WIFI Network"). |
 | Trimlight API Client ID and Client Secret | A pair of codes from Trimlight (see step 2). |
 | A computer that stays on | Windows 10 or 11, macOS, or Linux. A small mini PC is ideal. It must be on for the schedule to run. |
-| Python 3.11 or newer | Free (see step 3). |
+| Python 3.11 or newer | Free (see step 3). **Not needed if you use the ready-made download** (see the top of this manual). |
 | Home Wi-Fi | The computer and your phone should be on the same home network. |
 
 The computer does **not** need to be near the lights. It controls them
@@ -105,6 +128,10 @@ contact Trimlight support and ask for **API access (Client ID and Client
 Secret) for your Trimlight Edge controller**.
 
 ## 3. Install Python
+
+**Using the ready-made download from the Releases page? Skip this section.**
+It already includes Python. Get your API credentials (section 2), start the
+app and go to section 5.
 
 ### Windows
 
@@ -317,7 +344,9 @@ as icons only: a light bulb, a power symbol and a door.
   next scheduled change.
 - **Turn off:** turns the lights off until the next scheduled change.
 - **Return to schedule** appears after a manual change. Tap it to go back to
-  the schedule immediately.
+  the schedule immediately. The Schedule tab's **Run the schedule** button
+  (section 13) is always there and also ends a security flash and resends the
+  lights.
 - **Security flash:** see section 15.
 - **Brightness and speed:** these change whatever is showing now, until the
   next scheduled change.
@@ -570,6 +599,25 @@ to scale.
 ## 13. Schedule
 
 A **rule** says when the lights turn on and off, and which pattern shows.
+
+### Run the schedule
+
+The **Right now** box at the top of the Schedule tab says what the lights are
+doing: following the schedule, or something set by hand. Tap **Run the
+schedule** to hand the lights back to your schedule right away. It's the
+same idea as leaving manual mode in the Trimlight Edge app so its timer runs
+again. It:
+
+- ends anything set by hand: a pattern you chose, **Off**, brightness or
+  speed changes, a music show started with the Music button, and a security
+  flash;
+- sends what the schedule says right now to the controller again, in full.
+  Use it after changing the lights in the **Trimlight Edge app**, because this
+  app can't see changes made there.
+
+Show nights you set up on the Music tab are part of the schedule, so they keep
+running. Without the button, anything set by hand still ends by itself at the
+next scheduled change.
 
 ### Add a rule
 
@@ -850,10 +898,15 @@ copying the next few nights into the controller's **own timers**.
   written but **not used** (it shows **Not armed**, and the controller rests
   in Off) until they're off. Tap **Turn them off**; the controller is backed
   up first.
-- **"The controller has calendar events made in the Trimlight app on the
-  coming nights":** the same applies to events whose dates fall on the nights
-  being copied. They're left alone; delete them in the Trimlight app, then tap
-  **Update now**. Events on other dates don't matter.
+- **"The controller already has calendar timers from the Trimlight app on the
+  coming nights":** the controller won't accept a second set of timers on the
+  same nights, and in Timer mode both would run. So nothing is written, and
+  any "Auto" items from earlier are taken back. Those Trimlight timers already
+  run the lights without this computer. To use the safety net instead, delete
+  them in the Trimlight Edge app (if you imported them, your schedule here
+  keeps them), then tap **Update now**. Timers on other dates don't matter.
+- **"Trimlight can't read its copy of this controller" (code 12006):** see
+  Troubleshooting (section 25).
 - **"The controller's pattern library is too full":** delete a few patterns in
   the Trimlight app, or copy fewer nights.
 
@@ -1066,7 +1119,7 @@ can start the security flash at night.
 | `stop_flash` | End the flash | |
 | `on` | Show a pattern | `{"effect": "christmas"}` (the pattern's internal name) |
 | `off` | Turn off | |
-| `resume` | Return to schedule | |
+| `resume` | Return to schedule | `{"force": true}`: Run the schedule (also ends a security flash and sends the lights again) |
 | `levels` | Brightness or speed | `{"brightness": 120}` (0–255) |
 | `music` | Start a music show (section 16) | `{"minutes": 60}`; `0` until stopped |
 | `stop_music` | End the music show | |
@@ -1266,6 +1319,7 @@ Sharing it helps other Trimlight owners know what works on their firmware.
 | The browser says it can't connect | The app isn't running. Double-click the launcher. On Mac or Linux, keep its window open. |
 | "Couldn't check these with Trimlight" during setup | The app couldn't reach Trimlight, so your keys weren't checked yet. Check the internet connection and try again. If the message also says the **certificate check failed**: on a Mac, update to version 3.11.1 or later, which fixes this. Otherwise check the computer's date and time, and whether antivirus or network filtering software checks secure (HTTPS) connections. |
 | "Trimlight didn't accept these" | Re-enter the Client ID and Secret. They're case-sensitive, so check for spaces. Also check the computer's clock is correct, because Trimlight's sign-in uses the time. |
+| "Trimlight's cloud can't read its copy of this controller" (code 12006, "Device data could not be parsed … declared 21 and scanned 20 effect records") | Trimlight's cloud copy of the controller is out of step, for example because two saved patterns got the same number. The lights keep running. The app first asks the controller to resend its data and tries again. If the cause is the safety net's own "Auto" patterns (versions before 3.13.1 could cause this), the safety net deletes them and reads again; your own patterns are never deleted. While it lasts, the Lights tab shows the error and turns saving off, so the port layout can't be overwritten. If it doesn't clear: open the **Trimlight Edge app** on your home Wi-Fi (connection shows **LOCAL**), open the controller so it syncs, and delete any patterns whose names start with **Auto**. Still stuck: unplug the controller for 30 seconds. |
 | "Can't reach lights" on Home | Check the controller is online in the Trimlight Edge app and the computer has internet. The app retries automatically. |
 | Lights are on or off at the wrong time | **Date & Time:** check the location, time zone and Daylight saving (Automatic). Check the computer's own clock. Check **Schedule › Coming up**. |
 | A different pattern than expected is showing | Look at the Home headline. It names the rule, weather rule or manual change in charge. Check priorities on the Schedule tab. |

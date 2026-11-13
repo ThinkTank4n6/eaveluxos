@@ -27,16 +27,29 @@ class TrimlightError(Exception):
     certificate check, or the reply was lost or garbled, so whether the
     command took effect is unknown), "http" (an HTTP error status, in
     `status`) or "api" (Trimlight answered and refused, such as wrong keys)."""
-    def __init__(self, msg: str = "", kind: str = "api", status: int | None = None):
+    def __init__(self, msg: str = "", kind: str = "api", status: int | None = None, code: int | None = None):
         super().__init__(msg)
         self.kind = kind
         self.status = status
+        self.code = code            # Trimlight's own error code, when it answered with one
+
+    @property
+    def unreadable(self) -> bool:
+        """Trimlight's cloud can't make sense of its copy of the controller
+        (code 12006, "Device data could not be parsed")."""
+        return self.code == UNREADABLE
 
     @property
     def refused(self) -> bool:
         """Trimlight definitely didn't carry the command out (so sending a
         different version of it can't make a duplicate)."""
         return self.kind == "api" or (self.kind == "http" and self.status is not None and 400 <= self.status < 500)
+
+
+UNREADABLE = 12006
+UNREADABLE_HELP = ("Trimlight's cloud can't read its copy of this controller right now, so nothing on it can be "
+                   "shown or changed from here. The lights keep running. Open the Trimlight Edge app on your home "
+                   "Wi-Fi and open this controller so it syncs; see the manual, Troubleshooting.")
 
 
 def split_runs(payload: dict, limit: int):
@@ -115,7 +128,11 @@ class TrimlightAPI:
         if not isinstance(obj, dict):
             raise TrimlightError(f"{path} returned an unexpected reply")
         if obj.get("code") != 0:
-            raise TrimlightError(f"{path} failed: code {obj.get('code')} ({obj.get('desc')})")
+            code = obj.get("code")
+            msg = f"{path} failed: code {code} ({obj.get('desc')})"
+            if code == UNREADABLE:
+                msg = f"{UNREADABLE_HELP} (Details: {msg})"
+            raise TrimlightError(msg, code=code if isinstance(code, int) else None)
         return obj.get("payload")
 
     # --- reads -------------------------------------------------------------
@@ -127,11 +144,33 @@ class TrimlightAPI:
         from datetime import timedelta
         return trimlight_date(now_local + timedelta(minutes=self.clock_offset_min))
 
-    def get_device(self, device_id: str, now_local) -> dict:
+    resync_wait = 3.0   # seconds; tests set 0
+
+    def get_device(self, device_id: str, now_local, resync: bool = True) -> dict:
         """Device detail. Every call sends the local date/time (plus any offset
-        the user chose), which keeps the controller's clock right across DST."""
+        the user chose), which keeps the controller's clock right across DST.
+        If Trimlight's cloud can't read its copy of the controller (12006, it
+        says "synchronize the device and retry"), ask the controller to send
+        its data again and try once more."""
         body = {"deviceId": device_id, "currentDate": self._controller_time(now_local)}
+        try:
+            return self._request("POST", "/v1/oauth/resources/device/get", body) or {}
+        except TrimlightError as e:
+            if not (resync and e.unreadable):
+                raise
+        self.resync(device_id, now_local)
+        body["currentDate"] = self._controller_time(now_local)
         return self._request("POST", "/v1/oauth/resources/device/get", body) or {}
+
+    def resync(self, device_id: str, now_local):
+        """Ask the controller to send its data to Trimlight's cloud again, and
+        give it a moment."""
+        try:
+            self.notify_shadow(device_id, now_local)
+        except TrimlightError:
+            pass
+        if self.resync_wait:
+            time.sleep(self.resync_wait)
 
     def notify_shadow(self, device_id: str, now_local):
         body = {"deviceId": device_id, "currentDate": self._controller_time(now_local)}

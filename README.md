@@ -1,7 +1,7 @@
 # EaveLuxOS
 ### The Intelligent Lighting Control Platform
 
-By **Christopher A. Tankelewicz (ThinkTank4n6)** · MIT License · version 3.12.3
+By **Christopher A. Tankelewicz (ThinkTank4n6)** · MIT License · version 3.13.1
 
 EaveLuxOS currently works with **Trimlight Edge** permanent-lighting controllers.
 Its scheduling, mapping and design tools are built to grow to other brands.
@@ -85,7 +85,8 @@ owner and are used here only to say which hardware EaveLuxOS works with.*
    and choose **Get API credentials** (see the manual, section 2). If that
    doesn't work for you, contact Trimlight support and ask for API access.
 3. **A computer that stays on** (Windows, Mac or Linux) with
-   **Python 3.11 or newer**. You can get Python from https://www.python.org/downloads/.
+   **Python 3.11 or newer** (only if you run from source; the ready-made
+   downloads under **Install** include Python). You can get Python from https://www.python.org/downloads/.
    On Windows, tick **"Add python.exe to PATH"** during installation.
 
 ## Install

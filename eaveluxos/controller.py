@@ -598,12 +598,19 @@ class Controller:
             return self.last_on
         return "warm_white" if "warm_white" in effects else next(iter(effects))
 
-    def resume(self):
+    def resume(self, force: bool = False):
         """Back to the schedule. A show night is part of the schedule: it isn't
         ended, and one skipped tonight (a pattern was chosen, or the show was
-        stopped) comes back. A show from the Music button isn't, so it ends."""
+        stopped) comes back. A show from the Music button isn't, so it ends.
+        force (the Schedule tab's "Run the schedule"): also end a security
+        flash, and send the scheduled lights to the controller again in full,
+        even if this app thinks they're already showing. That undoes changes
+        made in the Trimlight Edge app, which this app can't see."""
         with self.lock:
             changed = False
+            if force and self.flash:
+                self.flash = None
+                self.note("Security flash stopped.")
             if self.music:
                 self.music = None
                 self.note("Music show stopped (back to the schedule).")
@@ -616,10 +623,14 @@ class Controller:
                 changed = True
             if changed:
                 self._invalidate()
-            if self.override or self.adjust:
+            if force:
+                self.note("Running the schedule: the scheduled lights were sent to the controller again.")
+            elif self.override or self.adjust:
                 self.note("Back on the schedule.")
             self.override = None
             self.adjust = {}
+            if force:
+                self._invalidate()
             self._kick()
         self.tick(maintenance=False)
 

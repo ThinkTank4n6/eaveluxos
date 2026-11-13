@@ -403,17 +403,10 @@ VIEWS.home = async () => {
       $('#hwiz').onclick = () => wizard(st.setup.credentials ? 3 : 1);
       return;
     }
-    const t = st.target, nextTxt = st.next_change ? `${st.next_change}${st.next_change_day ? ' ' + st.next_change_day : ''}` : null;
+    const t = st.target;
     document.body.classList.toggle('lit', t.on);
     document.body.classList.toggle('flashing', t.reason === 'flash');
-    let head = t.on ? 'The lights are on' : 'The lights are off', sub;
-    if (t.reason === 'flash') { head = 'Security flash'; sub = `${t.effect} until ${st.flash.until}, then back to normal.`; }
-    else if (t.reason === 'music') { head = 'Music show'; sub = `${st.music.scheduled ? t.source + ': t' : 'T'}he controller\u2019s music mode runs the lights${st.music.until ? ' until ' + st.music.until : ' until the show is stopped'}. Stop it on the Music tab.`; }
-    else if (t.reason === 'manual') sub = (t.on ? `${t.effect}, set by hand` : 'Turned off by hand') + (nextTxt ? `. The schedule takes over at ${nextTxt}.` : '.');
-    else if (t.on && t.reason === 'weather') sub = `${t.source}: ${t.effect} until ${st.window.end}, instead of ${st.window.rule}.`;
-    else if (t.on && st.window) sub = `${st.window.rule}: ${t.effect} until ${st.window.end}.` + (t.delegated ? ' The controller is running tonight from its own timer, so the lights go off on time even if this computer stops.' : '');
-    else sub = nextTxt ? `Next on at ${nextTxt}.` : 'Nothing scheduled this week.';
-    if (!t.applied && !st.error) sub += ' Sending…';
+    const { head, sub } = stateLine(st);
     const pct = v => (Math.max(0, Math.min(1440, v)) / 1440 * 100) + '%';
     const sm = st.sun_min, sky = [];
     const band = (a, b, c) => (a != null && b != null && b > a) && sky.push(`<div class="sky" style="left:${pct(a)};width:calc(${pct(b)} - ${pct(a)});background:${c}"></div>`);
@@ -1020,12 +1013,39 @@ async function importFromApp() {
   }, { ok: 'Import' });
 }
 
+// What the lights are doing, in words (Home's headline and the Schedule tab).
+function stateLine(st) {
+  const t = st.target, nextTxt = st.next_change ? `${st.next_change}${st.next_change_day ? ' ' + st.next_change_day : ''}` : null;
+  let head = t.on ? 'The lights are on' : 'The lights are off', sub;
+  if (t.reason === 'flash') { head = 'Security flash'; sub = `${t.effect} until ${st.flash.until}, then back to normal.`; }
+  else if (t.reason === 'music') { head = 'Music show'; sub = `${st.music.scheduled ? t.source + ': t' : 'T'}he controller\u2019s music mode runs the lights${st.music.until ? ' until ' + st.music.until : ' until the show is stopped'}. Stop it on the Music tab.`; }
+  else if (t.reason === 'manual') sub = (t.on ? `${t.effect}, set by hand` : 'Turned off by hand') + (nextTxt ? `. The schedule takes over at ${nextTxt}.` : '.');
+  else if (t.on && t.reason === 'weather') sub = `${t.source}: ${t.effect} until ${st.window.end}, instead of ${st.window.rule}.`;
+  else if (t.on && st.window) sub = `${st.window.rule}: ${t.effect} until ${st.window.end}.` + (t.delegated ? ' The controller is running tonight from its own timer, so the lights go off on time even if this computer stops.' : '');
+  else sub = nextTxt ? `Next on at ${nextTxt}.` : 'Nothing scheduled this week.';
+  if (!t.applied && !st.error) sub += ' Sending…';
+  return { head, sub };
+}
+
+// The Schedule tab's "Right now" panel with "Run the schedule".
+function schedNowPanel(box, st) {
+  if (!box || !st || st.setup_only || !st.target) { if (box) box.hidden = true; return; }
+  const t = st.target, { head, sub } = stateLine(st);
+  const following = t.reason !== 'manual' && t.reason !== 'flash' && !(t.reason === 'music' && !st.music.scheduled) && !st.levels?.adjusted;
+  box.hidden = false;
+  box.innerHTML = `<div class="panel-head"><h2>Right now</h2><button class="primary" data-runsched ${role() === 'viewer' ? 'disabled' : ''}>Run the schedule</button></div>
+    <p><b>${esc(following ? 'Following the schedule' : head)}</b>. ${esc(sub)}</p>
+    ${st.error ? `<p class="callout warn small">Can't reach the lights right now: ${esc(st.error)}</p>` : ''}
+    <p class="note">${following ? 'Changed the lights in the Trimlight Edge app? ' : ''}<b>Run the schedule</b> ends anything set by hand (a pattern, Off, a music show from the Music button, a security flash) and sends what the schedule says right now to the controller again. Show nights from the Music tab are part of the schedule and keep running.</p>`;
+}
+
 VIEWS.schedule = async () => {
   const m = $('#main'), s = S.settings;
   const rules = (s.rules || []).map((r, i) => ({ r, i })).sort((a, b) => prio(b.r) - prio(a.r) || a.i - b.i);
   const effs = s.effects || {};
   m.innerHTML = `<div class="view">
     <div class="panel-head"><h2>Schedule</h2><button class="ghost" data-import>Import from Trimlight app</button><button class="primary" data-addrule>Add a rule</button></div>
+    <div class="panel stack" id="schednow" hidden></div>
     <div class="cols wide-left">
       <div class="stack">
         <div class="panel"><h2>Rules</h2><p class="note" style="margin-top:4px">A day can have several rules that don't overlap, for example a morning one (6:00 AM to sunrise) and an evening one (sunset to 11:00 PM); each runs in its own time. Only where rules overlap does the higher priority win (or, with equal priority, the one higher in this list).</p>
@@ -1055,6 +1075,8 @@ VIEWS.schedule = async () => {
       <div class="panel"><h2>Coming up</h2><div id="upc" class="list" style="margin-top:8px"><p class="muted">Loading…</p></div></div>
     </div></div>`;
   safetyPanel($('#safetybox'));
+  schedNowPanel($('#schednow'), S.status);
+  api('status').then(st => { S.status = st; if (S.view === 'schedule') schedNowPanel($('#schednow'), st); }).catch(() => {});
   api('rulecheck').then(rc => { for (const [name, info] of Object.entries(rc)) {
     if (!info.blocked_by) continue;
     const el = $$('[data-rulename]', m).find(x => x.dataset.rulename === name);
@@ -1068,6 +1090,10 @@ VIEWS.schedule = async () => {
   }).catch(e => { $('#upc').innerHTML = `<p class="muted">${esc(e.message)}</p>`; });
   m.onclick = async e => {
     const b = e.target.closest('button'); if (!b) return; const d = b.dataset;
+    if (d.runsched !== undefined) {
+      return busy(b, async () => { S.status = await api('action', { body: { action: 'resume', force: true } }); schedNowPanel($('#schednow'), S.status); })
+        .then(() => toast('Running the schedule')).catch(() => {});
+    }
     if (d.addrule !== undefined) { if (!Object.keys(effs).length) return toast('Create a pattern first.', true); ruleDialog(); }
     else if (d.addmorning !== undefined) { if (!Object.keys(effs).length) return toast('Create a pattern first.', true);
       ruleDialog(undefined, { name: 'Morning', on: '06:00', off: 'sunrise', effect: (rules.find(x => !x.r.dates) || {}).r?.effect || Object.keys(effs)[0] }); }
@@ -1338,6 +1364,7 @@ VIEWS.lights = async (opts = {}) => {
   S.portDraft = { dev: d.id, P };
   const chosen = S.settings.service?.devices || [];
   const draw = () => {
+    if (!$('#pmap')) return;           // controller unreadable: no port editor
     if (S.portMode === 'simple') { let next = 1; P.forEach(p => { if (p.count > 0) { p.start = next; p.end = next + p.count - 1; p.off = false; next = p.end + 1; } else { p.off = true; p.start = p.end = 0; } }); }
     const max = Math.max(1, ...P.filter(p => !p.off).map(p => p.end));
     $('#pmap').innerHTML = P.map(p => `<div class="lane" title="Port ${p.id + 1}">${p.off ? '' : `<i style="left:${(p.start - 1) / max * 100}%;width:${(p.end - p.start + 1) / max * 100}%"></i>`}
@@ -1347,9 +1374,9 @@ VIEWS.lights = async (opts = {}) => {
   m.innerHTML = `<div class="view"><div class="panel-head"><h2>${devs.length > 1 ? `Lights: ${esc(d.name || 'Controller')}` : 'Lights'}</h2>
       <span class="badge ${d.online ? 'hi' : ''}">${d.online ? 'Online' : 'Offline'}</span><span class="small muted">Firmware ${esc(d.firmware || '?')}</span></div>
     ${devs.length > 1 ? devCards(devs, d.id, chosen) : ''}
-    ${d.error ? `<p class="callout warn">${esc(d.error)}</p>` : ''}
+    ${d.error ? `<p class="callout warn">${esc(d.error)}</p><p class="callout">Your port layout and settings on the controller haven\u2019t changed. They just can\u2019t be shown, and saving is turned off until the controller can be read.</p>` : ''}
     <div class="cols wide-left">
-      <div class="panel stack"><div class="panel-head"><h2>Ports and bulbs</h2>
+      ${d.error ? `<div class="panel stack"><h2>Ports and bulbs</h2><p class="muted">Unknown until the controller can be read.</p><div><button class="ghost" data-reload>Try again</button></div></div>` : `<div class="panel stack"><div class="panel-head"><h2>Ports and bulbs</h2>
           <div class="seg"><button data-pm="simple" aria-pressed="${S.portMode === 'simple'}">Simple</button><button data-pm="advanced" aria-pressed="${S.portMode === 'advanced'}">Advanced</button></div></div>
         <p class="note">${S.portMode === 'simple' ? 'Enter how many bulbs are on each port. Use 0 for an unused port. Ports are numbered in order along the roofline.' : 'Set the first and last bulb number for each port. Ports may overlap to mirror the same section of the pattern.'}</p>
         <div class="ports">${P.map(p => `<div class="port"><b>Port ${p.id + 1}</b><div class="vals">
@@ -1358,15 +1385,15 @@ VIEWS.lights = async (opts = {}) => {
              <input type="number" min="1" max="2048" data-ps="${p.id}" value="${p.off ? '' : p.start}" ${p.off ? 'disabled' : ''} aria-label="First bulb"><span class="muted">to</span>
              <input type="number" min="1" max="2048" data-pe="${p.id}" value="${p.off ? '' : p.end}" ${p.off ? 'disabled' : ''} aria-label="Last bulb">`}</div></div>`).join('')}</div>
         <div class="portmap" id="pmap"></div><p class="note" id="ptotal"></p>
-        <div class="row"><button class="primary" data-saveports>Save to controller</button><button class="ghost" data-reload>Undo changes</button></div>
-      </div>
+        <div class="row"><button class="primary" data-saveports ${d.error ? 'disabled' : ''}>Save to controller</button><button class="ghost" data-reload>Undo changes</button></div>
+      </div>`}
       <div class="stack">
         <div class="panel stack"><h2>Controller</h2>
           <label class="field">Name<input type="text" id="lname" maxlength="30" value="${esc(d.name)}"></label>
           <label class="field">LED chip<select id="lic">${S.catalog.ic_types.map((n, i) => `<option value="${i}" ${d.ic === i ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
           <label class="field">Color order <span class="hint">Trimlight systems are almost always RGB. Change it only if Test colors shows the wrong color.</span>
             <select id="lco">${S.catalog.color_orders.map((n, i) => `<option value="${i}" ${d.colorOrder === i ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
-          <div><button data-savedev>Save controller settings</button></div>
+          <div><button data-savedev ${d.error ? 'disabled' : ''}>Save controller settings</button></div>
           <div class="row"><span class="small">Test colors:</span>${[['Red', '#FF0000'], ['Green', '#00FF00'], ['Blue', '#0000FF'], ['White', '#FFFFFF']].map(([n, c]) => `<button class="small" data-test="${c}">${swatches([c], 1)}${n}</button>`).join('')}</div>
         </div>
         <div class="panel stack" id="gbox"></div>

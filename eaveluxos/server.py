@@ -668,6 +668,8 @@ class App:
                 if not off and not (1 <= st <= en <= 2048):
                     raise ApiError(f"Port {pid + 1}: bulbs must be within 1-2048 and the start can't be after the end.")
                 ports.append({"id": pid, "start": st, "end": en})
+            if ports and all(p["start"] == 0 and p["end"] == 0 for p in ports):
+                raise ApiError("At least one port needs bulbs. Turning every port off would leave the lights dark.")
             payload["ports"] = ports
         if not payload:
             raise ApiError("Nothing to change.")
@@ -1346,7 +1348,8 @@ def make_server(app: App, host: str, port: int):
                 elif a == "off":
                     ctrl.manual(False)
                 elif a == "resume":
-                    ctrl.resume()
+                    # force: the Schedule tab's "Run the schedule" (resend in full).
+                    ctrl.resume(force=b.get("force") is True or str(b.get("force")).lower() == "true")
                 elif a == "levels":
                     # "on": true (Home Assistant's brightness slider on an off
                     # light): turn on with tonight's pattern first.
