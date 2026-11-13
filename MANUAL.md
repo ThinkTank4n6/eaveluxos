@@ -1,7 +1,7 @@
 # EaveLuxOS: User Manual
 ### The Intelligent Lighting Control Platform
 
-Version 3.12.2 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
+Version 3.12.3 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
 
 EaveLuxOS is a free, community-made lighting control platform. Today it runs
 **Trimlight Edge** permanent lights. It is not made, sold, endorsed or

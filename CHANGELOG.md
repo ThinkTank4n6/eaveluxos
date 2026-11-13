@@ -1,5 +1,20 @@
 # Changelog
 
+## 3.12.3: GitHub build updates
+
+- GitHub's build and test workflows use the Node.js 24 versions of their
+  actions (`checkout@v6`, `setup-python@v6`, `upload-artifact@v6`,
+  `download-artifact@v7`, `softprops/action-gh-release@v3`). GitHub removed
+  Node.js 20 from its runners, and the old versions printed deprecation
+  warnings and would eventually stop working. Same for the community
+  library's two workflows.
+- Tests and the release step run on `ubuntu-24.04` instead of `ubuntu-latest`,
+  which moves to Ubuntu 26 on its own. The Linux and Raspberry Pi builds stay
+  on Ubuntu 22.04 so they keep running on older systems.
+- A new test fails if a workflow goes back to an old action version or to
+  `ubuntu-latest`.
+- No changes to the app itself.
+
 ## 3.12.2: community library setup fix
 
 - **Fix in `tools/community-library/README.md`:** it said to protect the
