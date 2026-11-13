@@ -1,5 +1,40 @@
 # Changelog
 
+## 3.11.0: controller cards on the Lights tab
+
+- **Accounts with several controllers** (for example House and Deck) now see a
+  card for each one at the top of the Lights tab, like the Devices list in the
+  Trimlight Edge app: name, online or offline, what its lights are doing (On,
+  Off or On its own timer), bulb count, and "Not run by this app" for one
+  that's ticked off. Tap a card to manage that controller; the heading shows
+  its name. This replaces the small drop-down list.
+- Switching controllers with unsaved changes (ports, name, chip, color order)
+  asks first, instead of silently dropping them.
+- The status at the top right (and its On/Off buttons) now loads on every
+  tab and refreshes every minute. It used to say "Starting…" until Home or
+  Music had been opened.
+- A user's name with "&" or "<" in it no longer shows garbled in the "Delete
+  user?" question.
+- 5 new tests (208 total). The test stand-in for Trimlight's cloud can now
+  hold several controllers.
+
+## 3.10.0: On, Off and Quit at the top of every screen
+
+- **On** and **Off** buttons next to the status at the top right, on every
+  screen. On uses tonight's scheduled pattern (or the next one on the
+  schedule, then the last pattern turned on by hand, then Warm white). Both
+  last until the next scheduled change, like Home's Turn on and Turn off. The
+  button matching what the lights already do is grayed out; Viewers don't see
+  them.
+- **Quit** button, shown only on the computer the app runs on.
+- **Fix: Quit now really quits when the app starts at login on Linux or
+  macOS.** The login service restarted the app as soon as it exited; Quit now
+  asks the service to stop. It starts again at the next login. In Docker,
+  Quit explains how to stop the container instead.
+- On phones the three buttons show as icons, and below 400 px wide the header
+  shows the logo without the name, so it never scrolls sideways.
+- 13 new tests (203 total).
+
 ## 3.9.0: music shows
 
 - **New Music tab.** Trimlight's controller makes the lights dance to music

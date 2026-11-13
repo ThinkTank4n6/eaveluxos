@@ -18,7 +18,12 @@ STATE = {"dev": {"deviceId": "TL-EDGE-01", "name": "Trimlight", "connectivity": 
   "daily": [{"id": 0, "enable": True, "effectId": 0, "repetition": 1, "startTime": {"hours": 17, "minutes": 30}, "endTime": {"hours": 23, "minutes": 0}},
             {"id": 1, "enable": False, "effectId": 1, "repetition": 1, "startTime": {"hours": 1, "minutes": 0}, "endTime": {"hours": 2, "minutes": 0}}],
   "calendar": [{"id": 0, "effectId": 3, "startDate": {"month": 12, "day": 1}, "endDate": {"month": 12, "day": 31}, "startTime": {"hours": 17, "minutes": 0}, "endTime": {"hours": 24, "minutes": 0}}]},
-  "log": []}
+  "log": [], "more": []}   # "more": extra controllers on the same account (same shape as "dev")
+LIST_KEYS = ("deviceId", "name", "switchState", "connectivity", "state", "fwVersionName")
+def _dev(body):
+    """The controller a request names; requests without one (or an unknown id) use the first."""
+    did = body.get("deviceId") if isinstance(body, dict) else None
+    return next((x for x in STATE.get("more", []) if x["deviceId"] == did), STATE["dev"])
 class H(BaseHTTPRequestHandler):
     def log_message(self, *a): pass
     def _ok(self, payload=None):
@@ -32,13 +37,17 @@ class H(BaseHTTPRequestHandler):
         cid, ts, tok = self.headers.get("S-ClientId"), self.headers.get("S-Timestamp"), self.headers.get("authorization")
         exp = base64.b64encode(hmac.new(SECRET.encode(), f"Trimlight|{cid}|{ts}".encode(), hashlib.sha256).digest()).decode()
         if cid != CID or tok != exp: return self._err(10002, "auth failed")
-        p = self.path.replace("/trimlight/v1/oauth/resources", ""); d = STATE["dev"]
+        p = self.path.replace("/trimlight/v1/oauth/resources", ""); d = _dev(body)
         lim = STATE.get("max_count")
         if lim and any(px.get("count", 0) > lim for px in (body.get("payload") or {}).get("pixels") or []):
             return self._err(12000, "Invalid parameter [pixels]")
         STATE["log"].append((p, body))
-        if p == "/devices": return self._ok({"total": 1, "current": 1, "data": [{k: d[k] for k in ("deviceId", "name", "switchState", "connectivity", "state", "fwVersionName")}]})
-        if p == "/device/get": return self._ok({k: v for k, v in d.items() if k != "deviceId"})
+        if p == "/devices":
+            devs = [STATE["dev"], *STATE.get("more", [])]
+            return self._ok({"total": len(devs), "current": 1, "data": [{k: x[k] for k in LIST_KEYS} for x in devs]})
+        if p == "/device/get":
+            if d["deviceId"] in STATE.get("fail_get", ()): return self._err(10003, "device not responding")
+            return self._ok({k: v for k, v in d.items() if k != "deviceId"})
         if p == "/device/update":
             pl = body["payload"]
             if "ports" in pl:

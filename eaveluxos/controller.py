@@ -62,6 +62,7 @@ class Controller:
         self.flash = None                     # {"until": dt}
         self.music = None                     # music show from the button: {"until": dt | None, "since": dt}
         self.music_skipped = None             # key of a show night stopped early (don't restart it)
+        self.last_on = None                   # last pattern turned on by hand (for the On button)
         self.sched_key = None
         self.applied_key = None
         self.fail_count = 0
@@ -462,12 +463,40 @@ class Controller:
             if on and obj is None and effect_key not in self.cfg.effects:
                 raise ValueError(f"Unknown pattern '{effect_key}'")
             self._end_music("a pattern was chosen")
+            if on and obj is None:
+                self.last_on = effect_key
             key = effect_key if obj is None else f"_try:{obj.label}:{hash(json.dumps(obj.payload, sort_keys=True))}"
             self.override = {"on": on, "effect": key, "obj": obj, "since": self.cfg.loc.now(),
                              "expires": time.time() + expires_min * 60 if expires_min else None}
             self.adjust = {}
             self._kick()
         self.tick()
+
+    def default_on_effect(self) -> str:
+        """The pattern the On button uses: tonight's scheduled one (the window
+        now, or the next one within a week), else the last pattern turned on
+        by hand, else Warm white, else the first pattern."""
+        effects = self.cfg.effects
+        if not effects:
+            raise ValueError("There are no patterns yet. Add one on the Patterns tab.")
+        now = self.cfg.loc.now()
+        sch = self.cfg.schedule
+        w = sch.active_window(now)
+        if w is None:
+            for k in range(8):
+                ahead = [p for p in sch.day_plans(now.date() + timedelta(days=k)) if ts(p.end) > ts(now)]
+                if ahead:
+                    w = ahead[0].window
+                    break
+        if w is not None:
+            at = now if ts(now) >= ts(w.start) else w.start
+            eff, _ = w.rule.pick(w.start, at)
+            key = next((k for k, v in effects.items() if v is eff), None)
+            if key:
+                return key
+        if self.last_on in effects:
+            return self.last_on
+        return "warm_white" if "warm_white" in effects else next(iter(effects))
 
     def resume(self):
         with self.lock:

@@ -89,6 +89,36 @@ def repoint(app_dir: Path) -> bool:
     return True
 
 
+def supervised() -> bool:
+    """Started by our own login service (systemd user unit or launch agent),
+    which restarts the app whenever it exits."""
+    return "1" in (os.environ.get("EAVELUXOS_SUPERVISED"), os.environ.get("LUMAOS_SUPERVISED"),
+                   os.environ.get("TRIMLIGHT_SUPERVISED"))
+
+
+def stop_service(run=subprocess.run) -> bool:
+    """Quit: stop the login service this copy runs under, so it isn't
+    started again until the next login. Does nothing when not run as one.
+    The service manager ends this process; the caller exits right after
+    in case it doesn't. Returns True if a stop was requested."""
+    if not supervised():
+        return False
+    system = platform.system()
+    try:
+        if system == "Linux":
+            # --no-block: systemd stops this very process, so don't wait for it.
+            r = run(["systemctl", "--user", "--no-block", "stop", f"{NAME}.service"], capture_output=True, timeout=10)
+        elif system == "Darwin":
+            r = run(["launchctl", "bootout", f"gui/{os.getuid()}/com.eaveluxos"], capture_output=True, timeout=10)
+            if r.returncode != 0:      # older macOS
+                r = run(["launchctl", "remove", "com.eaveluxos"], capture_output=True, timeout=10)
+        else:
+            return False
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return r.returncode == 0
+
+
 def status(app_dir: Path) -> dict:
     system, path = _paths(app_dir)
     note = None

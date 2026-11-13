@@ -1210,7 +1210,8 @@ def make_server(app: App, host: str, port: int):
                         minutes = 15
                     ctrl.manual(True, obj=eff, expires_min=minutes)
                 elif a == "on":
-                    ctrl.manual(True, b.get("effect"))
+                    # No pattern named (the On button): tonight's scheduled one.
+                    ctrl.manual(True, b.get("effect") or ctrl.default_on_effect())
                 elif a == "off":
                     ctrl.manual(False)
                 elif a == "resume":
@@ -1368,9 +1369,20 @@ def make_server(app: App, host: str, port: int):
             if path == "/api/quit":
                 if not self._local():
                     raise ApiError("Quit the app from the computer it runs on.", 403)
-                import os
-                threading.Timer(0.5, lambda: os._exit(0)).start()
-                return {"ok": True}
+                if IN_CONTAINER:
+                    raise ApiError("The app runs in a container here, which starts it again by itself. "
+                                   "Stop it with: docker compose stop", 400)
+                from . import autostart
+                at_login = autostart.status(app.base)["enabled"]
+
+                def quit_now():
+                    import os
+                    # Run as a login service, a plain exit is restarted at once;
+                    # ask the service manager to stop it instead.
+                    autostart.stop_service()
+                    os._exit(0)
+                threading.Timer(0.5, quit_now).start()
+                return {"ok": True, "starts_at_login": at_login}
             raise ApiError("not found", 404)
 
         def _first_account_token(self, uid):

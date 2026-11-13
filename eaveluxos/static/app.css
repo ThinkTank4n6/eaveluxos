@@ -40,6 +40,29 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
   border:1px solid var(--line);white-space:nowrap}
 .pill.ok{color:var(--ok);background:var(--ok-soft);border-color:transparent}
 .pill.bad{color:var(--warn);background:var(--warn-soft);border-color:transparent}
+.quick{display:flex;gap:6px;flex:none}
+/* controller cards (Lights, several controllers) */
+.devcards{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;margin:2px 0 18px}
+.devcard{display:flex;flex-direction:column;align-items:stretch;gap:4px;text-align:left;padding:12px 14px;font:inherit;cursor:pointer;
+  border:1px solid var(--line);border-radius:var(--radius-m);background:var(--surface);color:var(--ink)}
+.devcard:hover{border-color:var(--lamp)}
+.devcard[aria-selected=true]{border-color:var(--lamp);box-shadow:0 0 0 2px var(--lamp-soft)}
+.dc-top{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:2px 8px}
+.dc-top b{overflow-wrap:anywhere}
+.dot{font-size:.76rem;color:var(--muted);white-space:nowrap}
+.dot::before{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--muted);margin-right:5px;vertical-align:1px}
+.dot.on::before{background:var(--ok)}
+.dc-sub{font-size:.85rem;color:var(--muted)}
+.dc-tag{font-size:.76rem;color:var(--warn)}
+.qbtn{display:inline-flex;align-items:center;gap:5px;padding:4px 10px 4px 8px;border-radius:999px;font-size:.82rem;font-weight:600;
+  min-height:32px;border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer}
+.qbtn svg{width:17px;height:17px;flex:none}
+.qbtn:hover:not(:disabled){border-color:var(--lamp);color:var(--lamp)}
+.qbtn:disabled{opacity:.45;cursor:default}
+.qbtn.qquit{color:var(--muted)}
+.qbtn.qquit:hover{border-color:var(--warn);color:var(--warn)}
+@media (max-width:640px){ .qlbl{display:none} .qbtn{padding:0;width:34px;height:34px;justify-content:center} .brandname small{display:none} }
+@media (max-width:400px){ .brandname{display:none} .brand{gap:8px} }
 .ribbon{display:flex;gap:2px;max-width:1100px;margin:0 auto;padding:2px 8px 0;overflow-x:auto;scrollbar-width:none}
 .ribbon::-webkit-scrollbar{display:none}
 .ribbon button{flex:none;display:flex;flex-direction:column;align-items:center;gap:2px;min-width:76px;padding:8px 10px 9px;

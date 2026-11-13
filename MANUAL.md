@@ -1,7 +1,7 @@
 # EaveLuxOS: User Manual
 ### The Intelligent Lighting Control Platform
 
-Version 3.9.0 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
+Version 3.11.0 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
 
 EaveLuxOS is a free, community-made lighting control platform. Today it runs
 **Trimlight Edge** permanent lights. It is not made, sold, endorsed or
@@ -287,6 +287,20 @@ from a version before 2.3.2, each phone signs in once more.
 ## 9. Home
 
 Home shows what the lights are doing now and lets you take over quickly.
+
+**On every screen,** the top right shows what the lights are doing (*Lights
+on*, *Lights off* or *Music show*) next to three buttons. On a phone they show
+as icons only: a light bulb, a power symbol and a door.
+
+- **On** turns the lights on with tonight's scheduled pattern: the one
+  showing now, or the next one on the schedule. With nothing scheduled in the
+  coming week, it uses the last pattern you turned on by hand, or Warm white.
+- **Off** turns the lights off.
+- Both last until the next scheduled change, like **Turn on** and **Turn off**
+  below. The one that matches what the lights are already doing is grayed out.
+  Viewers don't see them.
+- **Quit** stops the app, after asking first. It's shown only on the computer
+  the app runs on (see **Quit the app** in section 20).
 
 - **The headline** says whether the lights are on and why. For example, "Every
   night: Warm white until 11:00 PM" or "Christmas, set by hand".
@@ -833,6 +847,28 @@ copying the next few nights into the controller's **own timers**.
 These settings are stored **on the controller itself**. They match the
 controller's Settings screen in the Trimlight Edge app.
 
+### More than one controller
+
+If your Trimlight account has several controllers (for example *House* and
+*Deck*), the top of the Lights tab shows a card for each one, like the
+Devices list in the Trimlight Edge app. Each card shows:
+
+- the controller's name, and whether it's **Online** (green dot) or **Offline**;
+- what its lights are doing: **On**, **Off** or **On its own timer**;
+- how many bulbs it has;
+- **Not run by this app**, if it isn't ticked under **Controlled by this app**.
+
+Tap a card to show that controller's ports, name, LED chip and color order
+below; the heading shows its name. Saving changes only that controller. If you
+changed something and didn't save it yet, the app asks before switching.
+
+The cards don't show IP addresses: Trimlight's cloud doesn't report them. The
+Trimlight Edge app finds those itself on your home network.
+
+**Controlled by this app**, at the bottom of the tab, picks which controllers
+the schedule, Home's buttons and music shows run. Ticking a controller off
+leaves it to the Trimlight Edge app; you can still change its settings here.
+
 ### Ports and bulbs
 
 - **Simple mode:** enter how many bulbs are on each port, in order along the
@@ -969,8 +1005,13 @@ correction.
   is itself saved as a new version, so you can switch back.
 - **Run the setup assistant again** repeats setup at any time. Your patterns
   and rules are kept.
-- **Quit the app:** stops the app. This is on the app computer only, and the
-  schedule stops until you start the app again.
+- **Quit the app** (also the **Quit** button at the top of every screen):
+  stops the app. This is on the app computer only. The lights stay as they
+  are, and the schedule stops until you start the app again. If **Start
+  automatically** is on, the app also starts by itself at your next login; on
+  Linux and macOS, quitting stops the login service properly so it isn't
+  restarted right away. In Docker, stop the container with
+  `docker compose stop` instead.
 
 ## 21. Home Assistant and webhooks
 
@@ -1248,8 +1289,9 @@ devices. If two people edit settings at the same moment, the second save is
 refused rather than silently overwriting the first.
 
 **Can it control more than one controller?** Yes. Everything you turn on is
-sent to all the controllers you selected. The Lights tab manages each one
-separately.
+sent to all the controllers ticked under **Lights › Controlled by this app**.
+The Lights tab shows a card for each controller; tap one to manage its
+settings (section 18).
 
 ## 27. License
 

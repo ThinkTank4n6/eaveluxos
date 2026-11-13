@@ -103,7 +103,8 @@ def _from_link(link: int, data: bytes, ts: float):
 
 def read_packets(path: str):
     """(packets, link types seen)."""
-    raw = open(path, "rb").read()
+    with open(path, "rb") as fh:
+        raw = fh.read()
     if raw[:4] == b"\x0a\x0d\x0d\x0a":
         return _read_pcapng(raw)
     return _read_pcap(raw)
@@ -188,7 +189,9 @@ def read_marks(path: str | None, day_of: float | None):
         return []
     marks = []
     base = datetime.fromtimestamp(day_of) if day_of else datetime.now()
-    for line in open(path, encoding="utf-8"):
+    with open(path, encoding="utf-8") as fh:
+        lines = fh.readlines()
+    for line in lines:
         m = re.match(r"\s*(\d{1,2}):(\d{2})(?::(\d{2}))?\s+(.+?)\s*$", line)
         if m:
             t = base.replace(hour=int(m[1]), minute=int(m[2]), second=int(m[3] or 0), microsecond=0)
@@ -371,7 +374,8 @@ def main(argv=None):
     first = next((p.ts for p in packets if p.ts), None)
     text = report(a.capture, packets, links, a.controller, read_marks(a.marks, first))
     if a.out:
-        open(a.out, "w", encoding="utf-8").write(text)
+        with open(a.out, "w", encoding="utf-8") as fh:
+            fh.write(text)
         print(f"Report written to {a.out}")
     else:
         sys.stdout.write(text)

@@ -1,7 +1,7 @@
 # EaveLuxOS
 ### The Intelligent Lighting Control Platform
 
-By **Christopher A. Tankelewicz (ThinkTank4n6)** · MIT License · version 3.9.0
+By **Christopher A. Tankelewicz (ThinkTank4n6)** · MIT License · version 3.11.0
 
 EaveLuxOS currently works with **Trimlight Edge** permanent-lighting controllers.
 Its scheduling, mapping and design tools are built to grow to other brands.
@@ -160,7 +160,7 @@ get an app icon.
 | **Create** | The pattern designer: pick colors, set bulbs per color, or paint single bulbs, ranges and every Nth bulb, choose an animation, preview it, and save. |
 | **Schedule** | Rules (sun-based or set times, date ranges, days, rotation, brightness, priority), plus weather rules, the security flash, and importing timers from the Trimlight app. |
 | **Music** | Music shows: steps aside while the controller's own music mode (started in the Trimlight app) makes the lights dance, for a set time or on planned show nights. |
-| **Lights** | Bulbs per port (Simple mode) or exact bulb ranges, including mirrored ports (Advanced mode). Also the LED chip type, color order, color test and controller name. |
+| **Lights** | A card for each controller on the account (online, on/off, bulbs); tap one to manage it. Bulbs per port (Simple mode) or exact bulb ranges, including mirrored ports (Advanced mode). Also the LED chip type, color order, color test and controller name. |
 | **Date & Time** | Location, time zone, daylight saving mode, today's sun times and the controller clock. |
 | **House map** | Bulb finder, photos of each side, automatic roofline detection, landmarks, zones and the flat diagram. |
 | **Manual** | This guide (MANUAL.md) inside the app, with a search box and clickable contents. |

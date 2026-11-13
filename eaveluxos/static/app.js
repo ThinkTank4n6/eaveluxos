@@ -144,6 +144,9 @@ const ICONS = {
   map: '<path d="M3.5 11 12 4.5l8.5 6.5"/><path d="M5.5 9.8V19.5h13V9.8"/><circle cx="12" cy="13" r="2.2"/><path d="M12 15.2v2.3"/>',
   lights: '<path d="M4 7h16M4 12h16M4 17h16"/><circle cx="8" cy="7" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="10" cy="17" r="1.6"/>',
   time: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
+  power: '<path d="M12 3.5v8"/><path d="M7.2 6.6a7.5 7.5 0 1 0 9.6 0"/>',
+  bulbon: '<path d="M9 17.5h6M10 21h4"/><path d="M8.2 14.2A6 6 0 1 1 15.8 14.2c-.8.8-1.3 1.8-1.3 2.9v.4h-5v-.4c0-1.1-.5-2.1-1.3-2.9z"/><path d="M12 2.2v-0M4 9.5H3M21 9.5h-1"/>',
+  exit: '<path d="M14 4.5h4.5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H14"/><path d="M10 8l-4 4 4 4M6 12h9.5"/>',
   music: '<path d="M9 17.5V6.5l10-2.2v11"/><circle cx="6.6" cy="17.6" r="2.4"/><circle cx="16.6" cy="15.4" r="2.4"/><path d="M9 9.6l10-2.2"/>',
   settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
 };
@@ -192,6 +195,12 @@ function statusPill(st) {
   else if (st.target.reason === 'music') setPill('ok', 'Music show');
   else if (st.error) setPill('bad', "Can't reach lights");
   else setPill('ok', st.target.on ? 'Lights on' : 'Lights off');
+  // The header On/Off: the one matching what the lights are doing is greyed
+  // out. During a music show what the lights show isn't known: both work.
+  const t = st.target || {}, music = t.reason === 'music';
+  const on = $('#quick [data-q=on]'), off = $('#quick [data-q=off]');
+  if (on) on.disabled = !!st.setup_only || (t.on && !music);
+  if (off) off.disabled = !!st.setup_only || (!t.on && !music);
 }
 function setPill(kind, text) { const p = $('#pill'); p.className = 'pill' + (kind ? ' ' + kind : ''); p.textContent = text; }
 
@@ -207,10 +216,44 @@ async function boot() {
   $('#who').hidden = !!u.local;
   $('#who').textContent = u.local ? '' : `${u.username} · ${ROLE_NAMES[u.role] || u.role}`;
   $('#viewonly').hidden = u.role !== 'viewer';
+  buildQuick(u.role !== 'viewer', !!s.local);
   if (!$('#ribbon').children.length) buildRibbon();
   await Promise.all([loadSettings(), loadCatalog()]);
   if (!s.setup.wizard_done && u.role === 'admin') return wizard(0);
+  // The status at the top right (and its On/Off buttons) on every page, not
+  // only after Home or Music has loaded it; kept fresh while the tab is open.
+  refreshStatus().catch(() => {});
+  clearInterval(boot._pill);
+  boot._pill = setInterval(() => { if (!document.hidden) refreshStatus().catch(() => {}); }, 60000);
   go((location.hash || '#home').slice(1));
+}
+/* Header buttons next to the status pill: lights on, lights off, and (only on
+   the computer the app runs on) Quit. */
+function buildQuick(canControl, local) {
+  const q = $('#quick');
+  const btn = (k, ic, label, title) => `<button type="button" class="qbtn${k === 'quit' ? ' qquit' : ''}" data-q="${k}" title="${title}" aria-label="${title}">${icon(ic)}<span class="qlbl">${label}</span></button>`;
+  q.innerHTML = (canControl ? btn('on', 'bulbon', 'On', 'Turn the lights on') + btn('off', 'power', 'Off', 'Turn the lights off') : '')
+    + (local ? btn('quit', 'exit', 'Quit', 'Quit the app') : '');
+  q.hidden = !q.innerHTML;
+  q.onclick = async e => {
+    const b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.q === 'quit') return quitApp();
+    const on = b.dataset.q === 'on';
+    busy(b, async () => {
+      S.status = await api('action', { body: { action: on ? 'on' : 'off' } });
+      statusPill(S.status);
+      const t = S.status.target;
+      toast(on ? `Lights on: ${t.effect || 'on'}, until the next scheduled change.` : 'Lights off until the next scheduled change.');
+      if (S.view === 'home' || S.view === 'music') VIEWS[S.view]();
+    }).catch(() => {});
+  };
+}
+async function quitApp() {
+  if (!await confirmBox('Quit the app?', 'The lights stay as they are now, but the schedule stops until you start the app again.', 'Quit', true)) return;
+  let r;
+  try { r = await api('quit', { body: {} }); } catch (e) { return toast(e.message, true); }
+  $('#top').hidden = true;
+  $('#main').innerHTML = `<div class="gate"><div class="panel"><h2>The app has stopped</h2><p class="muted">Double-click the launcher to start it again${r && r.starts_at_login ? ', or it starts by itself the next time you log in (Start automatically is on)' : ''}.</p></div></div>`;
 }
 const ROLE_NAMES = { admin: 'Administrator', editor: 'Editor', viewer: 'Viewer' };
 const role = () => (S.session && S.session.user && S.session.user.role) || 'admin';
@@ -1174,6 +1217,20 @@ function showDialog(idx) {
   } });
 }
 
+/* Controller picker for accounts with several controllers (like the Trimlight
+   app's Devices list). The cloud doesn't report IP addresses, so the cards
+   show what it does report: online, what the lights are doing, bulbs. */
+function devCards(devs, cur, chosen) {
+  const bulbs = x => Math.max(0, ...(x.ports || []).filter(p => p.start > 0 && p.end > 0).map(p => p.end));
+  const doing = x => x.error ? 'Couldn\u2019t read it' : x.switch === 0 ? 'Off' : x.switch === 2 ? 'On its own timer' : x.switch === 1 ? 'On' : '';
+  return `<div class="devcards" role="tablist" aria-label="Controllers">${devs.map(x => {
+    const run = !chosen.length || chosen.includes(x.id), n = bulbs(x), what = doing(x);
+    return `<button type="button" class="devcard" role="tab" aria-selected="${x.id === cur}" data-dev="${esc(x.id)}">
+      <span class="dc-top"><b>${esc(x.name || 'Controller')}</b><span class="dot ${x.online ? 'on' : ''}">${x.online ? 'Online' : 'Offline'}</span></span>
+      <span class="dc-sub">${[what, n ? `${n} bulbs` : ''].filter(Boolean).map(esc).join(' \u00b7 ')}</span>
+      ${run ? '' : '<span class="dc-tag">Not run by this app</span>'}</button>`;
+  }).join('')}</div>`;
+}
 VIEWS.lights = async (opts = {}) => {
   const m = $('#main');
   if (!opts.keep) { S.portDraft = null; m.innerHTML = '<div class="view"><h2>Lights</h2><p class="muted">Asking the controller…</p></div>'; }
@@ -1197,9 +1254,9 @@ VIEWS.lights = async (opts = {}) => {
       <span>Port ${p.id + 1}: ${p.off ? 'off' : `bulbs ${p.start}–${p.end}`}</span></div>`).join('');
     $('#ptotal').textContent = `${max === 1 && P.every(p => p.off) ? 0 : max} bulbs in the pattern${P.some((p, i) => !p.off && P.some((q, j) => j !== i && !q.off && p.start <= q.end && q.start <= p.end)) ? '. Overlapping ports show the same bulbs (mirrored).' : '.'}`;
   };
-  m.innerHTML = `<div class="view"><div class="panel-head"><h2>Lights</h2>
-      ${devs.length > 1 ? `<select id="ldev" style="width:auto">${devs.map(x => `<option value="${esc(x.id)}" ${x.id === d.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select>` : ''}
+  m.innerHTML = `<div class="view"><div class="panel-head"><h2>${devs.length > 1 ? `Lights: ${esc(d.name || 'Controller')}` : 'Lights'}</h2>
       <span class="badge ${d.online ? 'hi' : ''}">${d.online ? 'Online' : 'Offline'}</span><span class="small muted">Firmware ${esc(d.firmware || '?')}</span></div>
+    ${devs.length > 1 ? devCards(devs, d.id, chosen) : ''}
     ${d.error ? `<p class="callout warn">${esc(d.error)}</p>` : ''}
     <div class="cols wide-left">
       <div class="panel stack"><div class="panel-head"><h2>Ports and bulbs</h2>
@@ -1238,9 +1295,18 @@ VIEWS.lights = async (opts = {}) => {
     if (ds.pc !== undefined || ds.ps !== undefined || ds.pe !== undefined) draw();
   };
   VIEWS.lightsRedraw = () => { m.querySelectorAll('[data-ps],[data-pe]').forEach(i => { const p = P[+(i.dataset.ps ?? i.dataset.pe)]; i.disabled = p.off; if (!p.off) i.value = i.dataset.ps !== undefined ? p.start : p.end; }); draw(); };
-  m.onchange = e => { if (e.target.id === 'ldev') { S.lightDev = e.target.value; S.portMode = null; S.portDraft = null; VIEWS.lights({ keep: true }); } };
+  // Unsaved edits on this controller: ports, or the name / chip / color order fields.
+  const dirty = () => P.some(p => { const o = ports[p.id]; return p.off !== o.off || (!p.off && (p.start !== o.start || p.end !== o.end)); })
+    || ($('#lname') && $('#lname').value !== (d.name || '')) || ($('#lic') && +$('#lic').value !== d.ic)
+    || ($('#lco') && +$('#lco').value !== d.colorOrder);
   m.onclick = async e => {
     const b = e.target.closest('button'); if (!b) return; const ds = b.dataset;
+    if (ds.dev !== undefined) {
+      if (ds.dev === d.id) return;
+      if (dirty() && !await confirmBox(`Leave ${d.name || 'this controller'}?`, 'Your changes to it haven\u2019t been saved to the controller yet.', 'Discard changes', true)) return;
+      S.lightDev = ds.dev; S.portMode = null; S.portDraft = null;
+      return VIEWS.lights({ keep: true });
+    }
     if (ds.pm) {
       if (ds.pm === 'simple' && S.portMode !== 'simple') {
         const on = P.filter(p => !p.off), seq = on.every((p, i) => p.start === (i === 0 ? 1 : on[i - 1].end + 1));
@@ -1424,7 +1490,7 @@ VIEWS.settings = async () => {
     }, { ok: 'Save', extraFoot: `<button type="button" class="ghost danger" data-deluser="${esc(u.id)}">Delete account</button>`,
       onOpen: f => { $('[data-deluser]', f.closest('dialog')).onclick = async () => {
         $('#dlg').close();
-        if (!await confirmBox(`Delete ${esc(u.username)}?`, 'The account is removed and signed out everywhere. To pause access instead, edit it and tick Disabled.', 'Delete', true)) return;
+        if (!await confirmBox(`Delete ${u.username}?`, 'The account is removed and signed out everywhere. To pause access instead, edit it and tick Disabled.', 'Delete', true)) return;
         busy(null, () => api('users/delete', { body: { id: u.id } })).then(() => { toast('Account deleted'); drawUsers(); }).catch(() => {});
       }; } });
   m.onclick = async e => {
@@ -1454,8 +1520,7 @@ VIEWS.settings = async () => {
         setTimeout(() => { location.href = `${location.protocol}//${location.hostname}:${np}/#settings`; }, 5000);
       }).catch(() => {});
     }
-    if (d.quit !== undefined && await confirmBox('Quit the app?', 'The schedule stops until you start the app again.', 'Quit', true)) {
-      await api('quit', { body: {} }).catch(() => {}); $('#main').innerHTML = '<div class="gate"><div class="panel"><h2>The app has stopped</h2><p class="muted">Double-click the launcher to start it again.</p></div></div>'; $('#top').hidden = true; }
+    if (d.quit !== undefined) quitApp();
     if (d.export !== undefined) busy(b, async () => {
       const data = await api('export');
       const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
