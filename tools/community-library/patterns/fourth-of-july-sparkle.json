@@ -1,0 +1,7 @@
+{
+ "name": "Fourth of July sparkle",
+ "author": "ThinkTank4n6",
+ "description": "Red, white and blue stars that twinkle.",
+ "tags": ["fourth of july", "red", "white", "blue"],
+ "pattern": {"label": "Fourth of July sparkle", "colors": ["#FF0000", "#FFFFFF", "#0000FF"], "counts": [3, 3, 3], "custom_mode": 5, "speed": 140, "brightness": 220}
+}

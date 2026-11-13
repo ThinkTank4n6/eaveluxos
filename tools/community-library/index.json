@@ -1,0 +1,66 @@
+{
+ "version": 1,
+ "patterns": [
+  {
+   "id": "candy-cane",
+   "name": "Candy cane",
+   "author": "ThinkTank4n6",
+   "description": "Red and white stripes that slowly chase along the roofline.",
+   "tags": [
+    "christmas",
+    "red",
+    "white"
+   ],
+   "colors": [
+    "#FF0000",
+    "#FFFFFF"
+   ]
+  },
+  {
+   "id": "fourth-of-july-sparkle",
+   "name": "Fourth of July sparkle",
+   "author": "ThinkTank4n6",
+   "description": "Red, white and blue stars that twinkle.",
+   "tags": [
+    "fourth of july",
+    "red",
+    "white",
+    "blue"
+   ],
+   "colors": [
+    "#FF0000",
+    "#FFFFFF",
+    "#0000FF"
+   ]
+  },
+  {
+   "id": "halloween-glow",
+   "name": "Halloween glow",
+   "author": "ThinkTank4n6",
+   "description": "Orange and purple waves.",
+   "tags": [
+    "halloween",
+    "orange",
+    "purple"
+   ],
+   "colors": [
+    "#FF3000",
+    "#8000FF"
+   ]
+  },
+  {
+   "id": "warm-architectural",
+   "name": "Warm architectural white",
+   "author": "ThinkTank4n6",
+   "description": "Steady 2700 K warm white for everyday accent lighting.",
+   "tags": [
+    "everyday",
+    "white",
+    "architectural"
+   ],
+   "colors": [
+    "#FFA757"
+   ]
+  }
+ ]
+}

@@ -1,0 +1,134 @@
+# EaveLuxOS for Home Assistant
+# Copyright (c) 2026 Christopher A. Tankelewicz (ThinkTank4n6), MIT License
+#
+# Gives Home Assistant:
+#   light.house_lights            on/off, brightness, and your patterns as effects
+#   sensor.eaveluxos_pattern      the pattern showing now ("Off" when off)
+#   binary_sensor.eaveluxos_lights
+#   script.eaveluxos_flash, script.eaveluxos_resume
+# Home Assistant's HomeKit Bridge can then put light.house_lights in Apple Home.
+#
+# Setup (see tools/home-assistant/README.md):
+#   1. In EaveLuxOS: Settings > Webhooks > Allow webhooks, and copy the token.
+#   2. In Home Assistant's secrets.yaml add:
+#        eaveluxos_token: "PASTE-THE-TOKEN"
+#        eaveluxos_status_url: "http://APP-COMPUTER:8787/api/hook/status"
+#   3. Replace APP-COMPUTER below (one place) with the same address.
+#   4. Put this file in config/packages/ and restart Home Assistant.
+
+rest:
+  - resource: !secret eaveluxos_status_url
+    method: GET
+    headers:
+      X-Token: !secret eaveluxos_token
+    scan_interval: 30
+    timeout: 20
+    sensor:
+      - name: "EaveLuxOS pattern"
+        unique_id: eaveluxos_pattern
+        icon: mdi:string-lights
+        value_template: "{{ value_json.effect if value_json.on else 'Off' }}"
+        json_attributes: [on, effect, effect_key, reason, source, until, brightness, speed, flash, music, patterns]
+    binary_sensor:
+      - name: "EaveLuxOS lights"
+        unique_id: eaveluxos_lights
+        value_template: "{{ value_json.on }}"
+
+rest_command:
+  eaveluxos:
+    # CHANGE APP-COMPUTER to the address shown in EaveLuxOS (Settings > Phones and other computers)
+    url: "http://APP-COMPUTER:8787/api/hook/{{ hook }}"
+    method: POST
+    headers:
+      X-Token: !secret eaveluxos_token
+      Content-Type: application/json
+    payload: "{{ body | default({}) | to_json }}"
+    timeout: 30
+
+light:
+  - platform: template
+    lights:
+      house_lights:
+        friendly_name: "House lights"
+        unique_id: eaveluxos_house_lights
+        value_template: "{{ state_attr('sensor.eaveluxos_pattern', 'on') == true }}"
+        level_template: "{{ state_attr('sensor.eaveluxos_pattern', 'brightness') | int(0) }}"
+        effect_list_template: "{{ (state_attr('sensor.eaveluxos_pattern', 'patterns') or []) | map(attribute='label') | list }}"
+        # The pattern showing, only if it's one in the effect list (not "Off",
+        # nor a music show, which has no pattern), so Home Assistant has
+        # nothing to complain about.
+        effect_template: >-
+          {% set e = state_attr('sensor.eaveluxos_pattern', 'effect') %}
+          {% set names = (state_attr('sensor.eaveluxos_pattern', 'patterns') or []) | map(attribute='label') | list %}
+          {{ e if state_attr('sensor.eaveluxos_pattern', 'on') == true and e in names else '' }}
+        turn_on:
+          - action: rest_command.eaveluxos
+            data:
+              hook: "on"
+          - action: homeassistant.update_entity
+            target:
+              entity_id: sensor.eaveluxos_pattern
+        turn_off:
+          - action: rest_command.eaveluxos
+            data:
+              hook: "off"
+          - action: homeassistant.update_entity
+            target:
+              entity_id: sensor.eaveluxos_pattern
+        set_level:
+          # Home Assistant runs only this (not turn_on) when the brightness is
+          # changed on an off light, so "on" asks the app to turn it on first.
+          - action: rest_command.eaveluxos
+            data:
+              hook: levels
+              body:
+                brightness: "{{ brightness }}"
+                "on": true
+          - action: homeassistant.update_entity
+            target:
+              entity_id: sensor.eaveluxos_pattern
+        set_effect:
+          - action: rest_command.eaveluxos
+            data:
+              hook: "on"
+              body:
+                effect: >-
+                  {{ (state_attr('sensor.eaveluxos_pattern', 'patterns') or [])
+                     | selectattr('label', 'eq', effect) | map(attribute='key') | first | default('') }}
+          - action: homeassistant.update_entity
+            target:
+              entity_id: sensor.eaveluxos_pattern
+
+script:
+  eaveluxos_flash:
+    alias: "House lights: security flash"
+    icon: mdi:alarm-light
+    sequence:
+      - action: rest_command.eaveluxos
+        data:
+          hook: flash
+  eaveluxos_resume:
+    alias: "House lights: back to the schedule"
+    icon: mdi:calendar-clock
+    sequence:
+      - action: rest_command.eaveluxos
+        data:
+          hook: resume
+      - action: homeassistant.update_entity
+        target:
+          entity_id: sensor.eaveluxos_pattern
+
+# Example: flash the lights when a camera sees a person at night. Copy it into
+# automations.yaml and change the sensor's name to yours.
+#
+# - alias: "Flash the house lights on motion at night"
+#   triggers:
+#     - trigger: state
+#       entity_id: binary_sensor.front_door_person
+#       to: "on"
+#   conditions:
+#     - condition: sun
+#       after: sunset
+#       before: sunrise
+#   actions:
+#     - action: script.eaveluxos_flash

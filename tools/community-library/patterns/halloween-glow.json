@@ -1,0 +1,7 @@
+{
+ "name": "Halloween glow",
+ "author": "ThinkTank4n6",
+ "description": "Orange and purple waves.",
+ "tags": ["halloween", "orange", "purple"],
+ "pattern": {"label": "Halloween glow", "colors": ["#FF3000", "#8000FF"], "counts": [5, 5], "custom_mode": 11, "speed": 90, "brightness": 210}
+}

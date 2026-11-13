@@ -1,5 +1,102 @@
 # Changelog
 
+## 3.12.2: community library setup fix
+
+- **Fix in `tools/community-library/README.md`:** it said to protect the
+  library repository's `main` branch. That blocks the **Build index** workflow,
+  which saves the updated pattern list to `main` after each merge, so new
+  patterns would never appear. The step is removed: on a repository you own,
+  others can only propose patterns by pull request and only you can merge.
+- No changes to the app itself.
+
+## 3.12.1: code review fixes
+
+- **Security: a shared patterns file could make the app computer request any
+  address on the home network.** Importing a file with **Replace mine** took
+  the community library's address from the file, and opening Patterns ›
+  Community then fetched from wherever it pointed (a router's admin page, for
+  example). Now the address is an Administrator-only household setting; imports
+  never change it and exports leave it out. It must be `https://` (plain http
+  only for this computer itself), with no `?`, `#` or user name, and redirects
+  are refused instead of followed.
+- **A small PNG could make the app use gigabytes of memory.** Images other
+  than JPEG are decoded at full size; one 136 KB PNG took about 860 MB. Images
+  over 40 megapixels that aren't JPEGs are now refused before decoding, with a
+  message. JPEGs (phone photos) are unaffected.
+- **Home Assistant: changing the brightness of an off light did nothing.**
+  Home Assistant sends only a brightness change, which the app refused while
+  the lights were off. The `levels` webhook takes `"on": true` to turn the
+  lights on first (tonight's pattern), and the package sends it.
+- **Home Assistant: no more "invalid effect" log entries** every 30 seconds
+  while the lights were off or a music show ran; the package now reports a
+  pattern only when it's one of yours.
+- Viewers can no longer send a 30 MB photo upload (refused by size before it
+  is read); this computer's addresses are kept for a minute, so Settings opens
+  quickly even with a slow name server; and on Windows, when the app runs from
+  Python, **Let phones in** says that it unblocks Python itself.
+- A refused redirect's connection is now closed.
+- 13 new tests (312 total).
+
+## 3.12.0: Home Assistant, whites, recreate, playlists, community library
+
+Five additions, each answering a common complaint from Trimlight owners.
+
+- **Home Assistant and Apple Home.** A new `status` webhook reports what the
+  lights are doing without changing anything (with GET or POST; not written
+  to the activity list), and every webhook now replies with the full state:
+  on/off, pattern and its internal name, why, brightness, speed, and your
+  pattern list. `tools/home-assistant/eaveluxos.yaml` is a ready-made Home
+  Assistant package: the house lights as a light with brightness and your
+  patterns as effects, a pattern sensor, and flash and Return to schedule
+  scripts. Through Home Assistant's HomeKit Bridge the light appears in Apple
+  Home.
+- **Whites by color temperature.** Create and Paint have six whites,
+  Candlelight (2200 K) to Daylight (6500 K), and a Warm–Cool slider, mixed
+  from red, green and blue (Trimlight bulbs have no white chip) and adjusted
+  by the app's color correction like every color.
+- **Recreate with my colors.** Every built-in effect can be opened in Create
+  with its colors and the closest animation, to recolor. Built-in effects'
+  colors are fixed in the controller, so this makes a new pattern that moves a
+  little differently, and says so.
+- **Playlists.** A rule can give each pattern its own time ("Its own time for
+  each pattern": Christmas 10 minutes, Snowfall 5, Warm white 15, then again).
+  In a settings file: `rotate_each`. Weather rules can use it too. Existing
+  rules are unchanged.
+- **Community library.** Patterns › Community lists patterns shared by other
+  owners in the public GitHub repository `ThinkTank4n6/eaveluxos-patterns`:
+  search, Try, Add to my patterns. Only that pattern is added. The app
+  computer fetches the list only when it's opened, over verified HTTPS, with
+  size limits; only known fields are kept and each pattern is checked like one
+  saved by hand. `tools/community-library` is the repository's starter kit:
+  four sample patterns, a checker that builds the index, and GitHub workflows
+  that check pull requests and rebuild the index after a merge.
+- Color strips now have a thin outline, so white sections show on white cards.
+- 34 new tests (299 total).
+
+## 3.11.5: house photos processed by the app; phone connection help
+
+- **Fix: house photos could still come out garbled (stripes) on some
+  computers.** The browser now uploads the original photo untouched, and the
+  app computer turns it upright, shrinks it and saves it with Pillow, on its
+  processor. The browser's graphics never touch the pixels. The browser
+  still does it only for files the app computer can't read (an iPhone HEIC
+  photo) or when the app runs from source without Pillow, with the 3.11.2
+  checks. Original photos up to 30 MB are accepted from signed-in users.
+- **New: Settings › Phones and other computers › "A phone can't open it?"**
+  Steps to check, and on the app computer **Check this computer**: on
+  Windows it reports a network set to Public, firewall rules blocking the app
+  (often from pressing Cancel when Windows first asked) and a missing allow
+  rule. **Let phones in** switches off the block rules and allows the app's
+  port on Private networks, after one Windows permission prompt. It never
+  changes a network from Public to Private; the steps for that are shown. On a
+  Mac or Linux it shows where to allow the app.
+- The address phones use now comes from the network adapter this computer's
+  internet traffic uses, with any others listed below it (VPNs and virtual
+  adapters could make the old guess wrong). The card says what a working
+  address shows: a sign-in page.
+- Pillow is now bundled with the app and installed in Docker.
+- 20 new tests (265 total).
+
 ## 3.11.4: the lights' pattern is checked too
 
 - **Fix: a pattern changed outside this app was never put back.** Every 5

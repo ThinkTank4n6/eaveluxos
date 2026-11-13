@@ -41,7 +41,10 @@ def pyinstaller(name: str, *extra: str):
             "--add-data", f"{ROOT / 'MANUAL.md'}{SEP}.", "--add-data", f"{ROOT / 'LICENSE'}{SEP}.",
             "--collect-submodules", "eaveluxos", "--collect-submodules", "cryptography", "--collect-data", "tzdata",
             # Mozilla's list of certificate authorities: the Mac app can't use the system's (trust.py)
-            "--hidden-import", "certifi", "--collect-data", "certifi", "--icon", str(ICON),
+            "--hidden-import", "certifi", "--collect-data", "certifi",
+            # Pillow: house photos are shrunk by the app, not the browser (server.shrink_photo)
+            "--hidden-import", "PIL.Image", "--hidden-import", "PIL.ImageOps", "--hidden-import", "PIL.JpegImagePlugin",
+            "--hidden-import", "PIL.MpoImagePlugin", "--hidden-import", "PIL.PngImagePlugin", "--hidden-import", "PIL.WebPImagePlugin", "--icon", str(ICON),
             "--distpath", str(DIST / "bin"), "--workpath", str(ROOT / "build"), "--specpath", str(ROOT / "build"), *extra]
     subprocess.run(args + [str(ROOT / "main.py")], check=True, cwd=ROOT)
 

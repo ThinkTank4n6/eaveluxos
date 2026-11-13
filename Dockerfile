@@ -11,7 +11,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     EAVELUXOS_CONTAINER=1 \
     EAVELUXOS_SUPERVISED=1
 
-RUN python -m pip install --no-cache-dir "cryptography==44.0.0" "tzdata==2024.2" \
+RUN python -m pip install --no-cache-dir "cryptography==44.0.0" "tzdata==2024.2" "pillow==11.0.0" \
  && groupadd --system --gid 10001 eavelux \
  && useradd --system --uid 10001 --gid eavelux --home-dir /nonexistent --no-create-home --shell /usr/sbin/nologin eavelux \
  && mkdir -p /data && chown eavelux:eavelux /data && chmod 700 /data

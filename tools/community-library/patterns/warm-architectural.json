@@ -1,0 +1,7 @@
+{
+ "name": "Warm architectural white",
+ "author": "ThinkTank4n6",
+ "description": "Steady 2700 K warm white for everyday accent lighting.",
+ "tags": ["everyday", "white", "architectural"],
+ "pattern": {"label": "Warm architectural white", "colors": ["#FFA757"], "counts": [1], "custom_mode": 0, "brightness": 170}
+}

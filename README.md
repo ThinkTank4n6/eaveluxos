@@ -1,7 +1,7 @@
 # EaveLuxOS
 ### The Intelligent Lighting Control Platform
 
-By **Christopher A. Tankelewicz (ThinkTank4n6)** · MIT License · version 3.11.4
+By **Christopher A. Tankelewicz (ThinkTank4n6)** · MIT License · version 3.12.2
 
 EaveLuxOS currently works with **Trimlight Edge** permanent-lighting controllers.
 Its scheduling, mapping and design tools are built to grow to other brands.
@@ -55,6 +55,14 @@ owner and are used here only to say which hardware EaveLuxOS works with.*
 - **Accounts with roles:** Administrators, Editors (patterns, schedules, house
   map, light controls) and Viewers (look only).
 - **A different pattern each night,** in any order you choose.
+- **Playlists:** rotate patterns with their own time each (Christmas 10
+  minutes, Snowfall 5, Warm white 15), or a different one each night.
+- **Whites by color temperature,** from 2200 K candlelight to 6500 K daylight,
+  for architectural lighting.
+- **Recreate any built-in effect with your own colors.**
+- **A community library** of patterns shared by other owners.
+- **Home Assistant and Apple Home:** a ready-made Home Assistant package, and
+  webhooks for motion sensors and automations.
 - **Music shows that don't get cut off.** Start a show (or plan show nights)
   and this app leaves the lights to the controller's music mode instead of
   switching them back to the schedule mid-song.

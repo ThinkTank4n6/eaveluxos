@@ -333,9 +333,61 @@ def _rotate(c: dict, n_effects: int, where: str) -> int:
     if n_effects > 1 and str(c.get("rotate", "")).lower() == "nightly":
         return 0
     r = int(c.get("rotate_minutes", 0) or 0)
-    if n_effects > 1 and r < 1:
-        raise ConfigError(f"{where}: several patterns are listed, so set rotate_minutes (1 or more) or rotate = \"nightly\"")
+    if n_effects > 1 and r < 1 and c.get("rotate_each") is None:
+        raise ConfigError(f"{where}: several patterns are listed, so set rotate_minutes (1 or more), "
+                          f"rotate_each (minutes for each pattern) or rotate = \"nightly\"")
     return r if n_effects > 1 else 0
+
+
+MAX_EACH_MINUTES = 1440
+
+
+def _rotate_each(c: dict, n_effects: int, where: str) -> tuple | None:
+    """A playlist: how many minutes each pattern shows, in order (rotate_each).
+    None when the rule doesn't use one."""
+    v = c.get("rotate_each")
+    if v is None or n_effects < 2:
+        return None
+    if str(c.get("rotate", "")).lower() == "nightly":
+        raise ConfigError(f"{where}: choose either a different pattern each night or minutes for each pattern, not both")
+    if not isinstance(v, (list, tuple)) or len(v) != n_effects:
+        raise ConfigError(f"{where}: rotate_each needs one number of minutes for each of the {n_effects} patterns")
+    out = []
+    for m in v:
+        try:
+            m = int(m)
+        except (TypeError, ValueError):
+            raise ConfigError(f"{where}: rotate_each must be whole minutes") from None
+        if not 1 <= m <= MAX_EACH_MINUTES:
+            raise ConfigError(f"{where}: each pattern's time must be 1 to {MAX_EACH_MINUTES} minutes")
+        out.append(m)
+    return tuple(out)
+
+
+def _pick_timed(effects: list, every: int, each, window_start: datetime, now: datetime):
+    """(effect, step) for timed rotation: the same time for each pattern
+    (every), or a playlist with its own time per pattern (each). step only
+    ever grows during a window, so it changes exactly when the pattern should."""
+    elapsed = max(0, int((ts(now) - ts(window_start)) // 60))
+    if each:
+        cycle, pos = divmod(elapsed, sum(each))
+        acc = 0
+        for i, m in enumerate(each):
+            acc += m
+            if pos < acc:
+                return effects[i], cycle * len(effects) + i
+    if not every:
+        return effects[0], 0
+    step = elapsed // every
+    return effects[step % len(effects)], step
+
+
+def _rotation_label(effects: list, every: int, each, nightly: bool) -> str:
+    if nightly:
+        return " / ".join(e.label for e in effects) + " (a different one each night)"
+    if each:
+        return " / ".join(f"{e.label} {m} min" for e, m in zip(effects, each)) + " (in turn)"
+    return " / ".join(e.label for e in effects) + f" (every {every} min)"
 
 
 @dataclass
@@ -373,12 +425,13 @@ class Rule:
 
     nightly: bool = False
 
+    rotate_each: tuple | None = None
+
     @property
     def effect_label(self) -> str:
         if len(self.effects) == 1:
             return self.effects[0].label
-        how = "a different one each night" if self.nightly else f"every {self.rotate_minutes} min"
-        return " / ".join(e.label for e in self.effects) + f" ({how})"
+        return _rotation_label(self.effects, self.rotate_minutes, self.rotate_each, self.nightly)
 
     def night_index(self, night: date) -> int:
         """For nightly rotation: which pattern a night gets. Counts only the
@@ -408,11 +461,7 @@ class Rule:
         if self.nightly:
             i = self.night_index(window_start.date())
             return self.effects[i], f"n{window_start.date().isoformat()}"
-        if not self.rotate_minutes:
-            return self.effects[0], 0
-        elapsed = max(0, int((ts(now) - ts(window_start)) // 60))
-        step = elapsed // self.rotate_minutes
-        return self.effects[step % len(self.effects)], step
+        return _pick_timed(self.effects, self.rotate_minutes, self.rotate_each, window_start, now)
 
     @classmethod
     def from_config(cls, i: int, c: dict, effects: dict) -> "Rule":
@@ -442,6 +491,7 @@ class Rule:
         rule = cls(name, TimeExpr.parse(c["on"]), TimeExpr.parse(c["off"]), effs, prio, i,
                    _rotate(c, len(effs), where), _levels(c, where), ds, de, frozenset(wd))
         rule.nightly = len(effs) > 1 and str(c.get("rotate", "")).lower() == "nightly"
+        rule.rotate_each = _rotate_each(c, len(effs), where)
         return rule
 
     def applies_on(self, d: date) -> bool:
@@ -591,13 +641,13 @@ class WeatherRule:
     order: int
     levels: dict
     nightly: bool = False
+    rotate_each: tuple | None = None
 
     @property
     def effect_label(self) -> str:
         if len(self.effects) == 1:
             return self.effects[0].label
-        how = "a different one each night" if self.nightly else f"every {self.rotate_minutes} min"
-        return " / ".join(e.label for e in self.effects) + f" ({how})"
+        return _rotation_label(self.effects, self.rotate_minutes, self.rotate_each, self.nightly)
 
     def pick(self, window_start: datetime, now: datetime):
         """(effect, step), like Rule.pick. Nightly: weather comes and goes, so
@@ -607,10 +657,7 @@ class WeatherRule:
         if self.nightly:
             day = window_start.date()
             return self.effects[day.toordinal() % len(self.effects)], f"n{day.isoformat()}"
-        if not self.rotate_minutes:
-            return self.effects[0], 0
-        step = max(0, int((ts(now) - ts(window_start)) // 60)) // self.rotate_minutes
-        return self.effects[step % len(self.effects)], step
+        return _pick_timed(self.effects, self.rotate_minutes, self.rotate_each, window_start, now)
 
     @classmethod
     def from_config(cls, i: int, c: dict, effects: dict) -> "WeatherRule":
@@ -629,7 +676,8 @@ class WeatherRule:
         effs = _effect_list(c, effects, where)
         return cls(name, frozenset(tags), below, above, effs, _rotate(c, len(effs), where),
                    int(c.get("priority", DEFAULT_PRIORITY_WEATHER)), i, _levels(c, where),
-                   nightly=len(effs) > 1 and str(c.get("rotate", "")).lower() == "nightly")
+                   nightly=len(effs) > 1 and str(c.get("rotate", "")).lower() == "nightly",
+                   rotate_each=_rotate_each(c, len(effs), where))
 
     def matches(self, tags: set, temp_f: float | None) -> bool:
         if self.tags and not (self.tags & tags):

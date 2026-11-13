@@ -118,5 +118,96 @@ class PhotoTests(ApiCase):
         self.assertEqual(self.call("/api/photo/front")[0], 404)
 
 
+class AppShrinksPhotoTests(ApiCase):
+    """3.11.3: the original photo goes to the app computer, which shrinks it
+    with Pillow; the browser's graphics never touch the pixels."""
+    def setUp(self):
+        super().setUp()
+        try:
+            from PIL import Image  # noqa: F401
+        except ImportError:
+            self.skipTest("Pillow not installed")
+
+    def upload(self, raw, side="front", hdr=None):
+        r = urllib.request.Request(f"http://127.0.0.1:{self.srv.server_address[1]}/api/photo/upload?side={side}", data=raw,
+                                   headers={"Content-Type": "image/jpeg", "X-Requested-With": "eaveluxos", **(hdr or {})})
+        try:
+            with urllib.request.urlopen(r, timeout=30) as x:
+                return x.status, json.loads(x.read())
+        except urllib.error.HTTPError as e:
+            return e.code, json.loads(e.read() or b"{}")
+        except (ConnectionError, urllib.error.URLError) as e:   # refused before the body was read
+            return 0, {"error": str(e)}
+
+    def saved(self, side="front"):
+        from PIL import Image
+        st, raw = self.call(f"/api/photo/{side}", raw=True)
+        self.assertEqual(st, 200)
+        return Image.open(io.BytesIO(raw))
+
+    def test_phone_photo_is_turned_upright_and_shrunk(self):
+        from PIL import Image
+        im = Image.new("RGB", (4000, 3000), (30, 30, 80))
+        im.paste((250, 200, 0), (0, 0, 400, 3000))            # a yellow stripe down the left edge
+        ex = Image.Exif()
+        ex[0x0112] = 6                                          # "rotate 90° clockwise to view"
+        b = io.BytesIO()
+        im.save(b, "JPEG", quality=90, exif=ex.tobytes())
+        st, r = self.upload(b.getvalue())
+        self.assertEqual(st, 200, r)
+        out = self.saved()
+        self.assertEqual(out.format, "JPEG")
+        self.assertEqual(out.size, (1200, 1600))               # portrait now, longest side 1600
+        top = out.convert("RGB").getpixel((600, 20))
+        self.assertGreater(top[0], 200)                         # the stripe is along the top: turned upright
+
+    def test_transparent_png_gets_a_white_background(self):
+        from PIL import Image
+        b = io.BytesIO()
+        Image.new("RGBA", (300, 200), (0, 0, 0, 0)).save(b, "PNG")
+        st, r = self.upload(b.getvalue())
+        self.assertEqual(st, 200, r)
+        self.assertGreater(min(self.saved().convert("RGB").getpixel((150, 100))), 240)
+
+    def test_small_photo_is_not_enlarged(self):
+        from PIL import Image
+        b = io.BytesIO()
+        Image.new("RGB", (800, 600), (10, 120, 10)).save(b, "JPEG")
+        self.upload(b.getvalue())
+        self.assertEqual(self.saved().size, (800, 600))
+
+    def test_unreadable_file_asks_the_browser_to_do_it(self):
+        st, r = self.upload(b"\x00\x00ftypheic" + bytes(5000))     # what an iPhone HEIC looks like to Pillow
+        self.assertEqual(st, 415, r)
+        self.assertEqual(self.call("/api/photo/front")[0], 404)
+
+    def test_without_pillow_the_browser_does_it(self):
+        import builtins
+        real = builtins.__import__
+
+        def no_pil(name, *a, **k):
+            if name == "PIL" or name.startswith("PIL."):
+                raise ImportError("No module named 'PIL'")
+            return real(name, *a, **k)
+        with mock.patch("builtins.__import__", side_effect=no_pil):
+            st, r = self.upload(b"\xff\xd8" + bytes(100))
+        self.assertEqual(st, 501, r)
+
+    def test_big_original_allowed_when_signed_in_only(self):
+        from PIL import Image
+        import random
+        rnd = random.Random(1)
+        im = Image.frombytes("RGB", (1800, 1400), bytes(rnd.getrandbits(8) for _ in range(1800 * 1400 * 3)))
+        b = io.BytesIO()
+        im.save(b, "JPEG", quality=98)
+        raw = b.getvalue()
+        self.assertGreater(len(raw), 2_000_000)                 # bigger than the normal request limit
+        st, r = self.upload(raw)                                # this computer: signed in
+        self.assertEqual(st, 200, r)
+        st, r = self.upload(raw, side="back", hdr={"X-Forwarded-For": "203.0.113.5"})   # a phone, not signed in
+        self.assertIn(st, (413, 0))
+        self.assertEqual(self.call("/api/photo/back")[0], 404)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -67,6 +67,43 @@ _HUES = {"red": "#FF2020", "green": "#20D040", "blue": "#2050FF", "yellow": "#FF
          "purple": "#9030FF", "white": "#FFFFFF"}
 
 
+# "Recreate with my colors": built-in effects' colors are fixed in the
+# controller's firmware, so a built-in is recreated as a custom pattern with the
+# same colors (full-strength LED values) and the closest custom motion. Close
+# to the original, not identical.
+_LED = {"red": "#FF0000", "green": "#00FF00", "blue": "#0000FF", "yellow": "#FFFF00", "cyan": "#00FFFF",
+        "purple": "#8000FF", "white": "#FFFFFF"}
+_RAINBOW = ["#FF0000", "#FFFF00", "#00FF00", "#0000FF", "#8000FF"]
+_MODE = {name: i for i, name in enumerate(CUSTOM_MODES)}
+_GROUP_MOTION = {"Stacking": "Chase forward", "Comet": "Comet forward", "Meteor": "Comet forward",
+                 "Wave": "Wave forward", "Pulse": "Breath", "Spin": "Chase forward", "Snake": "Chase forward",
+                 "Stars": "Stars", "Breath": "Breath", "Fire": "Stars", "Strobe": "Strobe"}
+_RAINBOW_MOTION = [("fade", "Breath"), ("gradual chase", "Chase forward"), ("comet", "Comet forward"),
+                   ("meteor", "Comet forward"), ("wave", "Wave forward"), ("stars", "Stars"),
+                   ("gradual", "Solid fade"), ("jump", "Solid fade"), ("segment", "Chase forward"),
+                   ("spin", "Chase forward")]
+_COUNTS = {"Comet forward": 4, "Stars": 3, "Breath": 6, "Strobe": 6, "Solid fade": 6, "Wave forward": 5}
+
+
+def recreate(mode: int) -> dict:
+    """A custom pattern (colors, counts, custom_mode) close to built-in `mode`."""
+    name, group = BUILTIN[mode], next(g for g, a, b in GROUPS if a <= mode <= b)
+    words = name.lower().split()
+    if group == "Rainbow":
+        motion = next(m for k, m in _RAINBOW_MOTION if k in name.lower())
+    else:
+        motion = _GROUP_MOTION[group]
+    if "rainbow" in words or "full" in words:
+        colors = list(_RAINBOW)
+    else:
+        colors = list(dict.fromkeys(_LED[w] for w in words if w in _LED)) or ["#FFFFFF"]
+    if "blank" in words:                     # dark gaps between the colors
+        colors = [c for col in colors for c in (col, "#000000")]
+    n = _COUNTS.get(motion, 4)
+    return {"label": f"{name} (my colors)", "colors": colors, "counts": [n] * len(colors),
+            "custom_mode": _MODE[motion], "speed": 100, "brightness": 200}
+
+
 def builtin_list() -> list[dict]:
     out = []
     for gname, a, b in GROUPS:
@@ -77,7 +114,7 @@ def builtin_list() -> list[dict]:
                 sw = ["#FF2020", "#FFE020", "#20D040", "#2050FF", "#9030FF"]
             else:
                 sw = list(dict.fromkeys(_HUES[w] for w in words if w in _HUES))
-            out.append({"mode": i, "name": name, "group": gname, "swatches": sw})
+            out.append({"mode": i, "name": name, "group": gname, "swatches": sw, "recreate": recreate(i)})
     return out
 
 

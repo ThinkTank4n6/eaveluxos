@@ -1,0 +1,13 @@
+# Checks every pattern in a pull request. Merge only when this passes.
+name: Check patterns
+on:
+  pull_request:
+    paths: ["patterns/**", "build_index.py"]
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 build_index.py

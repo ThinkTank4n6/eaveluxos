@@ -18,6 +18,7 @@ import base64
 import copy
 import hashlib
 import hmac
+import io
 import ipaddress
 import json
 import logging
@@ -36,7 +37,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from zoneinfo import available_timezones
 
-from . import autostart, catalog
+from . import autostart, catalog, community, winfirewall
 from .api import TrimlightAPI, TrimlightError
 from .controller import Controller
 from .safety import SafetyNet
@@ -67,6 +68,53 @@ def doc_path(name: str) -> Path | None:
 from .version import VERSION  # noqa: E402  (kept importable from here)
 COOKIE = "tls_session"
 MAX_BODY = 2_000_000
+PHOTO_UPLOAD_MAX = 30_000_000   # an original phone photo, sent as is (/api/photo/upload)
+PHOTO_SIDE = 1600
+# Formats decoded at full size (PNG, WebP, ...): a tiny file can describe a
+# huge image, and 12000 x 12000 already took about 860 MB. JPEGs are decoded at
+# a fraction of their size (draft), so only the overall cap applies to them.
+PHOTO_MAX_PIXELS_FULL_DECODE = 40_000_000
+
+
+class PhotoUnreadable(Exception):
+    """The app computer can't read this photo (code 415), or has no image
+    library (501); the browser then shrinks it itself instead."""
+    def __init__(self, msg: str, code: int):
+        super().__init__(msg)
+        self.code = code
+
+
+def shrink_photo(raw: bytes, max_side: int = PHOTO_SIDE) -> bytes:
+    """An uploaded photo, turned upright (EXIF), fitted inside max_side and
+    saved as JPEG, on this computer's processor. Browsers did this on the
+    graphics card, and some graphics drivers return garbage (solid green,
+    stripes)."""
+    try:
+        from PIL import Image, ImageOps
+    except ImportError:
+        raise PhotoUnreadable("This computer has no image library (Pillow).", 501) from None
+    Image.MAX_IMAGE_PIXELS = 250_000_000      # 200-megapixel phone photos; the file size is capped too
+    try:
+        with Image.open(io.BytesIO(raw)) as im:     # reads only the header so far
+            if im.format in ("JPEG", "MPO"):           # MPO: the JPEG variant some phones save
+                im.draft("RGB", (max_side, max_side))
+            elif im.size[0] * im.size[1] > PHOTO_MAX_PIXELS_FULL_DECODE:
+                raise PhotoUnreadable(f"That image is too large ({im.size[0]} x {im.size[1]}). "
+                                      "Save it as a JPEG, or smaller, and upload it again.", 413)   # decode at a fraction of full size: fast, little memory
+            im = ImageOps.exif_transpose(im)
+            if im.mode in ("RGBA", "LA", "PA") or (im.mode == "P" and "transparency" in im.info):
+                rgba = im.convert("RGBA")
+                flat = Image.new("RGB", rgba.size, (255, 255, 255))
+                flat.paste(rgba, mask=rgba.split()[3])
+                im = flat
+            else:
+                im = im.convert("RGB")
+            im.thumbnail((max_side, max_side), Image.LANCZOS)
+            out = io.BytesIO()
+            im.save(out, "JPEG", quality=85, optimize=True)
+            return out.getvalue()
+    except (OSError, ValueError, SyntaxError, Image.DecompressionBombError) as e:
+        raise PhotoUnreadable(f"This computer couldn't read that photo ({e.__class__.__name__}).", 415) from None
 # Headers a reverse proxy or tunnel adds. A request carrying any of them came
 # from another machine even though the TCP connection is from 127.0.0.1.
 PROXY_HEADERS = ("X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto", "Forwarded", "X-Real-IP", "Via",
@@ -121,9 +169,12 @@ REAUTH_SECONDS = 300
 # schedules and the house map and control the lights, but can't change the
 # household's location, controllers, weather or safety-net settings, accounts,
 # or anything on the admin list. Viewers can look but not change anything.
-EDITOR_POSTS = {"/api/action", "/api/settings", "/api/photo", "/api/photo/delete", "/api/device/save_effect", "/api/import"}
+EDITOR_POSTS = {"/api/action", "/api/settings", "/api/photo", "/api/photo/upload", "/api/photo/delete", "/api/device/save_effect", "/api/import"}
 ADMIN_GETS = {"/api/users", "/api/safety/backup"}
-HOUSEHOLD_KEYS = ("location", "safety", "weather", "setup_done", "color")
+# Household settings only an Administrator may change. "community" is the
+# address the app computer fetches the pattern library from: anyone who could
+# set it could make this computer request any address on the home network.
+HOUSEHOLD_KEYS = ("location", "safety", "weather", "setup_done", "color", "community")
 ROLE_NAMES = {"admin": "Administrator", "editor": "Editor", "viewer": "Viewer"}
 # A browser on the app computer itself (when it doesn't require a password).
 LOCAL_USER = {"id": None, "username": "this computer", "role": "admin", "disabled": False, "local": True}
@@ -160,18 +211,46 @@ def env_allowed_hosts() -> list[str]:
     return [h.strip().lower() for h in os.environ.get("EAVELUXOS_ALLOWED_HOSTS", "").split(",") if h.strip()]
 
 
+_lan_cache: tuple[float, list] = (0.0, [])
+
+
 def lan_addresses() -> list[str]:
+    """This computer's home-network addresses, the likeliest first: the one its
+    internet traffic leaves from. A VPN or virtual adapter (Hyper-V, WSL,
+    VirtualBox) can own another private address, so others follow, up to 4.
+    Kept for a minute: looking up this computer's own name can take seconds
+    when the name server is slow, and Settings asks on every visit."""
+    global _lan_cache
     if IN_CONTAINER:
         return []   # the container's own address isn't the one phones use
-    ips = set()
+    if time.time() - _lan_cache[0] < 60:
+        return list(_lan_cache[1])
+    out = _lan_addresses()
+    _lan_cache = (time.time(), out)
+    return list(out)
+
+
+def _lan_addresses() -> list[str]:
+    found: list[str] = []
+
+    def add(ip):
+        if ip and not ip.startswith(("127.", "169.254.", "0.")) and ip not in found:
+            found.append(ip)
+    # Which address would traffic to these leave from? (No packet is sent.)
+    for target in ("8.8.8.8", "10.255.255.255", "192.168.255.255", "172.31.255.255"):
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+                s.connect((target, 1))
+                add(s.getsockname()[0])
+        except OSError:
+            pass
     try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("10.255.255.255", 1))  # no packet is sent
-        ips.add(s.getsockname()[0])
-        s.close()
+        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            add(info[4][0])
     except OSError:
         pass
-    return sorted(ip for ip in ips if not ip.startswith("127."))
+    private = [ip for ip in found if ipaddress.ip_address(ip).is_private]
+    return (private or found)[:4]
 
 
 class App:
@@ -189,6 +268,7 @@ class App:
         self.fails: dict[str, list] = {}
         self.fails_lock = threading.Lock()
         self.reauth = _Reauth()              # session hash -> password confirmed until
+        self.community = community.Library()  # Patterns › Community (fetched on demand)
         self.rebuild()
 
     # ------------------------------------------------------------ lifecycle
@@ -343,6 +423,12 @@ class App:
             if z["name"].strip().lower() in names:
                 raise ApiError(f"Two zones are named \u201c{z['name']}\u201d.")
             names.add(z["name"].strip().lower())
+
+    def save_photo(self, f: Path, jpeg: bytes):
+        f.parent.mkdir(exist_ok=True)
+        tmp = f.with_name(f".{f.name}.{os.urandom(4).hex()}.tmp")
+        tmp.write_bytes(jpeg)
+        os.replace(tmp, f)       # never a half-written photo for a reader
 
     def photo_path(self, side: str) -> Path:
         if not re.fullmatch(r"[a-z0-9_-]{1,40}", side or ""):
@@ -698,11 +784,16 @@ class App:
         incoming = body.get("settings")
         if not isinstance(incoming, dict):
             raise ApiError("That file isn't a EaveLuxOS export.")
-        for k in ("setup_done", "_rev", "controller"):
+        # Never taken from a file: this home's own setup, and where the
+        # community library is fetched from (a shared file could otherwise
+        # make this computer request any address on the home network).
+        for k in ("setup_done", "_rev", "controller", "service", "community"):
             incoming.pop(k, None)
         cur = copy.deepcopy(self.store.settings)
         if body.get("mode") == "replace":
-            keep = {k: cur.get(k) for k in ("location", "service", "setup_done", "controller") if k in cur}
+            # This home's own settings, never taken from a file (a shared file
+            # could otherwise repoint the community library, for example).
+            keep = {k: cur.get(k) for k in ("location", "service", "setup_done", "controller", "community") if k in cur}
             # Exports leave out the house map and safety-net settings, so a
             # file without them must not erase this home's copies.
             for k in ("map", "safety"):
@@ -894,7 +985,12 @@ def make_server(app: App, host: str, port: int):
                 self.close_connection = True
                 raise ApiError("Bad Content-Length.", 400)
             n = int(cl)
-            if n > MAX_BODY:
+            limit = MAX_BODY
+            if urllib.parse.urlparse(self.path).path == "/api/photo/upload":
+                u = self._user()
+                if u and u.get("role") in ("admin", "editor"):
+                    limit = PHOTO_UPLOAD_MAX      # only people who may save photos send a big body
+            if n > limit:
                 self.close_connection = True
                 raise ApiError("Request is too large.", 413)
             self._raw = self.rfile.read(n) if n else b""
@@ -1009,6 +1105,13 @@ def make_server(app: App, host: str, port: int):
             self._u = _UNSET
             if not self._host_ok():
                 return
+            if urllib.parse.urlparse(self.path).path == "/api/hook/status":
+                try:
+                    self._read_raw()
+                    return self._hook(urllib.parse.urlparse(self.path))
+                except ApiError as e:
+                    self.close_connection = True
+                    return self._json(e.code, {"error": str(e)})
             try:
                 # Always consume a body, even on GET/HEAD: bytes left on a
                 # keep-alive connection would be read as the next request
@@ -1059,6 +1162,27 @@ def make_server(app: App, host: str, port: int):
                 return self._json(500, {"error": "Something went wrong. Details are in the log."})
 
         def _get(self, path, q):
+            if path == "/api/community":
+                try:
+                    return app.community.index(app.store.settings, refresh=q.get("refresh") == "1")
+                except community.CommunityError as e:
+                    raise ApiError(str(e), 502) from None
+            if path == "/api/community/pattern":
+                try:
+                    return {"pattern": app.community.pattern(app.store.settings, q.get("id", ""))}
+                except community.CommunityError as e:
+                    raise ApiError(str(e), 502) from None
+            if path == "/api/lan_check":
+                # Why can't a phone open the app? Only from this computer: it
+                # reads this computer's firewall.
+                if not self._local():
+                    raise ApiError("Check this from the computer the app runs on.", 403)
+                port = self.server.server_address[1]
+                out = {"system": platform.system(), "port": port, "addresses": lan_addresses(),
+                       "scheme": getattr(app, "scheme", "http")}
+                if out["system"] == "Windows":
+                    out["windows"] = winfirewall.check(port)
+                return out
             if path == "/api/status":
                 if app.ctrl is None:
                     return {"setup_only": True, "setup": app.setup_state()}
@@ -1121,7 +1245,7 @@ def make_server(app: App, host: str, port: int):
                 return json.loads(f.read_text(encoding="utf-8"))
             if path == "/api/export":
                 data = copy.deepcopy(app.store.settings)
-                for k in ("location", "service", "setup_done", "_rev", "controller", "map", "safety"):
+                for k in ("location", "service", "setup_done", "_rev", "controller", "map", "safety", "community"):
                     data.pop(k, None)
                 return {"format": "eaveluxos", "version": VERSION,
                         "exported": datetime.now().isoformat(timespec="seconds"), "settings": data}
@@ -1155,12 +1279,17 @@ def make_server(app: App, host: str, port: int):
                     return self._json(200, {"ok": True})
                 if not self._authed():
                     return self._json(401, {"error": "Sign in first."})
-                b = self._body()
+                if path == "/api/photo/upload":   # the photo's own bytes, not JSON
+                    b = {"side": urllib.parse.parse_qs(url.query).get("side", [""])[0]}
+                else:
+                    b = self._body()
                 self._authorize_post(path, b)
                 self._confirm_password(path, b)
                 return self._json(200, self._post(path, b))
             except ApiError as e:
                 return self._json(e.code, {"error": str(e), **e.extra})
+            except PhotoUnreadable as e:
+                return self._json(e.code, {"error": str(e)})
             except TrimlightError as e:
                 return self._json(502, {"error": str(e)})
             except ValueError as e:
@@ -1219,6 +1348,13 @@ def make_server(app: App, host: str, port: int):
                 elif a == "resume":
                     ctrl.resume()
                 elif a == "levels":
+                    # "on": true (Home Assistant's brightness slider on an off
+                    # light): turn on with tonight's pattern first.
+                    if b.get("on") is True or str(b.get("on")).lower() == "true":
+                        with ctrl.lock:
+                            off = not ctrl._target(commit=False).on
+                        if off:
+                            ctrl.manual(True, ctrl.default_on_effect())
                     ctrl.set_levels(b.get("brightness"), b.get("speed"))
                 elif a == "flash":
                     ctrl.start_flash(b.get("minutes"))
@@ -1327,6 +1463,15 @@ def make_server(app: App, host: str, port: int):
                 app.store.save_secrets(webhook_token=token)
                 app.rebuild()
                 return {"ok": True, "webhook_token": token}
+            if path == "/api/lan_allow":
+                if not self._local():
+                    raise ApiError("Do this on the computer the app runs on: Windows asks for permission there.", 403)
+                if platform.system() != "Windows":
+                    raise ApiError("This button is for Windows. See the manual for other systems.")
+                r = winfirewall.allow(self.server.server_address[1])
+                if not r.get("ok"):
+                    raise ApiError(r.get("error") or "Windows Firewall wasn't changed.")
+                return r
             if path == "/api/autostart":
                 try:
                     return autostart.set_enabled(app.base, bool(b.get("enabled")))
@@ -1345,10 +1490,14 @@ def make_server(app: App, host: str, port: int):
                     raise ApiError("That photo couldn't be read.")
                 if not raw.startswith(b"\xff\xd8") or len(raw) > 1_500_000:
                     raise ApiError("Use a JPEG photo (the app shrinks it before upload).")
-                f.parent.mkdir(exist_ok=True)
-                tmp = f.with_name(f".{f.name}.{os.urandom(4).hex()}.tmp")
-                tmp.write_bytes(raw)
-                os.replace(tmp, f)       # never a half-written photo for a reader
+                app.save_photo(f, raw)
+                return {"ok": True}
+            if path == "/api/photo/upload":
+                f = app.photo_path(str(b.get("side", "")))
+                raw = self._read_raw()
+                if not raw:
+                    raise ApiError("No photo was sent.")
+                app.save_photo(f, shrink_photo(raw))
                 return {"ok": True}
             if path == "/api/photo/delete":
                 f = app.photo_path(str(b.get("side", "")))
@@ -1460,12 +1609,27 @@ def make_server(app: App, host: str, port: int):
                 log.warning("Rejected webhook from %s (bad token)", self.client_address[0])
                 return self._json(403, {"error": "bad token"})
             body = {**q, **data, "action": url.path.rsplit("/", 1)[-1]}
+            if body["action"] == "status":          # read only: what the lights are doing
+                return self._json(200, self._hook_state())
+            if self.command != "POST":
+                return self._json(405, {"error": "Only status can be read with GET; other actions need POST."})
             if body["action"] not in ("flash", "stop_flash", "on", "off", "resume", "levels", "music", "stop_music"):
                 return self._json(400, {"error": "unknown action"})
             self._post("/api/action", body)
             app.ctrl.note(f"Webhook '{body['action']}' from {self.client_address[0]}")
-            t = app.ctrl.status()["target"]
-            return self._json(200, {"ok": True, "on": t["on"], "effect": t["effect"], "reason": t["reason"]})
+            return self._json(200, self._hook_state())
+
+        def _hook_state(self) -> dict:
+            """What webhooks reply: for Home Assistant's sensor, light and
+            pattern list. Keeps the fields earlier versions sent."""
+            st = app.ctrl.status()
+            t, lv = st["target"], st.get("levels") or {}
+            effects = app.ctrl.cfg.effects
+            return {"ok": True, "on": bool(t["on"]), "effect": t["effect"], "effect_key": t.get("effect_key"),
+                    "reason": t["reason"], "source": t.get("source"), "until": t.get("until"),
+                    "brightness": lv.get("brightness"), "speed": lv.get("speed"),
+                    "flash": bool((st.get("flash") or {}).get("active")), "music": bool((st.get("music") or {}).get("active")),
+                    "patterns": sorted(({"key": k, "label": e.label} for k, e in effects.items()), key=lambda p: p["label"].lower())}
 
     srv = _Server((host, port), Handler)
     cert, key = app.store.dir / "tls" / "cert.pem", app.store.dir / "tls" / "key.pem"

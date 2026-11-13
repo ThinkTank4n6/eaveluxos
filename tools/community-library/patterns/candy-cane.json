@@ -1,0 +1,7 @@
+{
+ "name": "Candy cane",
+ "author": "ThinkTank4n6",
+ "description": "Red and white stripes that slowly chase along the roofline.",
+ "tags": ["christmas", "red", "white"],
+ "pattern": {"label": "Candy cane", "colors": ["#FF0000", "#FFFFFF"], "counts": [4, 4], "custom_mode": 1, "speed": 60, "brightness": 200}
+}

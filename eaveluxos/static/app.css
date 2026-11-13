@@ -129,7 +129,7 @@ button.current{border-color:var(--lamp);box-shadow:inset 0 0 0 1px var(--lamp)}
 .segbtn.off::after{content:"✕";position:absolute;top:-6px;right:-6px;width:20px;height:20px;border-radius:50%;background:#FF5A4F;color:#fff;font-size:.7rem;display:grid;place-items:center}
 .palette button.off{position:relative}
 .palette button.off::after{content:"✕";color:#FF5A4F;font-weight:800;font-size:1.2rem;position:absolute;inset:0;display:grid;place-items:center}
-.strand{display:flex;height:10px;border-radius:5px;overflow:hidden;box-shadow:inset 0 0 0 1px rgba(128,128,128,.3)}
+.strand{display:flex;height:10px;border-radius:5px;overflow:hidden;border:1px solid rgba(128,128,128,.35);box-sizing:border-box}
 .strand i{flex:1 1 0}
 
 /* ---------- home ---------- */
@@ -229,6 +229,18 @@ dialog .foot{display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;posit
 .wizard{max-width:620px;margin:0 auto}
 .steps{display:flex;gap:6px;margin-bottom:16px}
 ol.howto{margin:0;padding-left:1.3em;display:grid;gap:8px}
+.whites{display:grid;gap:6px}
+[data-picker] .each{display:none}
+[data-picker][data-mode=each] .each{display:inline-flex}
+.whites .kelvin{gap:8px;align-items:center;flex-wrap:nowrap}
+.whites .kelvin input[type=range]{flex:1;min-width:120px;-webkit-appearance:none;appearance:none;height:10px;margin:0;
+  background:linear-gradient(90deg,#FF7E00,#FFA757,#FFCEA6,#FFFEFA);border-radius:999px;border:1px solid var(--line)}
+.whites .kelvin input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;height:20px;border-radius:50%;
+  background:var(--surface);border:2px solid var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.3)}
+.whites .kelvin input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--surface);border:2px solid var(--ink)}
+.whites .kelvin input[type=range]:focus-visible{outline:2px solid var(--focus);outline-offset:3px}
+details.lanhelp summary{cursor:pointer;font-weight:600;color:var(--lamp)}
+details.lanhelp[open]{display:grid;gap:10px}
 .steps i{height:4px;flex:1;border-radius:2px;background:var(--line)}
 .steps i.on{background:var(--lamp)}
 code,.code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.86rem;background:var(--surface2);

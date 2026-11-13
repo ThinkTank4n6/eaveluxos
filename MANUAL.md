@@ -1,7 +1,7 @@
 # EaveLuxOS: User Manual
 ### The Intelligent Lighting Control Platform
 
-Version 3.11.4 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
+Version 3.12.2 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
 
 EaveLuxOS is a free, community-made lighting control platform. Today it runs
 **Trimlight Edge** permanent lights. It is not made, sold, endorsed or
@@ -349,6 +349,11 @@ on).
 - **Try** shows one on the lights.
 - **Add** saves it to My patterns, after asking for speed, brightness and
   pattern length.
+- **Recreate with my colors** opens it in Create as a new pattern with the
+  same colors and the closest animation (a Wave stays a Wave, a Meteor becomes
+  a Comet, Fire becomes Stars), ready for you to change the colors. Built-in
+  effects' colors are fixed in the controller, so this is a copy that moves a
+  little differently from the original, not an edit of it.
 
 ## 11. Create a pattern
 
@@ -363,6 +368,14 @@ This works like the color circles in the Trimlight app.
    - Tap a circle to select it.
    - Tap a color in the palette to change it, or use the rainbow circle to pick
      any color.
+   - **Whites** sets a white by color temperature, like light bulbs on a box:
+     **Candlelight** (2200 K), **Warm white** (2700 K), **Soft white** (3000 K),
+     **Neutral white** (4000 K), **Cool white** (5000 K) and **Daylight**
+     (6500 K), or any value in between with the **Warm–Cool** slider. Use the
+     same white on every circle for an even architectural look. Trimlight
+     bulbs have no separate white chip, so these whites are mixed from red,
+     green and blue; if whites look too blue or too pink on your house, adjust
+     **Lights › Color correction**. Whites are in **Paint bulbs** too.
    - Use **−** and **+** to change how many bulbs the color covers (1 to 90).
    - Use **Move left** and **Move right** to reorder, and **Remove** to delete
      the selected color.
@@ -581,7 +594,11 @@ A **rule** says when the lights turn on and off, and which pattern shows.
    already up by 6:00 AM.
 6. **Pattern:** choose one. To use several, tap **Add a pattern to rotate**
    and add more. Then choose:
-   - **Switch every … minutes**, or
+   - **Switch every … minutes** (the same time for each), or
+   - **Its own time for each pattern:** a playlist. A minutes box appears next
+     to each pattern, for example Christmas 10, Snowfall 5, Warm white 15. They
+     play in order, then start again. (In a settings file: `rotate_each = [10,
+     5, 15]`, one number per pattern.) Or
    - **A different one each night, in this order.** The first night of the
      rule's date range gets the first pattern, the next night the second, and
      so on, repeating.
@@ -634,6 +651,7 @@ pattern.
 | All night on Christmas Eve and Day | Dec 24 – Dec 25, Sunset → Sunrise, Christmas, Holiday |
 | Game days | All year, Sunday only, Dusk → 11:00 PM, team colors, custom priority 150 |
 | A different look every night in December | Dec 1 – Dec 31, Sunset → 11:00 PM, five Christmas patterns, "A different one each night" |
+| A holiday playlist | Dec 1 – Dec 31, Sunset → 11:00 PM, Christmas, Snowfall and Candy cane, "Its own time for each pattern": 10, 5 and 5 minutes |
 | Dim accent until morning | All year, 11:00 PM → Sunrise, Warm white, own brightness 25%, Low |
 | Morning lights on dark mornings | All year, weekdays, 6:00 AM → Sunrise, Warm white, Everyday (alongside an evening rule) |
 
@@ -1052,10 +1070,26 @@ can start the security flash at night.
 | `levels` | Brightness or speed | `{"brightness": 120}` (0–255) |
 | `music` | Start a music show (section 16) | `{"minutes": 60}`; `0` until stopped |
 | `stop_music` | End the music show | |
+| `status` | Change nothing; report what the lights are doing (also with **GET**) | |
 
-### Home Assistant example
+Every action replies with what the lights are doing then: on or off, the
+pattern and its internal name, why (`schedule`, `manual`, `weather`, `flash`,
+`music`), brightness, speed, and the list of your patterns. `status` changes
+nothing, so another system can ask as often as it likes (it isn't written to
+the activity list).
 
-In `configuration.yaml`:
+### Home Assistant: the ready-made package
+
+The app comes with `tools/home-assistant/eaveluxos.yaml`, a Home Assistant
+*package* that adds the house lights as a light with brightness and your
+patterns as effects, a sensor for the pattern showing now, and scripts for
+the security flash and Return to schedule. Its `README.md` explains the four
+steps. With Home Assistant's **HomeKit Bridge**, the light then appears in
+Apple Home too (on, off and brightness).
+
+### Home Assistant: a single action
+
+For just one action, in `configuration.yaml`:
 
 ```yaml
 rest_command:
@@ -1101,6 +1135,30 @@ app computer, not from the app's screens.
      controllers are kept.
 
 Export is also a good backup before big changes.
+
+### The community library
+
+**Patterns › Community** lists patterns other EaveLuxOS owners have shared.
+Search by name, color or occasion, tap **Try** to see one on your lights (for
+15 minutes), and **Add to my patterns** to keep it. Adding copies only that
+pattern; it never changes your schedule or settings.
+
+- Patterns are reviewed before they appear, and the app checks each one again
+  before you can try or add it.
+- Opening the list contacts GitHub, where the library is kept
+  (`raw.githubusercontent.com`), from the app computer. Nothing about you or
+  your lights is sent; the app only downloads the list. It isn't contacted
+  unless you open **Community**.
+- The list is kept for 15 minutes; **Refresh** fetches it again.
+- Where the library is fetched from can only be changed by an Administrator,
+  and only to an `https://` address. Importing a file never changes it, and
+  the app doesn't follow a redirect to anywhere else.
+
+**To share a pattern there:** the library is the public GitHub repository
+`ThinkTank4n6/eaveluxos-patterns`. Add a small file describing your pattern and
+open a pull request; its README explains the format, and an automatic check
+tells you if anything needs fixing. (The repository's starter kit is in this
+app's `tools/community-library` folder.)
 
 ## 23. Update, move or uninstall
 
@@ -1213,7 +1271,7 @@ Sharing it helps other Trimlight owners know what works on their firmware.
 | A different pattern than expected is showing | Look at the Home headline. It names the rule, weather rule or manual change in charge. Check priorities on the Schedule tab. |
 | The lights turned back on after I switched them off in the Trimlight app | That's by design (section 6). Use **Turn off** in this app instead. |
 | Colors are wrong (red shows as green) | **Lights › Color order** (section 18). |
-| My phone can't open the address | The phone must be on home Wi-Fi, not mobile data. The computer's address may have changed, so check **Settings**, and consider a reserved IP. |
+| My phone can't open the address (nothing happens, or it times out) | On the app computer, open **Settings › Phones and other computers › A phone can't open it?** and tap **Check this computer**. On Windows it finds the usual causes: the network set to **Public** (Windows blocks phones; switch it to Private in Windows Settings › Network & internet), or Windows Firewall blocking the app (often from pressing **Cancel** when Windows first asked). **Let phones in** fixes the firewall after one Windows permission prompt. Also check: the phone is on home Wi-Fi (not mobile data or a guest network), the address starts with `http://` and ends with the port, and try any other address listed there. The computer's address can change, so consider a reserved IP in your router. When it works, the phone shows the sign-in page. |
 | The phone says "create an account" | On the app computer, go to **Settings › Accounts** and add one. |
 | "These settings were changed on another device" | Someone saved changes from another phone or computer at the same time. The latest settings have been loaded; make your change again. |
 | "Unknown host name" | You used a name the app doesn't know. Use the IP address, or run `python3 main.py allow-host NAME` on the app computer (section 21). |
@@ -1222,7 +1280,8 @@ Sharing it helps other Trimlight owners know what works on their firmware.
 | The controller shows offline, or nothing responds | Use the controller steps in Trimlight's guide ("Basic Troubleshooting"). **1)** Unplug the controller for 30 seconds, then let it boot for a few minutes. **2)** If the **Network Connected** light isn't green, press the **STA/AP** button briefly until it is (blue-light mode can't be reached by this app). **3)** A factory reset is a last resort; see the question below. |
 | A rule never seems to run | Check for a **"Never runs"** note on the Schedule tab (section 13) and raise that rule's priority. |
 | Safety net says "Not armed" | Read the reason shown. Most often the controller's library is full, or it was offline. Tap **Update now** to retry; the app also retries on its own every 30 minutes. |
-| A house photo shows as solid green (or one flat color) | Some graphics drivers garble photos when the browser uses the graphics card. Since version 3.11.2 the app checks each photo, tries the browser's other way of reading it, and shows a message instead of saving a bad one. If you see that message, try another browser, or turn off **Use graphics acceleration when available** in the browser's settings (System section), restart the browser and upload again. |
+| "That image is too large" when uploading a photo | The image is over 40 megapixels and not a JPEG (for example a huge PNG). Save it as a JPEG, or smaller, and upload it again. Photos straight from a phone are fine. |
+| A house photo shows as solid green, stripes, or one flat color | Some graphics drivers garble photos when the browser processes them. Since version 3.11.5 the app computer processes photos itself, so this shouldn't happen; upload the photo again. If you still see a message about a flat color (the browser is used for iPhone HEIC photos, or when the app runs from source without Pillow), try another browser, or turn off **Use graphics acceleration when available** in the browser's settings (System section). |
 | The finder lights the wrong spot | Check the port layout on the Lights tab (section 18). Bulb numbers follow it. |
 | "The settings database couldn't be read" | Rare, usually after a disk problem. The app kept the damaged file, restored your patterns and schedule from its plain-text copy (`settings.last-good.json`), and asks you to enter your Trimlight account and app password again. |
 | I changed something and want it back | **Settings › Version history**: tap **Restore** next to an earlier save (section 20). |

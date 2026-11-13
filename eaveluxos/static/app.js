@@ -248,6 +248,27 @@ function buildQuick(canControl, local) {
     }).catch(() => {});
   };
 }
+/* Results of Settings › Phones › Check this computer. */
+function lanShow(r) {
+  const box = $('#lanresult'); if (!box) return;
+  const w = r.windows, out = [];
+  if (!w) {
+    out.push(r.system === 'Darwin'
+      ? '<p class="note">On a Mac: System Settings \u203a Network \u203a Firewall. If it\u2019s on, open <b>Options</b> and make sure EaveLuxOS is set to <b>Allow incoming connections</b>.</p>'
+      : '<p class="note">On Linux, if a firewall is on (for example ufw), allow the port: <code>sudo ufw allow ' + esc(r.port) + '/tcp</code>.</p>');
+  } else if (w.error) {
+    out.push(`<p class="callout warn">${esc(w.error)}</p>`);
+  } else {
+    const ok = !w.public && !w.blocked_rules.length && w.allowed;
+    if (w.public) out.push('<p class="callout warn"><b>This computer\u2019s network is set to Public,</b> so Windows blocks phones. Make it Private: <b>Settings \u203a Network &amp; internet</b>, click <b>Ethernet</b> or <b>Wi-Fi</b>, then your network, and choose <b>Private network</b>. Only do this on your home network.</p>');
+    if (w.blocked_rules.length) out.push(`<p class="callout warn"><b>Windows Firewall is blocking this app</b> (probably from pressing Cancel when Windows first asked). Rule${w.blocked_rules.length > 1 ? 's' : ''}: ${w.blocked_rules.map(esc).join(', ')}.</p>`);
+    else if (!w.allowed) out.push('<p class="callout">No Windows Firewall rule lets phones reach the app yet.</p>');
+    if (w.blocked_rules.length || !w.allowed) out.push('<div class="row"><button class="primary small" data-lanallow>Let phones in</button></div><p class="note">Windows asks for permission on this computer. It switches off rules blocking this app and lets phones reach port ' + esc(r.port) + ' on Private networks only.'
+      + (w.from_source && w.blocked_rules.length ? ' The app runs from Python here, so the rules it switches off are Python\u2019s: other Python programs are no longer blocked either.' : '') + '</p>');
+    if (ok) out.push('<p class="callout" style="border-color:var(--ok)">Windows Firewall lets phones in. If a phone still can\u2019t open the address, check it\u2019s on the same home network (step 2), and try the other addresses above.</p>');
+  }
+  box.innerHTML = out.join('');
+}
 async function quitApp() {
   if (!await confirmBox('Quit the app?', 'The lights stay as they are now, but the schedule stops until you start the app again.', 'Quit', true)) return;
   let r;
@@ -415,7 +436,9 @@ VIEWS.home = async () => {
             <div class="ticks"><span style="left:0">12 AM</span><span style="left:25%">6 AM</span><span style="left:50%">Noon</span><span style="left:75%">6 PM</span><span style="left:100%">12 AM</span></div>
             <div class="legend"><span>Sunrise <b>${esc(st.sun.sunrise ?? '—')}</b></span><span>Sunset <b>${esc(st.sun.sunset ?? '—')}</b></span><span>Now <b>${esc(st.now_label)} ${esc(st.tz)}</b></span></div>
             ${wx ? `<p class="note" style="margin-top:6px">${!wx.fresh ? `Weather unavailable${wx.error ? ': ' + esc(wx.error) : ''}. Weather rules are paused.` : `Weather: ${esc(wx.summary)}${wx.match ? (wx.active ? `. ${esc(wx.match)} is running.` : `. Matches ${esc(wx.match)}.`) : '.'}`}</p>` : ''}
-            ${st.rotation ? `<p class="note">${st.rotation.nightly ? `A different pattern each night: ${esc(st.rotation.labels.join(', '))}.` : `Rotating ${esc(st.rotation.labels.join(', '))} every ${st.rotation.minutes} min.`}</p>` : ''}
+            ${st.rotation ? `<p class="note">${st.rotation.nightly ? `A different pattern each night: ${esc(st.rotation.labels.join(', '))}.`
+              : st.rotation.each ? `Playing in turn: ${esc(st.rotation.labels.map((l, i) => `${l} ${st.rotation.each[i]} min`).join(', '))}.`
+              : `Rotating ${esc(st.rotation.labels.join(', '))} every ${st.rotation.minutes} min.`}</p>` : ''}
           </div>
           <div class="panel"><h2>Turn on</h2>
             <div class="chips">${effects.map(([k, e]) => `<button data-on="${esc(k)}" class="${t.on && t.effect_key === k ? 'current' : ''}">${swatches(effectSwatches(e), 4)}${esc(e.label || k)}</button>`).join('')}</div>
@@ -510,7 +533,7 @@ VIEWS.patterns = async (tab) => {
   S.ptab = tab || S.ptab || 'mine';
   const m = $('#main');
   const head = `<div class="panel-head"><h2>Patterns</h2><div class="seg" role="group" aria-label="Pattern source">
-    ${[['mine', 'My patterns'], ['controller', 'In the Trimlight app'], ['builtin', 'Built-in (180)']].map(([k, l]) => `<button data-ptab="${k}" aria-pressed="${S.ptab === k}">${l}</button>`).join('')}</div>
+    ${[['mine', 'My patterns'], ['controller', 'In the Trimlight app'], ['builtin', 'Built-in (180)'], ['community', 'Community']].map(([k, l]) => `<button data-ptab="${k}" aria-pressed="${S.ptab === k}">${l}</button>`).join('')}</div>
     <button class="primary" data-new>New pattern</button></div>`;
   m.innerHTML = `<div class="view">${head}<div id="pbody"><p class="muted">Loading…</p></div></div>`;
   const body = $('#pbody');
@@ -524,6 +547,32 @@ VIEWS.patterns = async (tab) => {
       <p class="small muted">${esc(effectKind(e))}${usedBy(k).length ? ` · used by ${usedBy(k).length}` : ''}</p>
       <div class="actions"><button class="small" data-on="${esc(k)}">Turn on</button><button class="small ghost" data-edit="${esc(k)}">Edit</button><button class="small ghost danger" data-del="${esc(k)}">Delete</button></div>
     </div>`).join('')}</div>`;
+  } else if (S.ptab === 'community') {
+    // Reviewed patterns shared by other owners (community.py). Fetched only now.
+    let lib;
+    try { lib = await api('community' + (S.comRefresh ? '?refresh=1' : '')); }
+    catch (e) {
+      body.innerHTML = `<div class="panel stack"><p class="callout warn">${esc(e.message)}</p>
+        <div class="row"><button class="small" data-comref>Try again</button></div>
+        <p class="note">The community library is a list of patterns other EaveLuxOS owners have shared, reviewed before they appear. To share yours, see the Manual, \u201cShare patterns with other owners\u201d.</p></div>`;
+      return;
+    } finally { S.comRefresh = false; }
+    S.community = lib.patterns;
+    body.innerHTML = `<div class="panel stack"><div class="row"><input type="search" id="comq" placeholder="Search, e.g. christmas red" class="grow" style="max-width:340px" value="${esc(S.comq || '')}">
+        <button class="small ghost" data-comref>Refresh</button></div><div class="cards" id="comlist"></div>
+      <p class="note">${lib.patterns.length} patterns shared by other owners and reviewed before they appear. Adding one copies it to your patterns; it changes nothing else. To share yours, see the Manual, \u201cShare patterns with other owners\u201d.</p></div>`;
+    const draw = () => {
+      const q = ($('#comq').value || '').toLowerCase().split(/\s+/).filter(Boolean);
+      const list = S.community.filter(p => q.every(w => `${p.name} ${p.author} ${p.description} ${p.tags.join(' ')}`.toLowerCase().includes(w)));
+      $('#comlist').innerHTML = list.length ? list.map(p => `<div class="card">
+        <div class="title"><b>${esc(p.name)}</b></div>${p.colors.length ? strand(p.colors) : ''}
+        ${p.description ? `<p class="small">${esc(p.description)}</p>` : ''}
+        <p class="small muted">${p.author ? `Shared by ${esc(p.author)}` : 'Shared by an EaveLuxOS owner'}${p.tags.length ? ` \u00b7 ${esc(p.tags.join(', '))}` : ''}</p>
+        <div class="actions"><button class="small" data-comtry="${esc(p.id)}">Try</button><button class="small ghost" data-comadd="${esc(p.id)}">Add to my patterns</button></div></div>`).join('')
+        : `<p class="muted">${S.community.length ? 'No community patterns match.' : 'No patterns have been shared yet.'}</p>`;
+    };
+    draw();
+    $('#comq').oninput = e => { S.comq = e.target.value; draw(); };
   } else if (S.ptab === 'controller') {
     let devs;
     try { devs = await loadDevices(); } catch (e) { body.innerHTML = `<p class="callout warn">${esc(e.message)}</p>`; return; }
@@ -546,7 +595,8 @@ VIEWS.patterns = async (tab) => {
       const list = S.catalog.builtin.filter(b => (S.bgroup === 'All' || b.group === S.bgroup) && q.every(w => b.name.toLowerCase().includes(w)));
       $('#blist').innerHTML = list.length ? list.map(b => `<div class="item"><span class="idx num">${b.mode}</span>${swatches(b.swatches)}
         <div class="grow"><div class="name">${esc(b.name)}</div><div class="sub">${esc(b.group)}</div></div>
-        <button class="small" data-btry="${b.mode}">Try</button><button class="small ghost" data-badd="${b.mode}">Add</button></div>`).join('')
+        <button class="small" data-btry="${b.mode}">Try</button><button class="small ghost" data-badd="${b.mode}">Add</button>
+        <button class="small ghost" data-brecreate="${b.mode}" title="Open in Create with these colors and the closest animation, to change the colors">Recreate with my colors</button></div>`).join('')
         : '<p class="muted">No built-in effects match.</p>';
     };
     draw();
@@ -572,8 +622,13 @@ VIEWS.patterns = async (tab) => {
       const n = clone(S.settings); delete n.effects[d.del];
       return busy(b, () => saveSettings(n, 'Deleted')).then(() => VIEWS.patterns()).catch(() => {});
     }
+    if (d.comref !== undefined) { S.comRefresh = true; return VIEWS.patterns('community'); }
+    if (d.comtry) return busy(b, async () => (await api('community/pattern?id=' + encodeURIComponent(d.comtry))).pattern)
+      .then(def => tryDef(def, null)).catch(() => {});
+    if (d.comadd) return busy(b, async () => addPattern((await api('community/pattern?id=' + encodeURIComponent(d.comadd))).pattern)).catch(() => {});
     if (d.ctry) return tryDef(fromController(S.ctrlEffects[+d.ctry]), b);
     if (d.cadd) { const def = fromController(S.ctrlEffects[+d.cadd]); return busy(b, () => addPattern(def)).catch(() => {}); }
+    if (d.brecreate) return go('create', { recreate: +d.brecreate });
     if (d.btry) { const bi = S.catalog.builtin.find(x => x.mode === +d.btry); return tryDef({ label: bi.name, builtin: bi.mode, speed: 128, brightness: 200, pixel_len: 30 }, b); }
     if (d.badd) { const bi = S.catalog.builtin.find(x => x.mode === +d.badd);
       return builtinDialog({ label: bi.name, builtin: bi.mode, speed: 128, brightness: 200, pixel_len: 30 }, async out => { await addPattern(out); }, 'Add built-in effect'); }
@@ -583,7 +638,13 @@ VIEWS.patterns = async (tab) => {
 /* ---------------------------------------------------------------- CREATE (designer) */
 const lum = h => { if (h === 'off') return 0; const n = parseInt(h.slice(1), 16); return (0.299 * (n >> 16) + 0.587 * (n >> 8 & 255) + 0.114 * (n & 255)) / 255; };
 VIEWS.create = async (opts = {}) => {
-  if (opts.key !== undefined || !S.design || opts.fresh) {
+  if (opts.recreate !== undefined) {
+    // A built-in's colors are fixed in the controller, so start a custom pattern
+    // with the same colors and the closest animation (catalog.recreate).
+    const bi = S.catalog.builtin.find(x => x.mode === opts.recreate), r = bi && bi.recreate;
+    if (r) S.design = { key: null, label: r.label, segs: r.colors.map((c, i) => ({ c, n: r.counts[i] || 3 })), mode: r.custom_mode,
+      speed: r.speed, brightness: r.brightness, sel: 0, from: bi.name };
+  } else if (opts.key !== undefined || !S.design || opts.fresh) {
     const def = opts.key ? S.settings.effects[opts.key] : null;
     S.design = def ? { key: opts.key, label: def.label || opts.key, segs: def.colors.map((c, i) => ({ c: c.toUpperCase(), n: (def.counts || [])[i] || 3 })),
       mode: def.custom_mode || 0, speed: def.speed ?? 100, brightness: def.brightness ?? 200, sel: 0, exact: !!def.exact_colors }
@@ -598,6 +659,7 @@ VIEWS.create = async (opts = {}) => {
     const s = D.segs[D.sel];
     m.innerHTML = `<div class="view"><div class="panel-head"><h2>${D.key ? 'Edit pattern' : 'Create a pattern'}</h2>
         ${D.key ? '<button class="ghost" data-newd>Start a new one</button>' : ''}</div>
+      ${D.from && !D.key ? `<p class="callout">Started from the built-in effect <b>${esc(D.from)}</b>: same colors, closest animation (${esc(S.catalog.custom_modes[D.mode] || '')}). Built-in effects can't be recolored on the controller, so this is a new pattern that moves a little differently. Change the colors, try it, then save it.</p>` : ''}
       <div class="cols wide-left">
         <div class="stack">
           <div class="panel stack">
@@ -614,6 +676,7 @@ VIEWS.create = async (opts = {}) => {
               <div class="palette">${S.catalog.palette.map(p => `<button data-color="${p.hex}" title="${esc(p.name)}" aria-label="${esc(p.name)}" style="background:${p.hex}"></button>`).join('')}
                 <button data-color="off" class="off" title="Zone off (✕): these bulbs stay dark and don't move" aria-label="Zone off"></button>
                 <label class="custom" title="Any color"><input type="color" id="cpick" value="${s.c === 'off' ? '#000000' : s.c.toLowerCase()}" aria-label="Pick any color"></label></div>
+              ${whitesRow('data-color', 'ckelvin', s.c)}
               <div class="row"><span class="small">Bulbs</span><span class="stepper"><button data-n="-1" aria-label="Fewer">−</button>
                 <input type="number" id="segn" min="1" max="90" value="${s.n}" aria-label="Bulbs for this color"><button data-n="1" aria-label="More">+</button></span>
                 <button class="small ghost" data-mv="-1" ${D.sel === 0 ? 'disabled' : ''}>Move left</button><button class="small ghost" data-mv="1" ${D.sel === D.segs.length - 1 ? 'disabled' : ''}>Move right</button>
@@ -646,6 +709,10 @@ VIEWS.create = async (opts = {}) => {
     $('#dbright').oninput = e => D.brightness = +e.target.value;
     const dx = $('#dexact'); if (dx) dx.onchange = e => { D.exact = e.target.checked; render(); };
     const cp = $('#cpick'); if (cp) cp.oninput = e => { D.segs[D.sel].c = e.target.value.toUpperCase(); repaintSegs(); };
+    const ck = $('#ckelvin'); if (ck) ck.oninput = e => {
+      S.kelvin = +e.target.value; D.segs[D.sel].c = Whites.kelvinHex(S.kelvin);
+      const v = $('[data-kval]', ck.closest('.whites')); if (v) v.textContent = `${S.kelvin} K`;
+      repaintSegs(); };
     const sn = $('#segn'); if (sn) sn.onchange = e => { D.segs[D.sel].n = Math.max(1, Math.min(90, +e.target.value || 1)); render(); };
     // While painting, the preview shows the painted pattern (if it fits).
     const painted = D.paint && PT.compress(D.paint.canvas);
@@ -777,28 +844,46 @@ function timeField(name, label, val) {
     <div class="row" data-tsun="${name}" ${t.kind === 'clock' ? 'hidden' : ''}><input type="number" name="${name}_off" min="-240" max="240" value="${t.off || 0}" aria-label="Minutes offset"><span class="small muted">minutes (use − for before)</span></div>
     <input type="time" name="${name}_time" data-tclock="${name}" value="${t.time || '23:00'}" ${t.kind === 'clock' ? '' : 'hidden'} aria-label="Time"></fieldset>`;
 }
-function patternPicker(selected, rotate, nightly = false, allowNightly = true) {
+/* Pattern(s) for a rule. Several rotate: every N minutes, a different one
+   each night, or a playlist with its own minutes per pattern (each). */
+function patternPicker(selected, rotate, nightly = false, allowNightly = true, each = null) {
   const keys = Object.keys(S.settings.effects || {});
   const opts = v => keys.map(k => `<option value="${esc(k)}" ${k === v ? 'selected' : ''}>${esc(effLabel(k))}</option>`).join('');
   const list = (Array.isArray(selected) ? selected : [selected]).filter(Boolean);
   if (!list.length) list.push(keys[0]);
-  return `<div class="stack" style="gap:8px" data-picker><span class="small" style="font-weight:650">Pattern${list.length > 1 ? 's (rotate in this order)' : ''}</span>
-    ${list.map(v => `<div class="row" data-prow><select name="pattern" class="grow" style="flex:1">${opts(v)}</select>${list.length > 1 ? '<button type="button" class="small ghost" data-prm aria-label="Remove">✕</button>' : ''}</div>`).join('')}
+  const useEach = Array.isArray(each) && each.length === list.length && !nightly;
+  const mins = list.map((_, i) => (Array.isArray(each) && each[i]) || rotate || 15);
+  return `<div class="stack" style="gap:8px" data-picker data-mode="${useEach ? 'each' : nightly && allowNightly ? 'nightly' : 'minutes'}"><span class="small" style="font-weight:650">Pattern${list.length > 1 ? 's (rotate in this order)' : ''}</span>
+    ${list.map((v, i) => `<div class="row" data-prow><select name="pattern" class="grow" style="flex:1">${opts(v)}</select>
+      ${list.length > 1 ? `<span class="row small each" style="gap:4px"><input type="number" name="each" min="1" max="1440" value="${mins[i]}" style="width:5em" aria-label="Minutes for pattern ${i + 1}"> min</span><button type="button" class="small ghost" data-prm aria-label="Remove">✕</button>` : ''}</div>`).join('')}
     <div class="row"><button type="button" class="small ghost" data-padd>Add a pattern to rotate</button></div>
     <div class="stack" style="gap:6px" ${list.length > 1 ? '' : 'hidden'} data-rot>
-      <label class="check"><input type="radio" name="rotmode" value="minutes" ${!nightly || !allowNightly ? 'checked' : ''}><span class="row small" style="gap:6px">Switch every <input type="number" name="rotate" min="1" max="720" value="${rotate || 15}" style="width:5.5em"> minutes</span></label>
-      ${allowNightly ? `<label class="check"><input type="radio" name="rotmode" value="nightly" ${nightly ? 'checked' : ''}><span class="small">A different one each night, in this order</span></label>` : ''}</div></div>`;
+      <label class="check"><input type="radio" name="rotmode" value="minutes" ${!useEach && (!nightly || !allowNightly) ? 'checked' : ''}><span class="row small" style="gap:6px">Switch every <input type="number" name="rotate" min="1" max="720" value="${rotate || 15}" style="width:5.5em"> minutes</span></label>
+      <label class="check"><input type="radio" name="rotmode" value="each" ${useEach ? 'checked' : ''}><span class="small">Its own time for each pattern (minutes next to each one)</span></label>
+      ${allowNightly ? `<label class="check"><input type="radio" name="rotmode" value="nightly" ${nightly && !useEach ? 'checked' : ''}><span class="small">A different one each night, in this order</span></label>` : ''}</div></div>`;
 }
 function wirePicker(form) {
   form.addEventListener('click', e => {
     const b = e.target.closest('button'); if (!b) return;
     const pk = $('[data-picker]', form);
     const cur = $$('select[name=pattern]', form).map(s => s.value), rot = form.rotate?.value;
-    const nightly = $('input[name=rotmode]:checked', form)?.value === 'nightly', allow = !!$('input[name=rotmode][value=nightly]', form) || form.dataset.nightly === '1';
-    if (b.dataset.padd !== undefined) { cur.push(cur[cur.length - 1]); pk.outerHTML = patternPicker(cur, rot, nightly, allow); }
-    if (b.dataset.prm !== undefined) { const i = $$('[data-prow]', form).indexOf(b.closest('[data-prow]')); cur.splice(i, 1); pk.outerHTML = patternPicker(cur, rot, nightly, allow); }
+    const mode = $('input[name=rotmode]:checked', form)?.value, nightly = mode === 'nightly';
+    const allow = !!$('input[name=rotmode][value=nightly]', form) || form.dataset.nightly === '1';
+    const each = $$('input[name=each]', form).map(x => +x.value || +rot || 15);
+    const keep = () => (mode === 'each' ? each : null);
+    if (b.dataset.padd !== undefined) {
+      cur.push(cur[cur.length - 1]);
+      each.push(each[each.length - 1] || +rot || 15);
+      pk.outerHTML = patternPicker(cur, rot, nightly, allow, keep());
+    }
+    if (b.dataset.prm !== undefined) {
+      const i = $$('[data-prow]', form).indexOf(b.closest('[data-prow]'));
+      cur.splice(i, 1); each.splice(i, 1);
+      pk.outerHTML = patternPicker(cur, rot, nightly, allow, keep());
+    }
   });
   form.addEventListener('change', e => {
+    if (e.target.name === 'rotmode') { const pk = $('[data-picker]', form); if (pk) pk.dataset.mode = e.target.value; }
     const k = e.target.dataset.tkind;
     if (k) { const clock = e.target.value === 'clock'; $(`[data-tsun="${k}"]`, form).hidden = clock; $(`[data-tclock="${k}"]`, form).hidden = !clock; }
   });
@@ -806,11 +891,15 @@ function wirePicker(form) {
 function readPicker(form, out) {
   const pats = $$('select[name=pattern]', form).map(s => s.value);
   if (!pats.length || !pats[0]) throw new Error('Create a pattern first (Create tab).');
-  delete out.rotate; delete out.rotate_minutes;
+  delete out.rotate; delete out.rotate_minutes; delete out.rotate_each;
   if (pats.length > 1) {
     out.effect = pats;
-    if ($('input[name=rotmode]:checked', form)?.value === 'nightly') out.rotate = 'nightly';
-    else out.rotate_minutes = Math.max(1, +form.rotate.value || 15);
+    const mode = $('input[name=rotmode]:checked', form)?.value;
+    if (mode === 'nightly') out.rotate = 'nightly';
+    else if (mode === 'each') {
+      out.rotate_each = $$('input[name=each]', form).map(x => Math.round(+x.value));
+      if (out.rotate_each.some(m => !(m >= 1 && m <= 1440))) throw new Error('Give each pattern 1 to 1440 minutes.');
+    } else out.rotate_minutes = Math.max(1, +form.rotate.value || 15);
   } else out.effect = pats[0];
 }
 const readT = (f, n) => buildT(f[n + '_kind'].value === 'clock' ? { kind: 'clock', time: f[n + '_time'].value || '23:00' } : { kind: f[n + '_kind'].value, off: +f[n + '_off'].value || 0 });
@@ -837,7 +926,7 @@ function ruleDialog(idx, template) {
       <div class="chips">${DAYS.map(d => `<label class="check" style="gap:6px"><input type="checkbox" name="day" value="${d}" ${days.includes(d) ? 'checked' : ''}>${DAYNAMES[d]}</label>`).join('')}</div></div>
     <div class="cols" style="gap:10px">${timeField('on', 'Turn on at', r.on)}${timeField('off', 'Turn off at', r.off)}</div>
     <p class="hint">If the off time is earlier than the on time, it means the next morning (for example sunset to sunrise). A rule never runs longer than 20 hours, so a 6:00 AM to sunrise rule simply skips days when the sun is already up by 6:00 AM.</p>
-    ${patternPicker(r.effect, r.rotate_minutes, r.rotate === 'nightly', true)}
+    ${patternPicker(r.effect, r.rotate_minutes, r.rotate === 'nightly', true, r.rotate_each)}
     <label class="check"><input type="checkbox" name="usebright" ${r.brightness !== undefined ? 'checked' : ''}> Use its own brightness</label>
     <input type="range" name="brightness" min="0" max="255" value="${r.brightness ?? 120}" ${r.brightness !== undefined ? '' : 'hidden'} aria-label="Brightness">
     <label class="field">When rules overlap, this one is
@@ -886,7 +975,7 @@ function weatherDialog(idx) {
       <div class="chips">${WX.map(([k, l]) => `<label class="check" style="gap:6px"><input type="checkbox" name="when" value="${k}" ${when.includes(k) ? 'checked' : ''}>${l}</label>`).join('')}</div></div>
     <div class="row"><label class="field">Colder than (°F)<input type="number" name="below_f" value="${r.below_f ?? ''}" placeholder="optional"></label>
       <label class="field">Warmer than (°F)<input type="number" name="above_f" value="${r.above_f ?? ''}" placeholder="optional"></label></div>
-    ${patternPicker(r.effect, r.rotate_minutes, false, false)}
+    ${patternPicker(r.effect, r.rotate_minutes, false, false, r.rotate_each)}
     <label class="field">Priority <span class="hint">Weather only replaces a scheduled rule with a lower number. 150 beats everyday rules (100) but not holidays (200).</span>
       <input type="number" name="priority" min="0" max="999" value="${r.priority ?? 150}"></label>`,
   async f => {
@@ -944,7 +1033,8 @@ VIEWS.schedule = async () => {
           <div class="list" style="margin-top:8px">${rules.length ? rules.map(({ r, i }) => { const pats = Array.isArray(r.effect) ? r.effect : [r.effect];
             return `<div class="item"><div class="grow" data-rulename="${esc(r.name)}"><div class="row" style="gap:8px"><span class="name">${esc(r.name)}</span><span class="badge ${prio(r) >= 200 ? 'hi' : ''}">${prioLabel(prio(r))} · ${prio(r)}</span></div>
               <div class="sub">${esc(humanDates(r))} · ${esc(humanDays(r.days))} · ${esc(humanT(r.on))} → ${esc(humanT(r.off))}</div>
-              <div class="sub">${swatches(effectSwatches(effs[pats[0]]), 4)} ${esc(pats.map(effLabel).join(' / '))}${pats.length > 1 ? (r.rotate === 'nightly' ? ', a different one each night' : `, every ${r.rotate_minutes} min`) : ''}${r.brightness !== undefined ? `, brightness ${Math.round(r.brightness / 2.55)}%` : ''}</div></div>
+              <div class="sub">${swatches(effectSwatches(effs[pats[0]]), 4)} ${pats.length > 1 && Array.isArray(r.rotate_each) ? esc(pats.map((p, i) => `${effLabel(p)} ${r.rotate_each[i]} min`).join(' / ')) + ', in turn'
+                : esc(pats.map(effLabel).join(' / ')) + (pats.length > 1 ? (r.rotate === 'nightly' ? ', a different one each night' : `, every ${r.rotate_minutes} min`) : '')}${r.brightness !== undefined ? `, brightness ${Math.round(r.brightness / 2.55)}%` : ''}</div></div>
               <button class="small ghost" data-editrule="${i}">Edit</button><button class="small ghost danger" data-delrule="${i}" aria-label="Delete ${esc(r.name)}">Delete</button></div>`; }).join('')
             : '<p class="muted">No rules yet. Add one to turn the lights on automatically.</p>'}</div></div>
         <div class="panel stack"><div class="panel-head"><h2>Weather</h2><label class="check"><input type="checkbox" id="wxon" ${s.weather?.enabled ? 'checked' : ''}> On</label></div>
@@ -1429,8 +1519,17 @@ VIEWS.settings = async () => {
             <label class="check"><input type="checkbox" id="locallogin" ${a.local_login ? 'checked' : ''}> Require signing in on this computer too</label>
             <p class="note">Useful if other people or programs use this computer. Forgot a password? On this computer run <code>python3 main.py reset-password NAME</code>.</p>` : '<p class="note">Until an account exists, only this computer can use the app.</p>'}</div>` : ''}
         <div class="panel stack"><h2>Phones and other computers</h2>
-          ${urls.length ? `<p>Open ${urls.map(u => `<code>${esc(u)}</code>`).join(' or ')} on any device on your home Wi-Fi. In Safari, Share › Add to Home Screen makes it an app.</p>` : ''}
-          <p class="note">${a.password_set ? 'Each person signs in with their own account.' : 'Create an account (Settings › Accounts) so other devices can sign in.'}</p></div>
+          ${urls.length ? `<p>Open <code>${esc(urls[0])}</code> in the web browser on any phone or computer on your home Wi-Fi. It shows a sign-in page. In Safari, Share › Add to Home Screen makes it an app.</p>
+            ${urls.length > 1 ? `<p class="note">If that address doesn't open, this computer has others: ${urls.slice(1).map(u => `<code>${esc(u)}</code>`).join(', ')}.</p>` : ''}` : ''}
+          <p class="note">${a.password_set ? 'Each person signs in with their own account.' : 'Create an account (Settings › Accounts) so other devices can sign in.'}</p>
+          <details class="lanhelp"><summary>A phone can\u2019t open it?</summary>
+            <ol class="howto">
+              <li>Type the address exactly, starting with <b>${esc(a.scheme || 'http')}://</b> and ending with <b>:${esc(a.port)}/</b>, in the phone\u2019s web browser.</li>
+              <li>Use your <b>home Wi-Fi</b>, not mobile data, on the same network as this computer: not a guest or separate network on your router.</li>
+              <li>This computer\u2019s firewall has to let phones in.${local ? ' Check it below.' : ' Open Settings on the computer running the app and use <b>Check this computer</b> there.'}</li>
+            </ol>
+            ${local ? '<div class="row"><button class="small" data-lancheck>Check this computer</button></div><div id="lanresult" class="stack" aria-live="polite"></div>' : ''}
+          </details></div>
         <div class="panel stack"><h2>Share and back up</h2>
           <p class="note">Export your patterns and schedule to a file you can keep or share with other Trimlight owners. It never includes your Trimlight credentials, passwords or location.</p>
           <div class="row"><button data-export>Export patterns and schedule</button>${role() !== 'viewer' ? '<label class="btn" tabindex="0">Import a file<input type="file" id="impf" accept=".json,application/json" hidden></label>' : ''}</div></div>
@@ -1521,6 +1620,8 @@ VIEWS.settings = async () => {
       }).catch(() => {});
     }
     if (d.quit !== undefined) quitApp();
+    if (d.lancheck !== undefined) busy(b, async () => lanShow(await api('lan_check'))).catch(() => {});
+    if (d.lanallow !== undefined) busy(b, async () => { const r = await api('lan_allow', { body: {} }); toast('Windows Firewall now lets phones in'); lanShow({ ...(await api('lan_check')) }); return r; }).catch(() => {});
     if (d.export !== undefined) busy(b, async () => {
       const data = await api('export');
       const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
@@ -1593,6 +1694,34 @@ boot().catch(e => { $('#main').innerHTML = `<div class="gate"><p class="callout 
 const MAX_SLOTS = 30, PER_SLOT = 90;
 /* Photos need the sign-in header too, so fetch them and show them as blob URLs. */
 const photoCache = {};
+/* Whites by color temperature (whites.js): preset buttons that set the color
+   like any palette button (attr: data-color or data-pcolor), and a slider for
+   anything in between. */
+function whitesRow(attr, sliderId, current) {
+  const k = S.kelvin || 2700;
+  return `<div class="whites"><span class="small" style="font-weight:650">Whites</span>
+    <div class="palette">${Whites.PRESETS.map(p => { const hex = Whites.kelvinHex(p.k);
+      return `<button ${attr}="${hex}" title="${esc(p.name)} \u00b7 ${p.k} K" aria-label="${esc(p.name)}, ${p.k} K" aria-pressed="${current === hex}" style="background:${hex}"></button>`; }).join('')}</div>
+    <label class="row small kelvin">Warm<input type="range" id="${sliderId}" min="${Whites.MIN}" max="${Whites.MAX}" step="100" value="${k}" aria-label="Color temperature">Cool
+      <span class="muted" data-kval>${k} K</span></label></div>`;
+}
+/* Save a house photo. The original file goes to the app computer, which
+   turns it upright, shrinks it and saves it, on its processor: the browser's
+   own image handling can't be trusted on every computer (some graphics drivers
+   turn photos solid green or striped). Only if the app computer can't read the
+   file (an iPhone HEIC, or no image library when run from source) does this
+   browser shrink it instead. */
+async function uploadPhoto(side, file) {
+  if (file.size <= 30_000_000) {
+    const r = await fetch('api/photo/upload?side=' + encodeURIComponent(side), { method: 'POST', cache: 'no-store', body: file,
+      headers: { 'X-Requested-With': 'eaveluxos', 'Content-Type': file.type || 'application/octet-stream', ...authHeaders() } });
+    if (r.ok) return;
+    const e = await r.json().catch(() => ({}));
+    if (r.status === 401) throw new Error('Sign in again, then upload the photo.');
+    if (r.status !== 415 && r.status !== 501) throw new Error(e.error || `Upload failed (${r.status}).`);
+  }
+  await api('photo', { body: { side, data: await shrinkPhoto(file) } });
+}
 /* Shrink a photo to at most 1600 px and encode it as JPEG, in this browser.
    Some graphics drivers return an all-green (or blank) image when the browser
    decodes or draws a photo on the graphics card. So: draw on a canvas kept in
@@ -1839,16 +1968,14 @@ VIEWS.map = async () => {
     if (t.id === 'pfile' && t.files[0]) {
       const traced = (mapData().rooflines[F.side] || []).length;
       if (traced && !await confirmBox('Replace this photo?', `The ${traced} roofline section${traced === 1 ? ' was' : 's were'} traced on the old photo and will be removed. Landmark pins stay.`, 'Replace', true)) { t.value = ''; return; }
-      let data;
-      try { data = await shrinkPhoto(t.files[0]); }
-      catch (err) { t.value = ''; return toast(err.message, true); }
+      const file = t.files[0]; t.value = '';
       try {
-        // Only now, with a good new photo in hand, drop rooflines traced on the old one.
+        await busy(null, () => uploadPhoto(F.side, file));
+        // Only now, with the new photo saved, drop rooflines traced on the old one.
         if (traced) await saveMap(mp => { delete mp.rooflines[F.side]; }, 'Old rooflines removed');
         roofReset();
-        await busy(null, () => api('photo', { body: { side: F.side, data } })); S.photoV = Date.now(); S.photos.add(F.side); toast('Photo saved'); render();
+        S.photoV = Date.now(); S.photos.add(F.side); toast('Photo saved'); render();
       } catch { /* busy() has shown the error */ }
-      t.value = '';
     }
   };
   render();
@@ -2053,7 +2180,8 @@ function painterHtml(D) {
       <div class="palette">${S.catalog.palette.map(p => `<button data-pcolor="${p.hex}" title="${esc(p.name)}" aria-label="${esc(p.name)}" aria-pressed="${P.color === p.hex}" style="background:${p.hex}"></button>`).join('')}
         <button data-pcolor="off" class="off" title="Zone off: dark and skipped by movement" aria-label="Zone off" aria-pressed="${P.color === 'off'}"></button>
         <label class="custom" title="Any color"><input type="color" id="ppick" value="${P.color === 'off' ? '#000000' : P.color.toLowerCase()}" aria-label="Pick any paint color"></label>
-        <span class="chip-now"><i ${sw(P.color)}></i>${P.color === 'off' ? 'Zone off' : esc(P.color)}</span></div></div>
+        <span class="chip-now"><i ${sw(P.color)}></i>${P.color === 'off' ? 'Zone off' : esc(P.color)}</span></div>
+      ${whitesRow('data-pcolor', 'pkelvin', P.color)}</div>
     <div class="paintgrid">
       <label class="field">First bulb<input type="number" id="pfrom" min="1" max="${P.canvas.length}" value="${P.from}"></label>
       <label class="field">Last bulb<input type="number" id="pto" min="1" max="${P.canvas.length}" value="${P.to}"></label>
@@ -2142,6 +2270,13 @@ function painterChange(D, t) {
   if (t.id === 'pstep') { P.step = int(t.value, 2, Math.max(2, N), 3); t.value = P.step; everyLabel(); return true; }
   if (t.id === 'pwidth') { P.width = int(t.value, 1, 89, 1); t.value = P.width; everyLabel(); return true; }
   if (t.id === 'ppick') { P.color = t.value.toUpperCase(); VIEWS.createRender(); return true; }
+  if (t.id === 'pkelvin') {
+    // Update in place: re-rendering mid-drag would drop the slider.
+    S.kelvin = +t.value; P.color = Whites.kelvinHex(S.kelvin);
+    const chip = $('.painter .chip-now'); if (chip) chip.innerHTML = `<i style="background:${esc(P.color)}"></i>${esc(P.color)}`;
+    const v = $('[data-kval]', t.closest('.whites')); if (v) v.textContent = `${S.kelvin} K`;
+    return true;
+  }
   if (t.id === 'pzone' && t.value !== '') { const z = mapData().zones[+t.value]; P.from = Math.min(z.start, N); P.to = Math.min(z.end, N); VIEWS.createRender(); return true; }
   return false;
 }

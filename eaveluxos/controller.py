@@ -829,7 +829,8 @@ class Controller:
                          if r.name == t.source), None)
             if rule and len(rule.effects) > 1:
                 rot = {"labels": [e.label for e in rule.effects], "minutes": rule.rotate_minutes,
-                       "nightly": bool(getattr(rule, "nightly", False))}
+                       "nightly": bool(getattr(rule, "nightly", False)),
+                       "each": list(rule.rotate_each) if getattr(rule, "rotate_each", None) else None}
         wx = None
         if self.weather:
             cur = self.weather.current()
