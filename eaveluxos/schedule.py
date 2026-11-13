@@ -487,6 +487,9 @@ class Plan:
         return r.pick(self.window.start, self.window.start)[0].label if r.nightly else r.effect_label
 
 
+_MISSING = object()
+
+
 def _rank(w: Window):
     return (-w.rule.priority, w.rule.order)
 
@@ -500,16 +503,20 @@ class Schedule:
     def _window(self, rule: Rule, d: date) -> Window | None:
         """rule.window(d), remembered: windows depend only on the rule, the
         date and the location, and the same ones are asked for many times."""
+        # Read once into a local: the scheduler and web requests share this
+        # cache, and another thread may clear it between a check and a read.
         k = (rule.order, d)
-        if k not in self._wcache:
+        w = self._wcache.get(k, _MISSING)
+        if w is _MISSING:
+            w = rule.window(d, self.loc)
             if len(self._wcache) > 20000:
                 self._wcache.clear()
-            self._wcache[k] = rule.window(d, self.loc)
-        return self._wcache[k]
+            self._wcache[k] = w
+        return w
 
     def active_window(self, now: datetime) -> Window | None:
         """Highest-priority window covering now (ties: earliest in the file)."""
-        today = now.date()
+        today = now.astimezone(self.loc.tz).date()   # the local date, whatever zone `now` is in
         live = []
         for rule in self.rules:
             for d in (today, today - timedelta(days=1)):
@@ -537,7 +544,10 @@ class Schedule:
         edges = sorted({t.astimezone(utc) for w in ws for t in (w.start, w.end)})
         plans: list[Plan] = []
         for a, b in zip(edges, edges[1:]):
-            w = self.active_window(a + (b - a) / 2)
+            # active_window() picks candidate windows by the moment's own
+            # date, so ask in local time: a UTC moment carries the UTC date,
+            # which east of UTC is the day before (morning windows vanished).
+            w = self.active_window((a + (b - a) / 2).astimezone(self.loc.tz))
             if not w:
                 continue
             la, lb = a.astimezone(self.loc.tz), b.astimezone(self.loc.tz)
@@ -580,12 +590,27 @@ class WeatherRule:
     priority: int
     order: int
     levels: dict
+    nightly: bool = False
 
     @property
     def effect_label(self) -> str:
         if len(self.effects) == 1:
             return self.effects[0].label
-        return " / ".join(e.label for e in self.effects) + f" (every {self.rotate_minutes} min)"
+        how = "a different one each night" if self.nightly else f"every {self.rotate_minutes} min"
+        return " / ".join(e.label for e in self.effects) + f" ({how})"
+
+    def pick(self, window_start: datetime, now: datetime):
+        """(effect, step), like Rule.pick. Nightly: weather comes and goes, so
+        each night simply takes the next pattern by date."""
+        if len(self.effects) == 1:
+            return self.effects[0], 0
+        if self.nightly:
+            day = window_start.date()
+            return self.effects[day.toordinal() % len(self.effects)], f"n{day.isoformat()}"
+        if not self.rotate_minutes:
+            return self.effects[0], 0
+        step = max(0, int((ts(now) - ts(window_start)) // 60)) // self.rotate_minutes
+        return self.effects[step % len(self.effects)], step
 
     @classmethod
     def from_config(cls, i: int, c: dict, effects: dict) -> "WeatherRule":
@@ -603,7 +628,8 @@ class WeatherRule:
             raise ConfigError(f"{where}: give 'when' and/or below_f / above_f")
         effs = _effect_list(c, effects, where)
         return cls(name, frozenset(tags), below, above, effs, _rotate(c, len(effs), where),
-                   int(c.get("priority", DEFAULT_PRIORITY_WEATHER)), i, _levels(c, where))
+                   int(c.get("priority", DEFAULT_PRIORITY_WEATHER)), i, _levels(c, where),
+                   nightly=len(effs) > 1 and str(c.get("rotate", "")).lower() == "nightly")
 
     def matches(self, tags: set, temp_f: float | None) -> bool:
         if self.tags and not (self.tags & tags):

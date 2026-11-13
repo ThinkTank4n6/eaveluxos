@@ -1,7 +1,7 @@
 # EaveLuxOS
 ### The Intelligent Lighting Control Platform
 
-By **Christopher A. Tankelewicz (ThinkTank4n6)** · MIT License · version 3.11.0
+By **Christopher A. Tankelewicz (ThinkTank4n6)** · MIT License · version 3.11.4
 
 EaveLuxOS currently works with **Trimlight Edge** permanent-lighting controllers.
 Its scheduling, mapping and design tools are built to grow to other brands.

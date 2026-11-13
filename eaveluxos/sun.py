@@ -77,20 +77,31 @@ def _event_utc_minutes(d: date, lat: float, lon: float, zenith, rising):
 def sun_times(d: date, lat: float, lon: float, tz) -> dict:
     """Dict of aware datetimes in tz: dawn, sunrise, noon, sunset, dusk.
     A value is None if that event doesn't happen on that date."""
-    midnight_utc = datetime(d.year, d.month, d.day, tzinfo=timezone.utc)
-
-    def at(minutes):
+    def at(day, minutes):
         if minutes is None:
             return None
         # rounded to the nearest minute so displayed and actual switch times match
-        exact = midnight_utc + timedelta(minutes=minutes)
+        exact = datetime(day.year, day.month, day.day, tzinfo=timezone.utc) + timedelta(minutes=minutes)
         rounded = (exact + timedelta(seconds=30)).replace(second=0, microsecond=0)
         return rounded.astimezone(tz)
 
+    def event(zenith, rising):
+        # The equations find the event nearest solar noon of a UTC date. Where
+        # the clock is far from the sun's time (UTC+13/+14 in Samoa, Tonga,
+        # Kiribati), that lands on the next or previous local day, so step
+        # the UTC date until the event falls on local date d.
+        dt = at(d, _event_utc_minutes(d, lat, lon, zenith, rising))
+        if dt is not None and dt.date() != d:
+            other = d + (d - dt.date())
+            alt = at(other, _event_utc_minutes(other, lat, lon, zenith, rising))
+            if alt is not None and alt.date() == d:
+                return alt
+        return dt
+
     return {
-        "dawn": at(_event_utc_minutes(d, lat, lon, ZENITH_CIVIL, True)),
-        "sunrise": at(_event_utc_minutes(d, lat, lon, ZENITH_SUN, True)),
-        "noon": at(_event_utc_minutes(d, lat, lon, None, True)),
-        "sunset": at(_event_utc_minutes(d, lat, lon, ZENITH_SUN, False)),
-        "dusk": at(_event_utc_minutes(d, lat, lon, ZENITH_CIVIL, False)),
+        "dawn": event(ZENITH_CIVIL, True),
+        "sunrise": event(ZENITH_SUN, True),
+        "noon": event(None, True),
+        "sunset": event(ZENITH_SUN, False),
+        "dusk": event(ZENITH_CIVIL, False),
     }

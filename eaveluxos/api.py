@@ -16,13 +16,27 @@ import time
 import urllib.error
 import urllib.request
 
+from .trust import CERT_HELP, client_context, is_cert_failure
 from .version import VERSION
 
 BASE_URL = os.environ.get("TRIMLIGHT_API_BASE", "https://trimlight.ledhue.com/trimlight")
 
 
 class TrimlightError(Exception):
-    pass
+    """kind: "network" (couldn't reach Trimlight, including a failed
+    certificate check, or the reply was lost or garbled, so whether the
+    command took effect is unknown), "http" (an HTTP error status, in
+    `status`) or "api" (Trimlight answered and refused, such as wrong keys)."""
+    def __init__(self, msg: str = "", kind: str = "api", status: int | None = None):
+        super().__init__(msg)
+        self.kind = kind
+        self.status = status
+
+    @property
+    def refused(self) -> bool:
+        """Trimlight definitely didn't carry the command out (so sending a
+        different version of it can't make a duplicate)."""
+        return self.kind == "api" or (self.kind == "http" and self.status is not None and 400 <= self.status < 500)
 
 
 def split_runs(payload: dict, limit: int):
@@ -84,18 +98,20 @@ class TrimlightAPI:
         data = json.dumps(body).encode() if body is not None else None
         req = urllib.request.Request(self.base_url + path, data=data, headers=headers, method=method)
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+            with urllib.request.urlopen(req, timeout=self.timeout, context=client_context()) as resp:
                 raw = resp.read()
         except urllib.error.HTTPError as e:
             detail = e.read()[:200].decode(errors="replace")
-            raise TrimlightError(f"HTTP {e.code} from {path}: {detail}") from None
+            raise TrimlightError(f"HTTP {e.code} from {path}: {detail}", "http", e.code) from None
         except (urllib.error.URLError, TimeoutError, OSError) as e:
             reason = getattr(e, "reason", e)
-            raise TrimlightError(f"Network error calling {path}: {reason}") from None
+            if is_cert_failure(e):
+                raise TrimlightError(f"{CERT_HELP.format(who='Trimlight')} (Details: {reason})", "network") from None
+            raise TrimlightError(f"Network error calling {path}: {reason}", "network") from None
         try:
             obj = json.loads(raw)
         except ValueError:
-            raise TrimlightError(f"{path} returned something that isn't JSON") from None
+            raise TrimlightError(f"{path} returned something that isn't JSON", "network") from None
         if not isinstance(obj, dict):
             raise TrimlightError(f"{path} returned an unexpected reply")
         if obj.get("code") != 0:
@@ -138,7 +154,11 @@ class TrimlightAPI:
             return self._request("POST", path, {"deviceId": device_id, "payload": first or payload})
         except TrimlightError as e:
             smaller = split_runs(payload, 60)
-            if smaller is None or TrimlightAPI.slot_limit == 60:
+            # Only when Trimlight actually refused: after a timeout or a lost
+            # reply the first request may have worked, and sending it again
+            # would add a second copy of a saved pattern (and lower the limit
+            # for good over a passing network problem).
+            if smaller is None or TrimlightAPI.slot_limit == 60 or not e.refused:
                 raise
             r = self._request("POST", path, {"deviceId": device_id, "payload": smaller})
             TrimlightAPI.slot_limit = 60

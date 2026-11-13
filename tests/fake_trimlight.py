@@ -79,7 +79,14 @@ class H(BaseHTTPRequestHandler):
         if p == "/device/daily/save":
             q = body["payload"]; d["daily"] = [x for x in d["daily"] if x["id"] != q["id"]] + [{k: v for k, v in q.items() if k != "currentDate"}]
             return self._ok()
-        if p in ("/device/effect/preview", "/device/effect/view", "/device/notify-update-shadow"): return self._ok()
+        # currentEffect as Trimlight documents it: the running effect, id -1 for an unsaved preview.
+        if p == "/device/effect/preview":
+            d["currentEffect"] = {**body["payload"], "id": -1}; return self._ok()
+        if p == "/device/effect/view":
+            e = next((x for x in d["effects"] if x["id"] == body["payload"]["id"]), None)
+            if e is not None: d["currentEffect"] = dict(e)
+            return self._ok()
+        if p == "/device/notify-update-shadow": return self._ok()
         return self._err(10001, "unknown " + p)
     do_GET = do_POST = handle_any
 def start(port=0):

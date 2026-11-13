@@ -17,6 +17,7 @@ import time
 import urllib.error
 import urllib.request
 
+from .trust import CERT_HELP, client_context, is_cert_failure
 from .version import VERSION
 
 log = logging.getLogger("eaveluxos.weather")
@@ -79,11 +80,13 @@ class WeatherService:
     def _fetch_json(self, url: str):
         req = urllib.request.Request(url, headers={"User-Agent": self.ua, "Accept": "application/geo+json"})
         try:
-            with urllib.request.urlopen(req, timeout=15) as r:
+            with urllib.request.urlopen(req, timeout=15, context=client_context()) as r:
                 return json.loads(r.read())
         except urllib.error.HTTPError as e:
             raise RuntimeError(f"NWS returned HTTP {e.code} for {url.split('?')[0]}") from None
         except (urllib.error.URLError, TimeoutError, OSError, ValueError) as e:
+            if is_cert_failure(e):
+                raise RuntimeError(CERT_HELP.format(who="the weather service")) from None
             raise RuntimeError(f"NWS unreachable: {getattr(e, 'reason', e)}") from None
 
     def refresh(self, force=False):
@@ -99,12 +102,30 @@ class WeatherService:
             with self.lock:
                 endpoints, station = self.endpoints, self.station
             observed = forecast = None
+            bad = (RuntimeError, KeyError, IndexError, TypeError)
+
+            def describe(e):
+                return str(e) if isinstance(e, RuntimeError) else f"Unexpected NWS data ({e.__class__.__name__})"
+
+            def failed(err):
+                with self.lock:
+                    self.endpoints, self.station = endpoints, station   # keep what was learned
+                    self.error = err
+                    self.next_try = now + min(self.every, 300)
+                log.warning("Weather check failed: %s", err)
+
             try:
                 if endpoints is None:
                     p = self.fetch(f"{NWS}/points/{self.lat},{self.lon}")["properties"]
                     endpoints = (p["forecastHourly"], p["observationStations"])
                 hourly_url, stations_url = endpoints
-                if self.use in ("observed", "either"):
+            except bad as e:
+                return failed(describe(e))
+            # The two readings are fetched separately: with "either", a station
+            # that's down mustn't throw away a good forecast (or the reverse).
+            errors = []
+            if self.use in ("observed", "either"):
+                try:
                     if station is None:
                         feats = self.fetch(stations_url)["features"]
                         station = feats[0]["properties"]["stationIdentifier"]
@@ -112,20 +133,21 @@ class WeatherService:
                     observed = {"text": o.get("textDescription") or "",
                                 "temp_f": c_to_f((o.get("temperature") or {}).get("value")),
                                 "time": o.get("timestamp")}
-                if self.use in ("forecast", "either"):
+                except bad as e:
+                    errors.append(describe(e))
+            if self.use in ("forecast", "either"):
+                try:
                     per = self.fetch(hourly_url)["properties"]["periods"][0]
                     t = per.get("temperature")
                     if per.get("temperatureUnit") == "C" and t is not None:
                         t = c_to_f(t)
                     forecast = {"text": per.get("shortForecast") or "", "temp_f": t, "time": per.get("startTime")}
-            except (RuntimeError, KeyError, IndexError, TypeError) as e:
-                err = str(e) if isinstance(e, RuntimeError) else f"Unexpected NWS data ({e.__class__.__name__})"
-                with self.lock:
-                    self.endpoints, self.station = endpoints, station   # keep what was learned
-                    self.error = err
-                    self.next_try = now + min(self.every, 300)
-                log.warning("Weather check failed: %s", err)
-                return
+                except bad as e:
+                    errors.append(describe(e))
+            if observed is None and forecast is None:
+                return failed(errors[0] if errors else "No weather readings")
+            if errors:
+                log.warning("Weather check partly failed (using the other reading): %s", "; ".join(errors))
             with self.lock:
                 self.endpoints, self.station = endpoints, station
                 if observed is not None:
@@ -134,7 +156,7 @@ class WeatherService:
                     self.forecast = forecast
                 self.updated = now
                 self.error = None
-                self.next_try = now + self.every
+                self.next_try = now + (min(self.every, 300) if errors else self.every)
         finally:
             self._refresh_lock.release()
 

@@ -2,7 +2,7 @@
 # Copyright (c) 2026 Christopher A. Tankelewicz (ThinkTank4n6)
 """Build EaveLuxOS for the computer you're on.
 
-    python -m pip install pyinstaller pillow tzdata cryptography
+    python -m pip install pyinstaller pillow tzdata cryptography certifi
     python packaging/build.py
 
 Output in dist/:
@@ -39,7 +39,9 @@ def pyinstaller(name: str, *extra: str):
     args = [sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--name", name,
             "--add-data", f"{ROOT / 'eaveluxos' / 'static'}{SEP}eaveluxos/static",
             "--add-data", f"{ROOT / 'MANUAL.md'}{SEP}.", "--add-data", f"{ROOT / 'LICENSE'}{SEP}.",
-            "--collect-submodules", "eaveluxos", "--collect-submodules", "cryptography", "--collect-data", "tzdata", "--icon", str(ICON),
+            "--collect-submodules", "eaveluxos", "--collect-submodules", "cryptography", "--collect-data", "tzdata",
+            # Mozilla's list of certificate authorities: the Mac app can't use the system's (trust.py)
+            "--hidden-import", "certifi", "--collect-data", "certifi", "--icon", str(ICON),
             "--distpath", str(DIST / "bin"), "--workpath", str(ROOT / "build"), "--specpath", str(ROOT / "build"), *extra]
     subprocess.run(args + [str(ROOT / "main.py")], check=True, cwd=ROOT)
 

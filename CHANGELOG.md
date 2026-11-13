@@ -1,5 +1,113 @@
 # Changelog
 
+## 3.11.4: the lights' pattern is checked too
+
+- **Fix: a pattern changed outside this app was never put back.** Every 5
+  minutes the app checks each controller, but it only looked at on, off or
+  Timer mode. Someone picking another pattern in the Trimlight app, or a
+  power cut dropping a pattern that was only previewed, went unnoticed all
+  night. The check now also compares the pattern the controller reports as
+  running (`currentEffect` in Trimlight's API) with what this app sent, and
+  restores it after two readings in a row disagree, the same as for on and
+  off.
+- If a controller reports a pattern back differently from how it was sent
+  (so it would look "changed" every time), the app restores it once, then
+  notes it under Controllers and activity and checks only on and off until
+  the next pattern or night. Controllers that don't report the running
+  pattern are checked as before.
+- `main.py make-cert`: the HTTPS key is always created private. A leftover
+  temporary file from an interrupted run could have kept looser permissions.
+  The key and certificate are now swapped in together, so a failure can't
+  leave a mismatched pair.
+- Start automatically on Linux: a folder name containing `%` or `$` no longer
+  breaks the login service (systemd treats those as placeholders).
+- 6 new tests (245 total).
+
+## 3.11.3: code review fixes
+
+- **Fix: an edited pattern could be silently ignored until the next scheduled
+  change.** If you saved settings while the app was in the middle of sending
+  a command, the send that was already under way marked itself as done and
+  cancelled the resend of your new settings. Now a send only counts as done
+  if no new settings arrived while it ran. (Stopping a music show and
+  "Back to the schedule" had the same race.)
+- **Fix: east of UTC (Australia, New Zealand, Europe in summer), morning and
+  after-midnight windows were missing** from the week view, the safety net's
+  copy, the rule check and the "next show" lookup. They still ran live.
+- **Fix: clearing the security-flash pattern during a flash broke the app**
+  (the scheduler and Home screen failed until the flash would have ended).
+  The flash now just ends.
+- **Fix: a network hiccup while saving a pattern with runs over 60 bulbs could
+  save it twice** on the controller (an orphan copy using one of its 60
+  spaces), and permanently switched to 60-bulb runs. The smaller retry is now
+  sent only when Trimlight actually refused the request.
+- **Fix: a controller added to the list (or set up on the Lights tab) wasn't
+  switched on** until the regular check repaired it about 10 minutes later.
+- **Safety net: the Trimlight app's own timers now hold the copy back.** Its
+  daily timers, or its calendar events on the coming nights, would also run
+  while the controller rests in Timer mode and turn the lights on when the
+  schedule says off. The copy is still written, but shows Not armed (and the
+  controller rests in Off) until they're off. Calendar events on other dates
+  no longer count.
+- On, Off, flash and other buttons no longer wait for a safety-net update or
+  controller read-back; the scheduler does those on its next pass.
+- Weather set to "either": a weather station that's down no longer throws
+  away a good forecast (and the reverse).
+- `main.py backup` creates the copy private from the start (it holds your
+  credentials); before, it was readable by others for a moment.
+- `main.py allow-host` no longer says a restart is needed (the running app
+  picks up the list right away).
+- The Copy button's keyboard hint no longer uses the deprecated
+  `navigator.platform`.
+- Manual: the safety net's timer copies have no year, so turn it off before
+  you stop using the app for good.
+- **Fix: "Back to the schedule" ended tonight's music show night.** A show
+  night is part of the schedule, so it now keeps running, and one skipped
+  earlier tonight (by choosing a pattern or stopping the show) comes back. A
+  show started from the Music button still ends.
+- **Fix: in Samoa, Tonga and Kiribati (UTC+13/+14), sunrise and sunset were a
+  day off,** so every sun-based rule ran on the wrong date.
+- **Fix: a weather rule with `rotate = "nightly"` always showed its first
+  pattern** (labeled "every 0 min"). It now takes the next pattern each night.
+- Fix: a rare crash when the schedule's window cache was cleared by one
+  thread while another read it.
+- Fix: a saved pattern referenced only by its controller id could take the
+  brightness and speed of an unnamed pattern on the controller for the
+  sliders.
+- 18 new tests (239 total).
+
+## 3.11.2: Start automatically and house photo fixes
+
+- **Fix: "Start this app when the computer starts" showed "Something went
+  wrong"** (since 3.10.0, on every system). An import added for the Quit
+  button hid the app's start-at-login code from the rest of the settings
+  handler. A new test now fails the build if that kind of import comes back.
+- **Fix: an uploaded house photo could show as solid green.** On some
+  graphics drivers the browser garbles a photo while shrinking it on the
+  graphics card. The app now shrinks photos in regular memory, checks the
+  result isn't one flat color, tries the browser's other image decoder if it
+  is, and otherwise explains what to do instead of saving a bad photo.
+- Replacing a photo keeps the rooflines traced on the old one until the new
+  photo has actually been read, so a failed upload no longer removes them.
+- Photos are saved all at once (written to a temporary file, then swapped
+  in), so one can't be read half-written.
+- 6 new tests (221 total).
+
+## 3.11.1: Mac setup fix
+
+- **Fix: on a Mac, setup failed with "Trimlight didn't accept these: …
+  CERTIFICATE_VERIFY_FAILED … unable to get local issuer certificate".** The
+  keys were fine: the Mac app bundles its own OpenSSL, which looks for the
+  list of trusted certificate authorities in a folder that doesn't exist
+  inside the app, so every secure connection failed. The app now also trusts
+  Mozilla's list (the `certifi` package, bundled with the app) and, on a Mac,
+  the list macOS ships. Certificate and name checks stay on. The same problem
+  silently broke weather rules and the place search on Macs; both are fixed.
+- Setup no longer blames your keys when Trimlight couldn't be reached: it says
+  "Couldn't check these with Trimlight", and a failed certificate check says
+  it isn't a problem with your keys.
+- 7 new tests (215 total).
+
 ## 3.11.0: controller cards on the Lights tab
 
 - **Accounts with several controllers** (for example House and Deck) now see a

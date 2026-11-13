@@ -53,9 +53,15 @@ class Safety(unittest.TestCase):
         self.dir = Path(tempfile.mkdtemp())
         F.STATE["corrupt_calendar"] = False
         d = F.STATE["dev"]
-        self.user_cal = {"id": 0, "effectId": 3, "startDate": {"month": 12, "day": 1}, "endDate": {"month": 12, "day": 31},
+        # A Trimlight-app calendar event on other dates (left alone, and no
+        # conflict), and its daily timers off: either would otherwise run in
+        # Timer mode too, so the copy isn't used while they're on (see below).
+        self.user_cal = {"id": 0, "effectId": 3, "startDate": {"month": 2, "day": 1}, "endDate": {"month": 2, "day": 14},
                          "startTime": {"hours": 17, "minutes": 0}, "endTime": {"hours": 23, "minutes": 0}}
         d["calendar"] = [copy.deepcopy(self.user_cal)]
+        self.saved_daily = copy.deepcopy(d["daily"])
+        for x in d["daily"]:
+            x["enable"] = False
         d["effects"] = [e for e in d["effects"] if not str(e.get("name", "")).startswith("Auto ")]
         self.user_effects = copy.deepcopy(d["effects"])
         self.api = TrimlightAPI(F.CID, F.SECRET, base_url=BASE)
@@ -64,7 +70,30 @@ class Safety(unittest.TestCase):
         self.now = datetime(2026, 12, 29, 12, 0, tzinfo=NY)
 
     def tearDown(self):
+        F.STATE["dev"]["daily"] = self.saved_daily
         shutil.rmtree(self.dir, ignore_errors=True)
+
+    def test_trimlight_app_timers_hold_the_copy_back(self):
+        d = F.STATE["dev"]
+        # its daily timer on: copied and verified, but not used
+        d["daily"][0]["enable"] = True
+        self.assertTrue(self.net.sync(self.api, self.cfg, ["TL-EDGE-01"], self.now))
+        self.assertFalse(self.net.ready("TL-EDGE-01", self.now.date()))
+        self.assertFalse(self.net.summary()["TL-EDGE-01"]["ok"])
+        self.assertIn("Not used yet", self.net.summary()["TL-EDGE-01"]["message"])
+        # turned off: armed after the next sync
+        self.net.disable_app_daily_timers(self.api, "TL-EDGE-01", self.now)
+        self.assertTrue(self.net.sync(self.api, self.cfg, ["TL-EDGE-01"], self.now))
+        self.assertTrue(self.net.ready("TL-EDGE-01", self.now.date()))
+        # a calendar event of its own on the coming nights holds it back too
+        d["calendar"].append({"id": 59, "effectId": 3, "startDate": {"month": 12, "day": 20}, "endDate": {"month": 1, "day": 2},
+                              "startTime": {"hours": 17, "minutes": 0}, "endTime": {"hours": 23, "minutes": 0}})
+        try:
+            self.assertTrue(self.net.sync(self.api, self.cfg, ["TL-EDGE-01"], self.now))
+            self.assertEqual(self.net.summary()["TL-EDGE-01"]["conflicts"], ["calendar:1"])
+            self.assertFalse(self.net.ready("TL-EDGE-01", self.now.date()))
+        finally:
+            d["calendar"] = [c for c in d["calendar"] if c["id"] != 59]
 
     def test_sync_writes_verified_copy_and_leaves_user_items_alone(self):
         self.assertTrue(self.net.sync(self.api, self.cfg, ["TL-EDGE-01"], self.now))

@@ -419,7 +419,6 @@ class App:
         return {"ok": True, "port": new}
 
     def _restart_on(self, old: int, new: int):
-        import os
         import subprocess
         time.sleep(0.6)  # let the reply reach the browser
         # Only our own service entries set this (see autostart.py). INVOCATION_ID
@@ -454,7 +453,6 @@ class App:
             kw["start_new_session"] = True
         proc = None
         try:
-            from . import autostart
             proc = subprocess.Popen(autostart.launch_command(self.base), **kw)
             deadline = time.time() + 60          # a Pi or a one-file bundle can be slow to start
             while time.time() < deadline:
@@ -592,9 +590,9 @@ class App:
         except TrimlightError as e:
             raise ApiError(str(e), 502)
         if self.ctrl:
-            with self.ctrl.lock:
-                self.ctrl.devices = []
-                self.ctrl.last_verify = 0.0
+            # List the controllers again and send them the lights in full
+            # (switch-on included), not just forget the list.
+            self.ctrl.refresh_devices()
         return {"ok": True}
 
     def set_clock(self, body: dict):
@@ -684,9 +682,13 @@ class App:
             {"name": q, "count": 8, "language": "en", "format": "json"})
         try:
             req = urllib.request.Request(url, headers={"User-Agent": f"EaveLuxOS/{VERSION}"})
-            with urllib.request.urlopen(req, timeout=10) as r:
+            from .trust import CERT_HELP, client_context, is_cert_failure
+            with urllib.request.urlopen(req, timeout=10, context=client_context()) as r:
                 data = json.loads(r.read())
-        except Exception:
+        except Exception as e:
+            if is_cert_failure(e):
+                raise ApiError(CERT_HELP.format(who="the place search service") +
+                               " Or enter latitude and longitude instead.", 502)
             raise ApiError("Couldn't reach the place search service. Enter latitude and longitude instead.", 502)
         return [{"name": x.get("name"), "region": x.get("admin1"), "country": x.get("country"),
                  "lat": round(x["latitude"], 4), "lon": round(x["longitude"], 4), "timezone": x.get("timezone")}
@@ -1266,6 +1268,9 @@ def make_server(app: App, host: str, port: int):
                 try:
                     devices = TrimlightAPI(cid, sec).list_devices()
                 except TrimlightError as e:
+                    # Only blame the keys when Trimlight actually answered.
+                    if getattr(e, "kind", "api") == "network":
+                        raise ApiError(f"Couldn't check these with Trimlight. {e}", 502)
                     raise ApiError(f"Trimlight didn't accept these: {e}", 400)
                 app.store.save_secrets(client_id=cid, client_secret=sec)
                 app.rebuild(creds_changed=True)
@@ -1341,7 +1346,9 @@ def make_server(app: App, host: str, port: int):
                 if not raw.startswith(b"\xff\xd8") or len(raw) > 1_500_000:
                     raise ApiError("Use a JPEG photo (the app shrinks it before upload).")
                 f.parent.mkdir(exist_ok=True)
-                f.write_bytes(raw)
+                tmp = f.with_name(f".{f.name}.{os.urandom(4).hex()}.tmp")
+                tmp.write_bytes(raw)
+                os.replace(tmp, f)       # never a half-written photo for a reader
                 return {"ok": True}
             if path == "/api/photo/delete":
                 f = app.photo_path(str(b.get("side", "")))
@@ -1372,11 +1379,12 @@ def make_server(app: App, host: str, port: int):
                 if IN_CONTAINER:
                     raise ApiError("The app runs in a container here, which starts it again by itself. "
                                    "Stop it with: docker compose stop", 400)
-                from . import autostart
+                # (autostart is imported for the whole module: importing it in
+                # here made it a local name in all of _post, which broke
+                # Settings > Start automatically.)
                 at_login = autostart.status(app.base)["enabled"]
 
                 def quit_now():
-                    import os
                     # Run as a login service, a plain exit is restarted at once;
                     # ask the service manager to stop it instead.
                     autostart.stop_service()

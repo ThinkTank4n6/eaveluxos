@@ -1,7 +1,7 @@
 # EaveLuxOS: User Manual
 ### The Intelligent Lighting Control Platform
 
-Version 3.11.0 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
+Version 3.11.4 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
 
 EaveLuxOS is a free, community-made lighting control platform. Today it runs
 **Trimlight Edge** permanent lights. It is not made, sold, endorsed or
@@ -220,10 +220,14 @@ You can keep using the Trimlight Edge app to design patterns. EaveLuxOS
 can use them (see section 10).
 
 > **Good to know:** Every 5 minutes EaveLuxOS checks that the lights
-> are doing what the schedule says. If someone turns them off in the Trimlight
+> are doing what the schedule says: on, off or Timer mode, and the pattern
+> showing. If someone turns them off or picks another pattern in the Trimlight
 > app, or the controller restarts after a power blip, the scheduler restores
 > them within about 10 minutes. To override the schedule, use **Turn on** or
-> **Turn off** in this app instead.
+> **Turn off** in this app instead. (If a controller doesn't report a pattern
+> back exactly as it was sent, the app notes that under Home ›
+> **Controllers and activity** and checks only on and off for the rest of
+> that pattern's run.)
 
 ## 7. Make it start automatically
 
@@ -739,8 +743,9 @@ For shows you plan, like Fridays and Saturdays in December, add a **show
 night** on the Music tab. It has the same dates, days of the week and start
 and end times (sunset, dusk or a set time) as a schedule rule. Between those
 times this app steps aside by itself, so a show you start in the Trimlight app
-isn't switched back to the schedule. **Stop the show** during a show night
-ends it for that night only.
+isn't switched back to the schedule. **Stop the show**, or choosing a
+pattern, during a show night ends it for that night only. **Back to the
+schedule** brings it back, because a show night is part of the schedule.
 
 A show night doesn't start the music by itself: start music mode in the
 Trimlight app (or leave the controller on Auxiliary IN with the player ready).
@@ -823,10 +828,14 @@ copying the next few nights into the controller's **own timers**.
 ### Warnings you might see
 
 - **"The Trimlight app's daily timers are on":** in Timer mode those would
-  run too. Tap **Turn them off**; the controller is backed up first.
-- **"The controller also has calendar events made in the Trimlight app":**
-  they're left alone, but they also run in Timer mode if their dates overlap.
-  Delete them in the Trimlight app if you don't want them.
+  run too and turn the lights on when your schedule says off, so the copy is
+  written but **not used** (it shows **Not armed**, and the controller rests
+  in Off) until they're off. Tap **Turn them off**; the controller is backed
+  up first.
+- **"The controller has calendar events made in the Trimlight app on the
+  coming nights":** the same applies to events whose dates fall on the nights
+  being copied. They're left alone; delete them in the Trimlight app, then tap
+  **Update now**. Events on other dates don't matter.
 - **"The controller's pattern library is too full":** delete a few patterns in
   the Trimlight app, or copy fewer nights.
 
@@ -841,6 +850,12 @@ copying the next few nights into the controller's **own timers**.
   controller is in Manual mode. On normal nights this can't happen.
 - To remove it, untick **On**. The app deletes its entries and "Auto" patterns
   from the controller.
+- The controller's calendar entries have a month and day but **no year**. If
+  you stop using this app for good, untick **On** first (with the app still
+  running and online). Otherwise the last nights it copied stay on the
+  controller and come on again on the same dates every year while the
+  controller is in Timer mode. To clean up later, delete the entries in the
+  Trimlight app's calendar, or start this app again and untick **On**.
 
 ## 18. Lights: ports, bulbs and LED settings
 
@@ -1191,6 +1206,7 @@ Sharing it helps other Trimlight owners know what works on their firmware.
 |---|---|
 | Another program uses port 8787 | The app moves to the next free port by itself and remembers it. To pick one, use **Settings › App address** (section 20). |
 | The browser says it can't connect | The app isn't running. Double-click the launcher. On Mac or Linux, keep its window open. |
+| "Couldn't check these with Trimlight" during setup | The app couldn't reach Trimlight, so your keys weren't checked yet. Check the internet connection and try again. If the message also says the **certificate check failed**: on a Mac, update to version 3.11.1 or later, which fixes this. Otherwise check the computer's date and time, and whether antivirus or network filtering software checks secure (HTTPS) connections. |
 | "Trimlight didn't accept these" | Re-enter the Client ID and Secret. They're case-sensitive, so check for spaces. Also check the computer's clock is correct, because Trimlight's sign-in uses the time. |
 | "Can't reach lights" on Home | Check the controller is online in the Trimlight Edge app and the computer has internet. The app retries automatically. |
 | Lights are on or off at the wrong time | **Date & Time:** check the location, time zone and Daylight saving (Automatic). Check the computer's own clock. Check **Schedule › Coming up**. |
@@ -1206,6 +1222,7 @@ Sharing it helps other Trimlight owners know what works on their firmware.
 | The controller shows offline, or nothing responds | Use the controller steps in Trimlight's guide ("Basic Troubleshooting"). **1)** Unplug the controller for 30 seconds, then let it boot for a few minutes. **2)** If the **Network Connected** light isn't green, press the **STA/AP** button briefly until it is (blue-light mode can't be reached by this app). **3)** A factory reset is a last resort; see the question below. |
 | A rule never seems to run | Check for a **"Never runs"** note on the Schedule tab (section 13) and raise that rule's priority. |
 | Safety net says "Not armed" | Read the reason shown. Most often the controller's library is full, or it was offline. Tap **Update now** to retry; the app also retries on its own every 30 minutes. |
+| A house photo shows as solid green (or one flat color) | Some graphics drivers garble photos when the browser uses the graphics card. Since version 3.11.2 the app checks each photo, tries the browser's other way of reading it, and shows a message instead of saving a bad one. If you see that message, try another browser, or turn off **Use graphics acceleration when available** in the browser's settings (System section), restart the browser and upload again. |
 | The finder lights the wrong spot | Check the port layout on the Lights tab (section 18). Bulb numbers follow it. |
 | "The settings database couldn't be read" | Rare, usually after a disk problem. The app kept the damaged file, restored your patterns and schedule from its plain-text copy (`settings.last-good.json`), and asks you to enter your Trimlight account and app password again. |
 | I changed something and want it back | **Settings › Version history**: tap **Restore** next to an earlier save (section 20). |

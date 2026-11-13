@@ -45,11 +45,18 @@ def make_cert(tls_dir: Path, extra_names=(), addresses=(), force=False) -> Path:
             .add_extension(x509.ExtendedKeyUsage([ExtendedKeyUsageOID.SERVER_AUTH]), critical=False)
             .sign(key, hashes.SHA256()))
     tls_dir.mkdir(parents=True, exist_ok=True)
-    tmp = key_path.with_suffix(".tmp")
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    # Both files are written in full first, then swapped in, so a failure
+    # can't leave a key next to a certificate it doesn't match. The key's
+    # temporary file is always new (O_EXCL), so it's private from the start:
+    # reusing a leftover one would have kept that file's looser permissions.
+    key_tmp, cert_tmp = key_path.with_suffix(".tmp"), cert_path.with_suffix(".tmp")
+    for t in (key_tmp, cert_tmp):
+        t.unlink(missing_ok=True)
+    fd = os.open(key_tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(fd, "wb") as f:
         f.write(key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
                                   serialization.NoEncryption()))
-    os.replace(tmp, key_path)
-    cert_path.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+    cert_tmp.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+    os.replace(key_tmp, key_path)
+    os.replace(cert_tmp, cert_path)
     return cert_path

@@ -310,6 +310,8 @@ class SafetyLiveCheckTests(unittest.TestCase):
         try:
             F.STATE["corrupt_calendar"] = False
             F.STATE["dev"]["calendar"] = []
+            for x in F.STATE["dev"]["daily"]:      # the Trimlight app's own timers off (they'd run in Timer mode)
+                x["enable"] = False
             s = copy.deepcopy(DEFAULT_SETTINGS)
             s["location"].update(latitude=39.95, longitude=-75.17)
             s["rules"] = [{"name": "Night", "on": "sunset", "off": "22:00", "effect": "warm_white"}]

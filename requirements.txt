@@ -1,4 +1,7 @@
 # Optional but recommended: AES-256-GCM encryption of saved secrets, and `main.py make-cert`.
 cryptography>=42
+# Trusted certificate authorities for HTTPS to Trimlight and the weather service.
+# Needed on a Mac with Python from python.org; harmless elsewhere.
+certifi
 # Time zone data on Windows (Linux and macOS have it built in).
 tzdata; sys_platform == "win32"

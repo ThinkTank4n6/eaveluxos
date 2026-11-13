@@ -130,6 +130,14 @@ def status(app_dir: Path) -> dict:
             "note": note}
 
 
+def _systemd_escape(value: str) -> str:
+    """One quoted ExecStart word. systemd expands %x specifiers and
+    $VARIABLES there, so a folder name containing % or $ must be written as %%
+    and $$; inside the quotes, \\ and \" are escapes too. (WorkingDirectory
+    only expands specifiers, so only % is doubled there.)"""
+    return value.replace("%", "%%").replace("$", "$$").replace("\\", "\\\\").replace('"', '\\"')
+
+
 def set_enabled(app_dir: Path, enabled: bool) -> dict:
     system, path = _paths(app_dir)
     cmd = launch_command(app_dir)
@@ -162,9 +170,9 @@ Description=EaveLuxOS
 After=network-online.target
 
 [Service]
-WorkingDirectory={app_dir}
+WorkingDirectory={str(app_dir).replace("%", "%%")}
 Environment=EAVELUXOS_SUPERVISED=1
-ExecStart={" ".join(f'"{c}"' if c != "run" else c for c in cmd)}
+ExecStart={" ".join(f'"{_systemd_escape(c)}"' if c != "run" else c for c in cmd)}
 Restart=always
 RestartSec=10
 

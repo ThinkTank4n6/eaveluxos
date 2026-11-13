@@ -252,7 +252,8 @@ def main(argv):
         svc["allowed_hosts"] = hosts
         n["service"] = svc
         store.save_settings(n)
-        print("Allowed host names: " + (", ".join(hosts) or "none") + ". Restart the app to apply.")
+        print("Allowed host names: " + (", ".join(hosts) or "none") + ". A running app uses the new list right away"
+              + (" (for an HTTPS certificate that covers it, run: python3 main.py make-cert --force)." if "--remove" not in argv else "."))
         return 0
     if cmd == "backup":
         if len(argv) < 3:
@@ -260,14 +261,23 @@ def main(argv):
             return 2
         import sqlite3
         dest = Path(argv[2]).expanduser()
+        # The copy holds credentials: create it private before anything is
+        # written (chmod afterwards left a moment where others could read it).
+        try:
+            if dest.exists():
+                os.chmod(dest, 0o600)
+            else:
+                os.close(os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600))
+        except OSError as e:
+            print(f"Can't write {dest}: {e}", file=sys.stderr)
+            return 2
+        if os.name == "nt":
+            from eaveluxos.store import _restrict_windows
+            _restrict_windows(dest)
         with store.lock:
             out = sqlite3.connect(dest)
             store.con.backup(out)
             out.close()
-        try:
-            os.chmod(dest, 0o600)
-        except OSError:
-            pass
         print(f"Database copied to {dest}. It contains your Trimlight credentials; keep it private.")
         if store.box.active and not os.environ.get("EAVELUXOS_SECRET_KEY"):
             print(f"The credentials in it are encrypted with {store.dir / 'secret.key'}. Back that file up too,")

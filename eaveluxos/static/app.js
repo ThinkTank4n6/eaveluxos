@@ -1508,7 +1508,7 @@ VIEWS.settings = async () => {
     if (d.logout !== undefined) { await api('logout', { body: {} }).catch(() => {}); token.set(null); boot(); }
     if (d.regen !== undefined && await confirmBox('Make a new token?', 'Anything using the old token stops working until you update it.', 'Make new token'))
       busy(b, () => api('webhook', { body: { enable: true } })).then(() => VIEWS.settings()).catch(() => {});
-    if (d.copy) { const el = $('#' + d.copy); el.select(); const manual = () => toast(/Mac|iPhone|iPad/.test(navigator.platform) ? 'Selected. Press \u2318C to copy.' : 'Selected. Press Ctrl+C to copy.');
+    if (d.copy) { const el = $('#' + d.copy); el.select(); const manual = () => toast(/Mac|iPhone|iPad|iOS/i.test(navigator.userAgentData?.platform || navigator.userAgent) ? 'Selected. Press \u2318C to copy.' : 'Selected. Press Ctrl+C to copy.');
       if (navigator.clipboard?.writeText) navigator.clipboard.writeText(el.value).then(() => toast('Copied'), manual); else manual(); }
     if (d.wizard !== undefined) wizard(0);
     if (d.port !== undefined) {
@@ -1593,6 +1593,50 @@ boot().catch(e => { $('#main').innerHTML = `<div class="gate"><p class="callout 
 const MAX_SLOTS = 30, PER_SLOT = 90;
 /* Photos need the sign-in header too, so fetch them and show them as blob URLs. */
 const photoCache = {};
+/* Shrink a photo to at most 1600 px and encode it as JPEG, in this browser.
+   Some graphics drivers return an all-green (or blank) image when the browser
+   decodes or draws a photo on the graphics card. So: draw on a canvas kept in
+   regular memory (willReadFrequently), check the result isn't one flat color,
+   and if it is, try the browser's other image decoder before giving up. */
+async function shrinkPhoto(file, max = 1600) {
+  const decoders = [
+    async () => { const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' }); return { src: bmp, w: bmp.width, h: bmp.height, done: () => bmp.close() }; },
+    async () => {
+      const url = URL.createObjectURL(file), img = new Image(); img.src = url;
+      try { await img.decode(); } catch (e) { URL.revokeObjectURL(url); throw e; }
+      return { src: img, w: img.naturalWidth, h: img.naturalHeight, done: () => URL.revokeObjectURL(url) };
+    }];
+  let opened = false;
+  for (const decode of decoders) {
+    let d;
+    try { d = await decode(); } catch { continue; }
+    opened = true;
+    try {
+      if (!d.w || !d.h) continue;
+      const k = Math.min(1, max / Math.max(d.w, d.h)), cv = document.createElement('canvas');
+      cv.width = Math.max(1, Math.round(d.w * k)); cv.height = Math.max(1, Math.round(d.h * k));
+      const ctx = cv.getContext('2d', { willReadFrequently: true });
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(d.src, 0, 0, cv.width, cv.height);
+      if (flatImage(ctx, cv.width, cv.height)) continue;
+      let data = cv.toDataURL('image/jpeg', 0.82);
+      if (data.length > 1_900_000) data = cv.toDataURL('image/jpeg', 0.6);
+      return data;
+    } finally { d.done(); }
+  }
+  throw new Error(opened
+    ? 'This browser couldn\u2019t read that photo correctly (it came out as one flat color). Try another browser, or turn off "Use graphics acceleration" in the browser\u2019s settings.'
+    : 'That image couldn\u2019t be opened. Try a JPEG or PNG.');
+}
+/* One flat color everywhere: a failed decode, not a photo. Samples a 24 x 24 grid. */
+function flatImage(ctx, w, h) {
+  const px = ctx.getImageData(0, 0, w, h).data, lo = [255, 255, 255], hi = [0, 0, 0];
+  for (let gy = 0; gy < 24; gy++) for (let gx = 0; gx < 24; gx++) {
+    const i = ((Math.floor((gy + 0.5) * h / 24) * w) + Math.floor((gx + 0.5) * w / 24)) * 4;
+    for (let c = 0; c < 3; c++) { lo[c] = Math.min(lo[c], px[i + c]); hi[c] = Math.max(hi[c], px[i + c]); }
+  }
+  return hi.every((v, c) => v - lo[c] <= 4);
+}
 async function loadPhoto(side) {
   const key = side + ':' + (S.photoV || 0);
   if (photoCache[key]) return photoCache[key];
@@ -1795,15 +1839,16 @@ VIEWS.map = async () => {
     if (t.id === 'pfile' && t.files[0]) {
       const traced = (mapData().rooflines[F.side] || []).length;
       if (traced && !await confirmBox('Replace this photo?', `The ${traced} roofline section${traced === 1 ? ' was' : 's were'} traced on the old photo and will be removed. Landmark pins stay.`, 'Replace', true)) { t.value = ''; return; }
+      let data;
+      try { data = await shrinkPhoto(t.files[0]); }
+      catch (err) { t.value = ''; return toast(err.message, true); }
       try {
+        // Only now, with a good new photo in hand, drop rooflines traced on the old one.
         if (traced) await saveMap(mp => { delete mp.rooflines[F.side]; }, 'Old rooflines removed');
         roofReset();
-        const bmp = await createImageBitmap(t.files[0], { imageOrientation: 'from-image' });
-        const k = Math.min(1, 1600 / Math.max(bmp.width, bmp.height)), cv = document.createElement('canvas');
-        cv.width = Math.round(bmp.width * k); cv.height = Math.round(bmp.height * k); cv.getContext('2d').drawImage(bmp, 0, 0, cv.width, cv.height);
-        let data = cv.toDataURL('image/jpeg', 0.82); if (data.length > 1_900_000) data = cv.toDataURL('image/jpeg', 0.6);
         await busy(null, () => api('photo', { body: { side: F.side, data } })); S.photoV = Date.now(); S.photos.add(F.side); toast('Photo saved'); render();
-      } catch (err) { if (!/Request|photo/i.test(err.message)) toast("That image couldn't be opened. Try a JPEG or PNG.", true); }
+      } catch { /* busy() has shown the error */ }
+      t.value = '';
     }
   };
   render();
@@ -2184,8 +2229,8 @@ async function safetyPanel(box) {
       <label class="row small">Copy the next <select id="sfdays" style="width:auto">${[3, 5, 7, 10, 14].map(n => `<option ${n === st.days ? 'selected' : ''}>${n}</option>`).join('')}</select> nights</label>
       ${devs.length ? devs.map(d => `<p class="callout small ${d.ok ? 'ok' : 'warn'}">${d.ok ? 'Armed' : 'Not armed'}: ${esc(d.message || '')}${d.last_sync_label ? ` <span class="muted">(${esc(d.last_sync_label)})</span>` : ''}
         ${d.backup ? `<br><a href="#" data-backup="${esc(d.backup)}">Download the controller backup taken before this change</a>` : ''}</p>`).join('') : '<p class="note">Waiting for the first copy (a few seconds after the app talks to the controller).</p>'}
-      ${conflicts.includes('daily') ? `<p class="callout warn small">The Trimlight app's daily timers are on. In Timer mode they would run too. <button class="small" data-dailyoff>Turn them off</button></p>` : ''}
-      ${conflicts.some(c => c.startsWith('calendar:')) ? '<p class="callout small">The controller also has calendar events made in the Trimlight app. They\u2019re left alone, but they will run in Timer mode too if their dates overlap.</p>' : ''}
+      ${conflicts.includes('daily') ? `<p class="callout warn small">The Trimlight app's daily timers are on. They would run too whenever the controller is left in Timer mode, so the safety net waits until they're off. <button class="small" data-dailyoff>Turn them off</button></p>` : ''}
+      ${conflicts.some(c => c.startsWith('calendar:')) ? '<p class="callout warn small">The controller has calendar events made in the Trimlight app on the coming nights. They would run too whenever the controller is left in Timer mode, so the safety net waits until they\u2019re removed in the Trimlight app (then choose Update now). Events on other dates are fine.</p>' : ''}
       ${st.plan.length ? `<details><summary>What the controller will do on its own</summary><div class="list">${st.plan.map(p => `<div class="item"><div class="grow"><b>${esc(p.date.replace(/^(\d\d)-(\d\d)$/, (_, mo, dy) => MONTHS[+mo - 1] + ' ' + (+dy)))}</b> <span class="sub">${esc(p.rule)}</span></div>
         <span class="num small">${esc(hm12(p.on))} \u2013 ${esc(hm12(p.off))}</span><span class="small">${esc(p.pattern)}</span></div>`).join('')}</div></details>` : ''}
       <div><button class="small" data-sfsync>Update now</button></div>

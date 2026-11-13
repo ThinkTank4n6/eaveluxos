@@ -27,11 +27,31 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
 from .api import TrimlightAPI, TrimlightError
+from .safety import _same_effect
 from .schedule import add_real, ts
 from .weather import WeatherService
 
 log = logging.getLogger("eaveluxos")
 VERIFY_EVERY = 300  # seconds between read-backs of the controllers
+
+
+def effect_matches(current, sent) -> bool | None:
+    """Is the controller showing what this app sent? `current` is the
+    controller's currentEffect ("Device current running effect" in
+    Trimlight's API; its id is -1 while a preview runs), `sent` what was sent
+    (with "id" when a saved pattern was run by id). None when it can't be
+    told: the controller didn't report it, or nothing was sent."""
+    if not isinstance(current, dict) or not current or not isinstance(sent, dict):
+        return None
+    cid, sid = current.get("id"), sent.get("id")
+    if sid is not None and cid is not None:
+        return cid == sid
+    if cid is not None and cid >= 0 and sid is None:
+        return False                 # a saved pattern runs, but this app sent a preview
+    try:
+        return _same_effect(current, sent)
+    except (TypeError, AttributeError):
+        return None
 
 
 @dataclass
@@ -83,6 +103,31 @@ class Controller:
         self.mismatches = 0
         self._strip_cache = (None, None)
         self.cfg_gen = 0                      # bumps on every settings reload (cache key)
+        # Bumps whenever something asks for the target to be sent again (new
+        # settings, a stopped show, a restore). A send that was already in
+        # flight only records itself as applied if this didn't change while it
+        # ran; otherwise it would overwrite the request and the new settings
+        # would never be sent.
+        self.apply_gen = 0
+        self.sent_effect: dict = {}           # deviceId -> what was last sent (for the pattern check)
+        self.pattern_mismatches = 0
+        self.pattern_restored = None          # target key restored for a pattern change, until a reading matches
+        self.pattern_unverified = set()       # target keys the controller doesn't report back as sent
+
+    def _invalidate(self):
+        """Send the target again on the next pass, in full. Lock held."""
+        self.applied_key = None
+        self.known_on = False
+        self.apply_gen += 1
+        self._kick()
+
+    def refresh_devices(self):
+        """Controllers changed (added, removed, ports or names edited): list
+        them again and send the target to every one, switch-on included."""
+        with self.lock:
+            self.devices = []
+            self.last_verify = 0.0
+            self._invalidate()
 
     # ------------------------------------------------------------ logging
     def note(self, msg: str, level=logging.INFO):
@@ -107,6 +152,7 @@ class Controller:
         if not chosen:
             raise TrimlightError("No Trimlight controllers found on this account.")
         self.devices = chosen
+        self.known_on = False   # a controller new to this list hasn't been switched on yet
         self.note("Controlling: " + ", ".join(f"{d.get('name')} ({d.get('deviceId')})" for d in chosen))
 
     def _saved_effect(self, dev_id: str, effect, refresh=False) -> dict:
@@ -146,27 +192,33 @@ class Controller:
             return {}
         if effect.kind != "saved":
             return {"brightness": effect.payload["brightness"], "speed": effect.payload["speed"]}
+        want = (effect.saved_name or "").strip().lower()
         for lib in self.saved.values():
             for e in lib.values():
-                if (effect.saved_id is not None and e.get("id") == effect.saved_id) or \
-                        str(e.get("name", "")).strip().lower() == (effect.saved_name or "").strip().lower():
+                # By id when the pattern names one (as _saved_effect does), else by
+                # name; an id-only pattern used to match any pattern with no name.
+                if (e.get("id") == effect.saved_id) if effect.saved_id is not None else \
+                        (want and str(e.get("name", "")).strip().lower() == want):
                     return {"brightness": e.get("brightness"), "speed": e.get("speed")}
         return {}
 
     # ------------------------------------------------------------ actions
     def _apply(self, on: bool, effect, levels: dict | None = None, timer_off: bool = False, delegated: bool = False):
         """timer_off: when off, use Timer mode (safety net) instead of Off.
-        delegated: lights on, run by the controller's own timer (Timer mode)."""
+        delegated: lights on, run by the controller's own timer (Timer mode).
+        Returns whether the controllers are now switched on by this app; the
+        caller records it (with applied_key) under the lock."""
         self._ensure_devices()
         levels = levels or {}
         if delegated:
             for d in self.devices:
                 self.api.set_switch(d["deviceId"], 2)
-            self.known_on = False
+                self.sent_effect.pop(d["deviceId"], None)   # the controller's timer picks the pattern
             self.status_cache["at"] = 0.0
-            return
+            return False
         for d in self.devices:
             dev = d["deviceId"]
+            self.sent_effect.pop(dev, None)
             if not on:
                 self.api.set_switch(dev, 2 if timer_off else 0)
                 continue
@@ -174,14 +226,17 @@ class Controller:
             if not self.known_on:
                 self.api.set_switch(dev, 1)
             if effect.kind == "saved" and not levels:
-                self.api.run_saved_effect(dev, int(self._saved_effect(dev, effect).get("id")))
+                saved = self._saved_effect(dev, effect)
+                self.api.run_saved_effect(dev, int(saved.get("id")))
+                self.sent_effect[dev] = {**self._payload_from_saved(saved), "id": int(saved.get("id"))}
             else:
                 payload = (self._payload_from_saved(self._saved_effect(dev, effect))
                            if effect.kind == "saved" else dict(effect.payload))
                 payload.update(levels)
                 self.api.preview_effect(dev, payload)
-        self.known_on = on
+                self.sent_effect[dev] = payload
         self.status_cache["at"] = 0.0
+        return on
 
     def _safety_ready(self) -> bool:
         """Leave the controller in Timer mode between windows only when every
@@ -234,12 +289,16 @@ class Controller:
 
         # 1. security flash
         if flash:
-            if ts(now) < ts(flash["until"]):
-                eff = self.cfg.effects[self.cfg.security["effect"]]
+            # The flash pattern can be cleared or replaced in settings while a
+            # flash runs; with none left, end the flash instead of failing
+            # every pass (and every status read) until it would have ended.
+            eff = self.cfg.effects.get(self.cfg.security["effect"] or "")
+            if eff is not None and ts(now) < ts(flash["until"]):
                 return done(Target(f"flash|{flash['until'].isoformat()}", True, eff, {}, "flash", "Security flash",
                                    flash["until"]))
             flash = None
-            notes.append("Security flash ended.")
+            notes.append("Security flash ended." if eff is not None
+                         else "Security flash ended: no flash pattern is set up any more.")
 
         # 2. music show (button, then show nights): this app steps aside
         music, skipped = self.music, self.music_skipped
@@ -283,14 +342,7 @@ class Controller:
         # 4. weather / 5. schedule, with rotation
         wr, match = self._weather_pick(w)
         rule = wr or w.rule
-        if wr is None:
-            eff, step = w.rule.pick(w.start, now)
-        elif len(rule.effects) > 1 and rule.rotate_minutes:
-            elapsed = max(0, int((ts(now) - ts(w.start)) // 60))
-            step = elapsed // rule.rotate_minutes
-            eff = rule.effects[step % len(rule.effects)]
-        else:
-            step, eff = 0, rule.effects[0]
+        eff, step = rule.pick(w.start, now)   # the weather rule's own rotation, or the schedule's
         # A weather rule keeps the scheduled rule's levels (e.g. late-night dim)
         # unless it sets its own.
         levels = {**w.rule.levels, **(wr.levels if wr else {}), **adjust}
@@ -328,19 +380,25 @@ class Controller:
                     return None
         return end - off
 
-    def tick(self):
+    def tick(self, maintenance: bool = True):
         """One scheduling pass. Network calls happen under apply_lock only, so
-        status reads (which need just self.lock) never wait on the cloud."""
+        status reads (which need just self.lock) never wait on the cloud.
+        maintenance=False (buttons, settings changes): just send the lights;
+        the read-back and safety-net copy (a dozen cloud calls) are left to
+        the scheduler's own pass a few seconds later, so a button press never
+        waits on them."""
         with self.apply_lock:
             with self.lock:
                 t = self._target()
                 due = t.key != self.applied_key and time.time() >= self.next_try
+                gen = self.apply_gen
             if due and t.hands_off:
                 # A music show: send nothing, so the controller's music mode
                 # isn't interrupted. What it shows afterward is unknown, so the
                 # next pattern is sent in full.
                 with self.lock:
-                    self.applied_key = t.key
+                    if self.apply_gen == gen:
+                        self.applied_key = t.key
                     self.known_on = False
                     self.fail_count = 0
                     self.last_error = None
@@ -350,9 +408,15 @@ class Controller:
                 return                       # no checks or timer copies during a show either
             if due:
                 try:
-                    self._apply(t.on, t.effect, t.levels, timer_off=t.key == "off|timer", delegated=t.delegated)
+                    switched_on = self._apply(t.on, t.effect, t.levels, timer_off=t.key == "off|timer",
+                                              delegated=t.delegated)
                     with self.lock:
-                        self.applied_key = t.key
+                        if self.apply_gen == gen:
+                            self.applied_key = t.key
+                            self.known_on = switched_on
+                        # else: new settings (or a resend request) arrived while
+                        # this was being sent; leave applied_key unset so the
+                        # next pass sends what they say.
                         self.fail_count = 0
                         self.last_error = None
                         self.mismatches = 0
@@ -369,7 +433,8 @@ class Controller:
                         self.next_try = time.time() + wait
                         self.last_error = str(e)
                     self.note(f"Couldn't reach the lights: {e}. Retrying in {wait}s.", logging.WARNING)
-            self._maintenance(t)
+            if maintenance:
+                self._maintenance(t)
 
     def _safety_step(self, now_ts: float):
         """Keep the controller's copy of the coming nights current (daily, and
@@ -394,8 +459,7 @@ class Controller:
             self.safety.sync(self.api, self.cfg, ids, now, self.note)
             if self._safety_ready() != was:
                 with self.lock:
-                    self.applied_key = None  # switch between Off and Timer mode
-                    self._kick()
+                    self._invalidate()  # switch between Off and Timer mode
 
     def _read_devices(self) -> list[dict]:
         """Ask every controller for its state (this also sends it today's time)."""
@@ -407,11 +471,11 @@ class Controller:
                 if msg:
                     self.note(f"{det.get('name', d.get('name'))}: {msg}", logging.WARNING)
                     with self.lock:   # leave Timer mode now; don't wait for the next sync
-                        self.applied_key = None
-                        self._kick()
+                        self._invalidate()
             self.saved[d["deviceId"]] = {str(e.get("name", "")).strip().lower(): e for e in det.get("effects", [])}
             out.append({"name": det.get("name", d.get("name")), "id": d["deviceId"],
                         "online": det.get("connectivity") == 1, "switch_raw": det.get("switchState"),
+                        "effect_raw": det.get("currentEffect"),
                         "switch": {0: "off", 1: "on", 2: "timer"}.get(det.get("switchState"), "?"),
                         "firmware": det.get("fwVersionName")})
         return out
@@ -419,8 +483,10 @@ class Controller:
     def _maintenance(self, t):
         """Every few minutes (and at least daily, for the clock): read the
         controllers back. If one isn't in the state we set (power blip, someone
-        used the Trimlight app), restore it. Two readings in a row must disagree
-        before acting, so a lagging cloud report can't cause flapping."""
+        used the Trimlight app), restore it: the switch (on, off, Timer) and,
+        while this app runs the lights, the pattern showing. Two readings in a
+        row must disagree before acting, so a lagging cloud report can't cause
+        flapping."""
         now = time.time()
         today = self.cfg.loc.now().date()
         self._safety_step(now)
@@ -443,13 +509,47 @@ class Controller:
             self.mismatches = self.mismatches + 1 if wrong else 0
             if self.mismatches >= 2:
                 self.mismatches = 0
-                self.applied_key = None
-                self.known_on = False
-                self._kick()
+                self.pattern_mismatches = 0
+                self._invalidate()
                 restored = ", ".join(str(d["name"]) for d in wrong)
+            elif not wrong:
+                restored = self._check_pattern(t, snap)
         if restored:
             self.note(f"{restored} was changed outside this app (power blip or the Trimlight app). Restoring it.",
                       logging.WARNING)
+
+    def _check_pattern(self, t, snap) -> str | None:
+        """The switch is right; is the pattern? (Someone chose another one in
+        the Trimlight app, or a power cut dropped an unsaved preview.) Returns
+        the names to report when it's being restored. Lock held.
+
+        A controller that reports a pattern differently from how it was sent
+        would otherwise be "restored" every few minutes all night. So after a
+        restore, if the reading still never matches what was just sent, the
+        pattern isn't checked again for this target (the switch still is)."""
+        if not t.on or t.delegated or t.key in self.pattern_unverified:
+            self.pattern_mismatches = 0
+            return None
+        verdicts = [(d, effect_matches(d.get("effect_raw"), self.sent_effect.get(d["id"])))
+                    for d in snap if d["online"]]
+        wrong = [d for d, ok in verdicts if ok is False]
+        if any(ok for _, ok in verdicts) and not wrong:
+            self.pattern_restored = None          # confirmed: a later change is a real one
+        self.pattern_mismatches = self.pattern_mismatches + 1 if wrong else 0
+        if self.pattern_mismatches < 2:
+            return None
+        self.pattern_mismatches = 0
+        if self.pattern_restored == t.key:
+            if len(self.pattern_unverified) > 500:   # one entry per night or pattern; keep it small
+                self.pattern_unverified.clear()
+            self.pattern_unverified.add(t.key)
+            self.pattern_restored = None
+            self.note("The controller doesn't report this pattern back exactly as it was sent, so only its "
+                      "on/off state is checked until the next change.", logging.INFO)
+            return None
+        self.pattern_restored = t.key
+        self._invalidate()
+        return ", ".join(f"{d['name']}'s pattern" for d in wrong)
 
     def _kick(self):
         self.next_try = 0.0
@@ -470,7 +570,7 @@ class Controller:
                              "expires": time.time() + expires_min * 60 if expires_min else None}
             self.adjust = {}
             self._kick()
-        self.tick()
+        self.tick(maintenance=False)
 
     def default_on_effect(self) -> str:
         """The pattern the On button uses: tonight's scheduled one (the window
@@ -499,16 +599,29 @@ class Controller:
         return "warm_white" if "warm_white" in effects else next(iter(effects))
 
     def resume(self):
+        """Back to the schedule. A show night is part of the schedule: it isn't
+        ended, and one skipped tonight (a pattern was chosen, or the show was
+        stopped) comes back. A show from the Music button isn't, so it ends."""
         with self.lock:
-            if self._end_music("back to the schedule"):
-                self.applied_key = None
-                self.known_on = False
+            changed = False
+            if self.music:
+                self.music = None
+                self.note("Music show stopped (back to the schedule).")
+                changed = True
+            msched = self.cfg.music.get("schedule")
+            w = msched.active_window(self.cfg.loc.now()) if msched is not None else None
+            if w is not None and self.music_skipped == w.key:
+                self.music_skipped = None
+                self.note(f"Back to tonight's music show [{w.rule.name}].")
+                changed = True
+            if changed:
+                self._invalidate()
             if self.override or self.adjust:
                 self.note("Back on the schedule.")
             self.override = None
             self.adjust = {}
             self._kick()
-        self.tick()
+        self.tick(maintenance=False)
 
     def set_levels(self, brightness=None, speed=None):
         with self.lock:
@@ -526,7 +639,7 @@ class Controller:
                         raise ValueError(f"{k} must be 0-255")
                     self.adjust[k] = v
             self._kick()
-        self.tick()
+        self.tick(maintenance=False)
 
     # ------------------------------------------------------------ music
     def _end_music(self, why: str) -> bool:
@@ -578,15 +691,13 @@ class Controller:
             self.override, self.adjust = None, {}
             self._kick()
             self.note("Music show started " + (f"for {minutes} min." if until else "(until stopped)."))
-        self.tick()
+        self.tick(maintenance=False)
 
     def stop_music(self):
         with self.lock:
             self._end_music("stopped")
-            self.applied_key = None              # send the scheduled pattern in full
-            self.known_on = False
-            self._kick()
-        self.tick()
+            self._invalidate()                   # send the scheduled pattern in full
+        self.tick(maintenance=False)
 
     def start_flash(self, minutes: int | None = None):
         if not self.cfg.security["effect"]:
@@ -598,7 +709,7 @@ class Controller:
             self.flash = {"until": until}
             self._kick()
             self.note(f"Security flash {'extended' if extended else 'started'} for {minutes} min.")
-        self.tick()
+        self.tick(maintenance=False)
 
     def stop_flash(self):
         with self.lock:
@@ -606,7 +717,7 @@ class Controller:
                 self.flash = None
                 self.note("Security flash stopped.")
             self._kick()
-        self.tick()
+        self.tick(maintenance=False)
 
     def reload(self, cfg, api=None):
         """Swap in new settings (and credentials) without restarting."""
@@ -623,10 +734,10 @@ class Controller:
                 w = cfg.weather
                 self.weather = (WeatherService(cfg.loc.lat, cfg.loc.lon, w["use"], w["check_minutes"], w["contact"])
                                 if w["enabled"] else None)
-            self.applied_key = None   # re-apply whatever the new settings say
+            self._invalidate()        # re-apply whatever the new settings say
+            self.pattern_unverified.clear()   # and check the patterns again
             self.status_cache["at"] = 0.0
-            self._kick()
-        self.tick()
+        self.tick(maintenance=False)
 
     # ------------------------------------------------------------ loop
     def run_forever(self):
@@ -645,7 +756,7 @@ class Controller:
     # ------------------------------------------------------------ status
     def device_status(self, max_age=None):
         """Last controller readings from the background check (no network here)."""
-        return [{k: v for k, v in d.items() if k != "switch_raw"} for d in self.status_cache["data"]]
+        return [{k: v for k, v in d.items() if k not in ("switch_raw", "effect_raw")} for d in self.status_cache["data"]]
 
     def _weather_loop(self):
         while not self.stop_event.is_set():

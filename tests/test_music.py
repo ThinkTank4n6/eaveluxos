@@ -130,6 +130,20 @@ class MusicControllerTests(unittest.TestCase):
         c.resume()
         self.assertEqual(c._target(commit=False).reason, "schedule")
 
+    def test_resume_keeps_a_show_night(self):
+        c = self.make([{"name": "TSO Friday", "on": "19:00", "off": "21:00", "days": ["fri"]}])
+        self.assertEqual(self.at(19, 1).reason, "music")
+        c.resume()                                            # "Back to the schedule": the show IS the schedule
+        self.assertEqual(self.at(19, 2).reason, "music")
+
+    def test_resume_brings_back_a_skipped_show_night(self):
+        c = self.make([{"name": "TSO Friday", "on": "19:00", "off": "21:00", "days": ["fri"]}])
+        self.at(19, 1)
+        c.manual(True, "warm_white")                          # skips tonight's show...
+        self.assertEqual(self.at(19, 2).reason, "manual")
+        c.resume()                                            # ...until back to the schedule
+        self.assertEqual(self.at(19, 3).reason, "music")
+
     def test_security_flash_still_wins(self):
         c = self.make()
         c.cfg.security["effect"] = "warm_white"

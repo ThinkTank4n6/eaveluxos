@@ -41,6 +41,21 @@ MAX_CALENDAR = 60
 PREFIX = "Auto "
 
 
+def _cal_overlaps(c: dict, days: list) -> bool:
+    """Does a calendar entry (month/day range, no year) fall on any of days?
+    An entry whose dates can't be read counts as overlapping."""
+    try:
+        s = (int(c["startDate"]["month"]), int(c["startDate"]["day"]))
+        e = (int(c["endDate"]["month"]), int(c["endDate"]["day"]))
+    except (KeyError, TypeError, ValueError):
+        return True
+    for d in days:
+        md = (d.month, d.day)
+        if (s <= md <= e) if s <= e else (md >= s or md <= e):   # wraps New Year
+            return True
+    return False
+
+
 def _same_effect(a: dict, b: dict) -> bool:
     keys = ("category", "mode", "speed", "brightness")
     if any(a.get(k) != b.get(k) for k in keys):
@@ -85,10 +100,13 @@ class SafetyNet:
         os.replace(tmp, self.path)
 
     def ready(self, dev_id: str, today: date) -> bool:
-        """True when this controller holds a verified copy covering today."""
+        """True when this controller holds a verified copy covering today and
+        nothing else on it would run in Timer mode (the Trimlight app's daily
+        timers, or its calendar events on the coming nights): those would turn
+        the lights on while the schedule says off, and the app can't tell."""
         with self.lock:
             d = self.state["devices"].get(dev_id) or {}
-            return bool(d.get("ok") and d.get("covers_until", "") >= today.isoformat())
+            return bool(d.get("ok") and not d.get("conflicts") and d.get("covers_until", "") >= today.isoformat())
 
     def check_live(self, dev_id: str, detail: dict) -> str | None:
         """Compare a fresh read of the controller with what the last sync
@@ -120,8 +138,11 @@ class SafetyNet:
 
     def summary(self) -> dict:
         with self.lock:
-            return {k: {x: v.get(x) for x in ("ok", "message", "last_sync", "last_sync_label", "covers_until", "entries", "conflicts", "backup")}
-                    for k, v in self.state["devices"].items()}
+            out = {k: {x: v.get(x) for x in ("ok", "message", "last_sync", "last_sync_label", "covers_until", "entries", "conflicts", "backup")}
+                   for k, v in self.state["devices"].items()}
+            for v in out.values():   # a copy held back by the Trimlight app's own timers isn't armed
+                v["ok"] = bool(v["ok"] and not v["conflicts"])
+            return out
 
     # ---------------------------------------------------------------- plan
     def plan(self, cfg, now: datetime, offset_min: int = 0):
@@ -199,15 +220,21 @@ class SafetyNet:
         failed = False
         for dev in dev_ids:
             try:
-                self._sync_one(api, dev, entries, slots, now)
+                self._sync_one(api, dev, entries, slots, now, cfg.safety["days"])
                 with self.lock:
                     d = self._dev(dev)
+                    msg = f"{len(d['calendar'])} nights copied to the controller."
+                    if d.get("conflicts"):
+                        msg += (" Not used yet: the Trimlight app's own timers would also run when the controller is "
+                                "left in Timer mode. Turn them off (see below), then choose Update now.")
                     d.update(ok=True, hash=h, synced_on=now.date().isoformat(), last_sync=now.isoformat(timespec="minutes"),
                              last_sync_label=now.strftime("%b %d, %I:%M %p").replace(" 0", " "),
                              covers_until=(now.date() + timedelta(days=cfg.safety["days"] - 1)).isoformat(),
-                             message=f"{len(d['calendar'])} nights copied to the controller.")
+                             message=msg)
                     self._save()
-                note(f"Safety net updated: {len(entries)} night(s) copied to the controller.")
+                note(f"Safety net updated: {len(entries)} night(s) copied to the controller."
+                     + (" It stays off until the Trimlight app's own timers are turned off." if d.get("conflicts") else ""),
+                     logging.WARNING if d.get("conflicts") else logging.INFO)
             except (TrimlightError, ValueError) as e:
                 failed = True
                 with self.lock:
@@ -220,7 +247,7 @@ class SafetyNet:
         self.retry_at = _t.time() + (1800 if failed else 0)
         return not failed
 
-    def _sync_one(self, api, dev: str, entries, slots, now: datetime):
+    def _sync_one(self, api, dev: str, entries, slots, now: datetime, days: int = 7):
         det = api.get_device(dev, now)
         with self.lock:
             st = self._dev(dev)
@@ -232,7 +259,8 @@ class SafetyNet:
         conflicts = []
         if any(x.get("enable") for x in det.get("daily", [])):
             conflicts.append("daily")
-        user_cal = [i for i in cal if i not in owned_cal]
+        span = [now.date() + timedelta(days=k) for k in range(days)]
+        user_cal = [i for i in cal if i not in owned_cal and _cal_overlaps(cal[i], span)]
         if user_cal:
             conflicts.append(f"calendar:{len(user_cal)}")
 

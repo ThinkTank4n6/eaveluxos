@@ -338,7 +338,7 @@ class DayBarCache(unittest.TestCase):
             def list_devices(s): return []
         c = Controller(build_config(s, {"client_id": "x", "client_secret": "y"}), Api())
         g = c.cfg_gen
-        c.tick = lambda: None
+        c.tick = lambda **kw: None
         c.reload(build_config(s, {"client_id": "x", "client_secret": "y"}))
         self.assertEqual(c.cfg_gen, g + 1)
 
