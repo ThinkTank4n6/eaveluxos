@@ -235,7 +235,7 @@ async function updateBar(fresh) {
   S.update = u;
   let hidden = null; try { hidden = localStorage.getItem('elx-update-hidden'); } catch (e) { /* no storage */ }
   if (!u.newer || hidden === u.latest) { bar.hidden = true; return; }
-  const how = u.download ? `<a class="btn small primary" href="${esc(u.download)}" target="_blank" rel="noopener noreferrer">Download ${esc(u.download_name)}</a>` : '';
+  const how = u.download ? `<a class="btn small primary" href="${esc(u.download)}" target="_blank" rel="noopener noreferrer" title="${esc(u.download_name)}">${S.session?.local ? 'Download' : 'Download for the app computer'}</a>` : '';
   bar.innerHTML = `<span class="grow"><b>EaveLuxOS ${esc(u.latest)} is available.</b> You have ${esc(u.current)}. Your settings are kept when you update (Manual, section 23).</span>
     ${how}<a class="btn small ${u.download ? 'ghost' : 'primary'}" href="${esc(u.url)}" target="_blank" rel="noopener noreferrer">What's new</a>
     <button class="small ghost" data-updhide>Not now</button>`;
@@ -1623,7 +1623,7 @@ VIEWS.settings = async () => {
       : u.error ? `Couldn't check yet: ${esc(u.error)}` : 'Not checked yet. The first check runs a minute after the app starts.';
     box.innerHTML = `<h2>Updates</h2>
       <p>${state}${u.checked_label ? ` <span class="small muted">Last checked ${esc(u.checked_label)}.</span>` : ''}</p>
-      ${u.newer ? `<div class="row">${u.download ? `<a class="btn small primary" href="${esc(u.download)}" target="_blank" rel="noopener noreferrer">Download ${esc(u.download_name)}</a>` : ''}
+      ${u.newer ? `<div class="row">${u.download ? `<a class="btn small primary" href="${esc(u.download)}" target="_blank" rel="noopener noreferrer">Download ${esc(u.download_name)}</a>${local ? '' : ' <span class="small muted">for the app computer, not this device</span>'}` : ''}
         <a class="btn small ${u.download ? 'ghost' : 'primary'}" href="${esc(u.url)}" target="_blank" rel="noopener noreferrer">What's new</a></div>
         ${u.notes ? `<details><summary>Release notes</summary><div class="small" style="white-space:pre-wrap;margin-top:6px">${esc(u.notes)}</div></details>` : ''}
         <p class="note">${u.from_source ? 'This copy runs from the source code: download the new zip from that page (or <code>git pull</code>) and start it the same way.' : 'Quit the app, open the download and start the new version; your settings are kept.'} See Manual, section 23.</p>` : ''}

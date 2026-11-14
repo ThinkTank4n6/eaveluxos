@@ -347,7 +347,9 @@ class SafetyPartialWriteTests(unittest.TestCase):
         saved = copy.deepcopy(F.STATE["dev"])
         try:
             F.STATE["corrupt_calendar"] = False
-            user_entry = {"id": 0, "effectId": 3, "startDate": {"month": 12, "day": 1}, "endDate": {"month": 12, "day": 31},
+            # On other dates: one on the copied nights is a calendar conflict
+            # (3.13.1), which stops before anything is written.
+            user_entry = {"id": 0, "effectId": 3, "startDate": {"month": 2, "day": 1}, "endDate": {"month": 2, "day": 14},
                           "startTime": {"hours": 17, "minutes": 0}, "endTime": {"hours": 23, "minutes": 0}}
             F.STATE["dev"]["calendar"] = [copy.deepcopy(user_entry)]
             s = copy.deepcopy(DEFAULT_SETTINGS)
@@ -368,6 +370,7 @@ class SafetyPartialWriteTests(unittest.TestCase):
             net = SafetyNet(d)
             now = datetime(2026, 12, 5, 12, 0, tzinfo=ZoneInfo("America/New_York"))
             self.assertFalse(net.sync(api, cfg, ["TL-EDGE-01"], now))
+            self.assertEqual(Flaky.n, 3)                                  # the write really failed midway
             self.assertEqual(F.STATE["dev"]["calendar"], [user_entry])   # only the owner's own entry is left
             self.assertEqual(net.state["devices"]["TL-EDGE-01"]["calendar"], [])
         finally:

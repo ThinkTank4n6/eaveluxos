@@ -111,6 +111,26 @@ class Checker(unittest.TestCase):
                         mock.patch.object(updates.platform, "machine", return_value=machine):
                     self.assertEqual(updates.asset_for_this_computer(names), want)
 
+    def test_a_damaged_file_never_breaks_the_panel(self):
+        """Review #4 (3.14.1): a non-dict "latest" made every /api/update fail."""
+        for bad in ('{"latest": "3.99.0", "enabled": true}', '{"latest": {"version": 5}}', '[1, 2]', 'not json',
+                    '{"enabled": "no", "checked": "yesterday", "latest": {"version": "v9.9.9", "url": "https://evil.example/", "assets": [1]}}'):
+            (self.dir / "updates.json").write_text(bad, encoding="utf-8")
+            s = UpdateChecker(self.dir).summary()
+            self.assertIsInstance(s["newer"], bool, bad)
+            self.assertTrue(s["url"].startswith(REPO), bad)
+        self.assertTrue(s["enabled"])                       # "no" isn't a yes/no: back to the default
+        self.assertEqual(s["latest"], "9.9.9")
+
+    def test_a_moved_project_is_explained(self):
+        """Review #7 (3.14.1): a refused redirect gave a bare "GitHub answered 301"."""
+        def moved(opener, req, timeout=None):
+            raise urllib.error.HTTPError(updates.API_URL, 301, "Moved Permanently", {}, None)
+        with mock.patch.object(updates.urllib.request.OpenerDirector, "open", moved):
+            with self.assertRaises(UpdateError) as cm:
+                updates._default_fetch(updates.API_URL)
+        self.assertIn("moved", str(cm.exception))
+
     def test_redirects_are_refused(self):
         h = updates._NoRedirect()
         self.assertIsNone(h.redirect_request(None, None, 302, "Found", {}, "http://192.168.1.1/"))
@@ -160,6 +180,7 @@ class Endpoints(unittest.TestCase):
         root = Path(__file__).resolve().parent.parent / "eaveluxos" / "static"
         self.assertIn('id="updbar"', (root / "index.html").read_text(encoding="utf-8"))
         js = (root / "app.js").read_text(encoding="utf-8")
+        self.assertIn("Download for the app computer", js)            # review #6: not a Windows zip "for" a phone
         for s in ("async function updateBar", 'id="updbox"', "data-updnow", "update/settings"):
             self.assertIn(s, js)
 

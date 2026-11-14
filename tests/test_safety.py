@@ -91,7 +91,8 @@ class Safety(unittest.TestCase):
         try:
             # The real controller refuses timers that cross its own calendar
             # events (code 12000), so nothing is written and ours are taken back.
-            self.assertFalse(self.net.sync(self.api, self.cfg, ["TL-EDGE-01"], self.now))
+            # Not retried every 30 minutes, though: done for today.
+            self.assertTrue(self.net.sync(self.api, self.cfg, ["TL-EDGE-01"], self.now))
             sm = self.net.summary()["TL-EDGE-01"]
             self.assertEqual(sm["conflicts"], ["calendar:1"])
             self.assertIn("calendar timer from the Trimlight app", sm["message"])
@@ -100,6 +101,31 @@ class Safety(unittest.TestCase):
             self.assertFalse([e for e in d["effects"] if str(e.get("name", "")).startswith("Auto ")])
             for e in self.user_effects:
                 self.assertIn(e, d["effects"])
+        finally:
+            d["calendar"] = [c for c in d["calendar"] if c["id"] != 59]
+
+    def test_calendar_conflict_waits_until_tomorrow_or_update_now(self):
+        """Review #3 (3.14.1): a conflict re-ran every 30 minutes, writing a
+        backup each time (6 in 3 hours), which pushed useful backups out."""
+        d = F.STATE["dev"]
+        d["calendar"].append({"id": 59, "effectId": 3, "startDate": {"month": 12, "day": 20}, "endDate": {"month": 1, "day": 2},
+                              "startTime": {"hours": 17, "minutes": 0}, "endTime": {"hours": 23, "minutes": 0}})
+        notes = []
+        try:
+            import time as _t
+            h = self.net.plan_hash(*self.net.plan(self.cfg, self.now))
+            runs = 0
+            for i in range(6):                                   # 3 hours of scheduler passes
+                if self.net.due(["TL-EDGE-01"], h, self.now.date(), _t.time() + i * 1801):
+                    runs += 1
+                    self.net.sync(self.api, self.cfg, ["TL-EDGE-01"], self.now, lambda m, lvl=0: notes.append(m))
+            self.assertEqual(runs, 1)
+            self.assertEqual(len(notes), 1)
+            self.assertIn("not armed", notes[0])
+            self.assertFalse(self.net.ready("TL-EDGE-01", self.now.date()))
+            self.assertTrue(self.net.due(["TL-EDGE-01"], h, self.now.date().replace(day=30), _t.time()))   # next day
+            self.net.state["devices"]["TL-EDGE-01"]["hash"] = None                                       # "Update now"
+            self.assertTrue(self.net.due(["TL-EDGE-01"], h, self.now.date(), _t.time()))
         finally:
             d["calendar"] = [c for c in d["calendar"] if c["id"] != 59]
 

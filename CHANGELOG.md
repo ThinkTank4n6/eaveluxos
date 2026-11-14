@@ -1,5 +1,37 @@
 # Changelog
 
+## 3.14.1: fixes from the code review of 3.13–3.14
+
+- **Fixed (could delete your pattern):** while Trimlight couldn't read the
+  controller, the safety net's repair deleted by number alone. A pattern you
+  made that reused a number the safety net once had could be deleted. Now
+  the repair only deletes patterns the safety net saved since the last
+  successful read (the only ones that can have caused it). If the copy broke
+  another way, or while the app was off, nothing is deleted. Every successful
+  read also forgets numbers that no longer hold an "Auto" pattern.
+- **Fixed (could leave the controller unreadable):** if Trimlight gave a new
+  "Auto" pattern the same number as one of yours, the safety net stopped with
+  "It will try again later", which couldn't help. Now it names the pattern to
+  delete in the Trimlight Edge app, says so on every check (also when turning
+  the safety net off) without deleting anything, and carries on by itself
+  once the controller reads normally.
+- **Fixed:** a calendar conflict with the Trimlight app's own timers re-ran
+  every 30 minutes, writing a controller backup each time (which pushed
+  useful backups out) and a warning to the log. It now runs once a day, or
+  when you change the schedule or tap Update now.
+- **Fixed:** a damaged `updates.json` made the Updates panel and the
+  new-version bar fail until the file was deleted. Bad values are now
+  ignored.
+- While the controller can't be read, routine reads ask Trimlight to resync
+  at most every 5 minutes (each one waited 3 seconds holding the command
+  lock), and a repair is capped at 3 rounds.
+- The new-version bar's Download button says "for the app computer" when
+  seen on another device. A moved GitHub project gives a clear message
+  instead of "GitHub answered 301". The log notes when a controller numbers
+  its ports 1-4.
+- Tests: the safety net's partial-write test (3.9) no longer passes without
+  doing the partial write.
+
 ## 3.14.0: tells you when a new version is out
 
 - Once a day (starting a minute after the app starts) the app computer asks

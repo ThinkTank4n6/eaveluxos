@@ -97,6 +97,9 @@ def _default_fetch(url: str) -> bytes:
             raise UpdateError("No release has been published yet.") from None
         if e.code in (403, 429):
             raise UpdateError("GitHub asked to wait before checking again.") from None
+        if 300 <= e.code < 400:
+            raise UpdateError("GitHub sent the check somewhere else (the project may have moved or been renamed), "
+                              "and this app doesn't follow redirects. See the project page for news.") from None
         raise UpdateError(f"GitHub answered {e.code}.") from None
     except (urllib.error.URLError, TimeoutError, OSError) as e:
         if is_cert_failure(e):
@@ -138,16 +141,33 @@ class UpdateChecker:
         self.fetch = fetch or _default_fetch
         self.now = now
         self.lock = threading.Lock()
-        try:
-            self.state = json.loads(self.path.read_text(encoding="utf-8"))
-            if not isinstance(self.state, dict):
-                raise ValueError
-        except (OSError, ValueError):
-            self.state = {}
-        self.state.setdefault("enabled", True)
+        self.state = self._load()
         self.next_at = self.now() + FIRST_DELAY
         self.thread = None
         self.stop = threading.Event()
+
+    def _load(self) -> dict:
+        """The saved state, with anything damaged or unexpected dropped, so a
+        bad file can never break the Updates panel or the bar."""
+        try:
+            raw = json.loads(self.path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            raw = None
+        raw = raw if isinstance(raw, dict) else {}
+        st = {"enabled": raw.get("enabled") if isinstance(raw.get("enabled"), bool) else True}
+        lt = raw.get("latest")
+        if isinstance(lt, dict) and parse_version(lt.get("version")):
+            assets = lt.get("assets") if isinstance(lt.get("assets"), dict) else {}
+            st["latest"] = {"version": ".".join(map(str, parse_version(lt["version"]))),
+                            "url": _ours(lt.get("url")) or RELEASES_URL,
+                            "published": str(lt.get("published") or "")[:25],
+                            "notes": str(lt.get("notes") or "")[:NOTES_MAX],
+                            "assets": {str(k)[:120]: _ours(v) for k, v in list(assets.items())[:30] if _ours(v)}}
+        if isinstance(raw.get("checked"), (int, float)) and not isinstance(raw.get("checked"), bool):
+            st["checked"] = raw["checked"]
+        if isinstance(raw.get("error"), str):
+            st["error"] = raw["error"][:300]
+        return st
 
     def _save(self):
         try:

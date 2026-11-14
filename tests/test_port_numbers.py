@@ -78,6 +78,14 @@ class LightsTabPorts(unittest.TestCase):
         self.assertEqual([(p["id"], p["start"], p["end"]) for p in ports],
                          [(0, 1, 83), (1, 84, 138), (2, 1, 600), (3, 1, 600)])   # screen rows Port 1..4
 
+    def test_numbering_is_logged_once(self):
+        """Review #8 (3.14.1): say when a controller is read as 1-4."""
+        self.set_ports(REAL)
+        with self.assertLogs("eaveluxos.web", "INFO") as cm:
+            self.listing()
+            self.listing()
+        self.assertEqual(sum("numbers its ports 1-4" in m for m in cm.output), 1)
+
     def test_save_writes_back_in_the_controllers_numbers(self):
         self.set_ports(REAL)
         self.listing()

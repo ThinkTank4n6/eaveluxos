@@ -1,7 +1,7 @@
 # EaveLuxOS: User Manual
 ### The Intelligent Lighting Control Platform
 
-Version 3.14.0 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
+Version 3.14.1 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
 
 > **Downloaded the ready-made app? You can skip most of the setup.**
 > The downloads on the project's GitHub **Releases** page
@@ -905,6 +905,14 @@ copying the next few nights into the controller's **own timers**.
   run the lights without this computer. To use the safety net instead, delete
   them in the Trimlight Edge app (if you imported them, your schedule here
   keeps them), then tap **Update now**. Timers on other dates don't matter.
+  It checks again the next day or when you change the schedule, not every
+  few minutes.
+- **"Trimlight gave the safety net's new pattern "Auto …" number …, which
+  one of your own patterns already has":** Trimlight's cloud numbered a new
+  pattern like one of yours, so it can't read the controller. The app can't
+  safely fix that itself (deleting by number might remove yours). In the
+  Trimlight Edge app, delete the pattern named in the message. The safety net
+  carries on by itself afterward.
 - **"Trimlight can't read its copy of this controller" (code 12006):** see
   Troubleshooting (section 25).
 - **"The controller's pattern library is too full":** delete a few patterns in

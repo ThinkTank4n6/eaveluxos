@@ -60,7 +60,8 @@ class Unreadable(unittest.TestCase):
     def break_it(self, eid=20):
         """The controller as found on Nov 13: two safety-net patterns numbered alike."""
         F.STATE["dev"]["effects"] += [auto(eid, "Auto 0-Security"), auto(eid, "Auto Fall")]
-        self.net.state["devices"][DEV] = {"effects": {"p_0_security|{}": eid, "fall|{}": eid}, "calendar": []}
+        self.net.state["devices"][DEV] = {"effects": {"p_0_security|{}": eid, "fall|{}": eid}, "calendar": [],
+                                          "unconfirmed": [eid]}   # saved, never confirmed by a good read
         self.net._save()
 
     def test_message_explains_and_keeps_details(self):
@@ -76,6 +77,20 @@ class Unreadable(unittest.TestCase):
         F.STATE["log"].clear()
         self.assertEqual(self.api.get_device(DEV, self.now)["name"], "Trimlight")
         self.assertIn("/device/notify-update-shadow", [p for p, _ in F.STATE["log"]])
+
+    def test_routine_reads_resync_at_most_every_5_minutes(self):
+        """Review #5 (3.14.1): each read of a broken copy waited for a resync
+        while holding the command lock, every few minutes."""
+        self.break_it()
+        F.STATE["log"].clear()
+        for _ in range(3):
+            with self.assertRaises(TrimlightError):
+                self.api.get_device(DEV, self.now)
+        self.assertEqual([p for p, _ in F.STATE["log"]].count("/device/notify-update-shadow"), 1)
+        self.api._resynced[DEV] -= TrimlightAPI.RESYNC_EVERY            # 5 minutes later
+        with self.assertRaises(TrimlightError):
+            self.api.get_device(DEV, self.now)
+        self.assertEqual([p for p, _ in F.STATE["log"]].count("/device/notify-update-shadow"), 2)
 
     def test_safety_net_repairs_its_own_duplicate_patterns(self):
         self.break_it()
@@ -112,6 +127,77 @@ class Unreadable(unittest.TestCase):
         self.assertEqual(len(autos), 2)
         self.assertEqual(len(self.ids()), len(set(self.ids())))
         self.api.get_device(DEV, self.now)
+
+    # ---- 3.14.1 review fixes -------------------------------------------------
+
+    def test_repair_never_deletes_a_pattern_that_reused_an_old_number(self):
+        """Review #1. The safety net owned #20; the owner deleted "Auto Fall" in
+        the Trimlight app and saved "My Pattern", which got #20. Any later
+        successful read forgets #20, so a repair can't delete it."""
+        self.net.state["devices"][DEV] = {"effects": {"fall|{}": 20}, "calendar": []}
+        self.net._save()
+        F.STATE["dev"]["effects"].append(auto(20, "My Pattern"))
+        self.net.check_live(DEV, self.api.get_device(DEV, self.now))      # the scheduler's routine read
+        self.assertEqual(self.net.state["devices"][DEV]["effects"], {})
+        uid = self.user_effects[3]["id"]                                   # then the cloud breaks for another reason
+        F.STATE["dev"]["effects"].append(auto(uid, "CHRISTMAS copy"))
+        F.STATE["log"].clear()
+        self.assertFalse(self.net.sync(self.api, self.cfg, [DEV], self.now))
+        self.assertNotIn("/device/effect/delete", [p for p, _ in F.STATE["log"]])
+        self.assertIn("My Pattern", [e["name"] for e in F.STATE["dev"]["effects"]])
+
+    def test_repair_leaves_alone_what_broke_while_the_app_was_off(self):
+        """Review #1, stronger: the safety net owned #20 when the app was
+        stopped; meanwhile the owner deleted "Auto Fall" and saved "My
+        Pattern" (#20), and the copy broke for another reason. The first read
+        after starting already fails, so no read could forget #20: only
+        patterns saved since the last good read may be deleted."""
+        self.net.state["devices"][DEV] = {"effects": {"fall|{}": 20}, "calendar": []}   # confirmed long ago
+        self.net._save()
+        uid = self.user_effects[3]["id"]
+        F.STATE["dev"]["effects"] += [auto(20, "My Pattern"), auto(uid, "CHRISTMAS copy")]
+        F.STATE["log"].clear()
+        self.assertFalse(self.net.sync(self.api, self.cfg, [DEV], self.now))
+        self.assertFalse(self.net.remove(self.api, [DEV], self.now))
+        self.assertNotIn("/device/effect/delete", [p for p, _ in F.STATE["log"]])
+        self.assertIn("My Pattern", [e["name"] for e in F.STATE["dev"]["effects"]])
+
+    def test_a_good_read_after_saving_confirms(self):
+        self.assertTrue(self.net.sync(self.api, self.cfg, [DEV], self.now), self.net.summary())
+        self.assertEqual(self.net.state["devices"][DEV].get("unconfirmed"), [])     # the read-back confirmed them
+
+    def test_a_sync_read_also_forgets_reused_numbers(self):
+        self.net.state["devices"][DEV] = {"effects": {"fall|{}": 20}, "calendar": []}
+        self.net._save()
+        F.STATE["dev"]["effects"].append(auto(20, "My Pattern"))
+        self.assertTrue(self.net.sync(self.api, self.cfg, [DEV], self.now), self.net.summary())
+        self.assertIn("My Pattern", [e["name"] for e in F.STATE["dev"]["effects"]])
+        self.assertNotIn(20, self.net.state["devices"][DEV]["effects"].values())
+
+    def test_number_shared_with_the_owners_pattern_says_what_to_delete(self):
+        """Review #2. The cloud numbered the new "Auto" pattern like one of the
+        owner's. Deleting by number could remove theirs, so the message names
+        the pattern to delete in the Trimlight app, every time, until fixed."""
+        F.STATE["stale_shadow"] = True
+        F.STATE["shadow"] = {0, 1, 2}                       # a stale copy that forgot #3 and #4
+        self.assertFalse(self.net.sync(self.api, self.cfg, [DEV], self.now))
+        msg = self.net.summary()[DEV]["message"]
+        self.assertIn("delete the pattern named \u201cAuto ", msg)
+        self.assertNotIn("try again later", msg)
+        F.STATE["log"].clear()
+        self.assertFalse(self.net.sync(self.api, self.cfg, [DEV], self.now))      # still stuck: same advice, no deletes
+        self.assertIn("delete the pattern named", self.net.summary()[DEV]["message"])
+        self.assertNotIn("/device/effect/delete", [p for p, _ in F.STATE["log"]])
+        self.assertFalse(self.net.remove(self.api, [DEV], self.now))               # turning it off can't crash on it
+        # The owner deletes the "Auto" copy in the Trimlight app: it carries on by itself.
+        d = F.STATE["dev"]
+        i = next(n for n, e in enumerate(d["effects"]) if e["name"].startswith("Auto "))
+        d["effects"].pop(i)
+        F.STATE.pop("stale_shadow")
+        self.assertTrue(self.net.sync(self.api, self.cfg, [DEV], self.now), self.net.summary())
+        self.assertNotIn("stuck", self.net.state["devices"][DEV])
+        for e in self.user_effects:
+            self.assertIn(e, d["effects"])
 
 
 class LightsTabGuard(unittest.TestCase):

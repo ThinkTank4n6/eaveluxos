@@ -153,6 +153,7 @@ class TrimlightAPI:
         return trimlight_date(now_local + timedelta(minutes=self.clock_offset_min))
 
     resync_wait = 3.0   # seconds; tests set 0
+    RESYNC_EVERY = 300  # an automatic resync at most this often per controller
 
     def get_device(self, device_id: str, now_local, resync: bool = True) -> dict:
         """Device detail. Every call sends the local date/time (plus any offset
@@ -164,7 +165,10 @@ class TrimlightAPI:
         try:
             return self._request("POST", "/v1/oauth/resources/device/get", body) or {}
         except TrimlightError as e:
-            if not (resync and e.unreadable):
+            # Reads happen every few minutes while holding the command lock, so
+            # don't wait on a resync each time a broken copy is read again.
+            last = getattr(self, "_resynced", {}).get(device_id)     # None: never
+            if not (resync and e.unreadable) or (last is not None and time.monotonic() - last < self.RESYNC_EVERY):
                 raise
         self.resync(device_id, now_local)
         body["currentDate"] = self._controller_time(now_local)
@@ -173,6 +177,9 @@ class TrimlightAPI:
     def resync(self, device_id: str, now_local):
         """Ask the controller to send its data to Trimlight's cloud again, and
         give it a moment."""
+        if not hasattr(self, "_resynced"):
+            self._resynced = {}
+        self._resynced[device_id] = time.monotonic()
         try:
             self.notify_shadow(device_id, now_local)
         except TrimlightError:

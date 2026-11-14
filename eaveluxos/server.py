@@ -620,6 +620,8 @@ class App:
                 if isinstance(det, TrimlightError):
                     raise det
                 base = port_base(det.get("ports"))
+                if base and self._port_base.get(item["id"]) != base:
+                    log.info("%s numbers its ports 1-4; shown and saved that way.", item["name"] or item["id"])
                 self._port_base[item["id"]] = base
                 item.update({"name": det.get("name", item["name"]),
                              "ports": [{**p, "id": p.get("id", 0) - base} for p in det.get("ports", []) or []],

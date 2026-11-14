@@ -43,6 +43,13 @@ def _is_auto(e) -> bool:
     return str((e or {}).get("name", "")).startswith(PREFIX)
 
 
+def _stuck_message(stuck: dict) -> str:
+    return (f"Trimlight gave the safety net's new pattern \u201c{stuck.get('name')}\u201d number {stuck.get('id')}, which "
+            "one of your own patterns already has, so Trimlight can't read the controller until one of them is "
+            f"removed. In the Trimlight Edge app (on your home Wi-Fi), delete the pattern named \u201c{stuck.get('name')}\u201d. "
+            "Your own pattern isn't touched. The safety net carries on by itself once the controller reads normally.")
+
+
 def _resync(api, dev, now):
     f = getattr(api, "resync", None)
     if f:
@@ -125,11 +132,30 @@ class SafetyNet:
             d = self.state["devices"].get(dev_id) or {}
             return bool(d.get("ok") and not d.get("conflicts") and d.get("covers_until", "") >= today.isoformat())
 
+    def _prune(self, dev_id: str, detail: dict):
+        """After every successful read: forget pattern numbers that no longer
+        hold one of this app's "Auto" patterns (deleted, or reused by a
+        pattern made in the Trimlight app). The repair deletes by number while
+        names can't be read, so it must only ever know numbers last seen as
+        "Auto". A successful read also ends a "delete it by hand" notice."""
+        lib = {e.get("id"): e for e in detail.get("effects", []) or []}
+        with self.lock:
+            d = self.state["devices"].get(dev_id)
+            if not d:
+                return
+            keep = {k: v for k, v in (d.get("effects") or {}).items() if v in lib and _is_auto(lib[v])}
+            if keep != d.get("effects") or "stuck" in d or d.get("unconfirmed"):
+                d["effects"] = keep
+                d.pop("stuck", None)
+                d["unconfirmed"] = []          # a good read since our last save: none of ours is the cause
+                self._save()
+
     def check_live(self, dev_id: str, detail: dict) -> str | None:
         """Compare a fresh read of the controller with what the last sync
         wrote. If the copy was changed or cleared since (the Trimlight app, a
         reset), stop relying on it and have it written again. Returns a
         message when that happened."""
+        self._prune(dev_id, detail)
         with self.lock:
             d = self.state["devices"].get(dev_id)
             if not (d and d.get("ok")):
@@ -253,6 +279,20 @@ class SafetyNet:
                 note(f"Safety net updated: {len(entries)} night(s) copied to the controller."
                      + (" It stays off until the Trimlight app's own timers are turned off." if d.get("conflicts") else ""),
                      logging.WARNING if d.get("conflicts") else logging.INFO)
+            except CalendarConflict as e:
+                # Not a failure to retry every 30 minutes (each retry reads the
+                # controller and writes a backup, pushing older backups out):
+                # nothing changes until the settings or the Trimlight app's
+                # calendar do. Done for today; "Update now" checks again.
+                with self.lock:
+                    d = self._dev(dev)
+                    same = d.get("message") == str(e) and d.get("synced_on") == now.date().isoformat()
+                    d.update(ok=False, hash=h, synced_on=now.date().isoformat(), message=str(e),
+                             last_sync=now.isoformat(timespec="minutes"),
+                             last_sync_label=now.strftime("%b %d, %I:%M %p").replace(" 0", " "))
+                    self._save()
+                if not same:
+                    note(f"Safety net not armed: {e}", logging.WARNING)
             except (TrimlightError, ValueError) as e:
                 failed = True
                 with self.lock:
@@ -280,21 +320,34 @@ class SafetyNet:
     def _read(self, api, dev: str, now: datetime) -> dict:
         """Read the controller. If Trimlight's cloud can't read its copy of it
         (two patterns with the same number: a save that the cloud numbered
-        twice), delete the patterns this app saved there and read again."""
+        twice), delete the patterns this app saved there and read again.
+
+        Only patterns this app saved since the last successful read
+        ("unconfirmed") can be the cause, so only those are deleted. If the
+        copy broke some other way (or while this app wasn't running), nothing
+        is deleted: a number this app once had may belong to the owner's
+        pattern by now, and names can't be read to tell."""
         try:
-            return api.get_device(dev, now)
+            det = api.get_device(dev, now)
+            self._prune(dev, det)
+            return det
         except TrimlightError as e:
             if not e.unreadable:
                 raise
             first = e
         with self.lock:
             st = self._dev(dev)
-            mine = sorted(set(st["effects"].values()) - self._user_effect_ids(dev), key=str)
+            stuck = st.get("stuck")
+            mine = sorted((set(st.get("unconfirmed") or []) & set(st["effects"].values())) - self._user_effect_ids(dev), key=str)
+        if stuck:
+            # Our new pattern shares a number with one of the owner's: deleting
+            # by number could remove theirs, so only they can fix it.
+            raise ValueError(_stuck_message(stuck)) from None
         if not mine:
             raise first
         log.warning("Trimlight can't read the controller; removing the safety net's own patterns %s to repair it.", mine)
         todo = list(mine)
-        for _ in range(4):   # a duplicate number needs one delete per copy
+        for _ in range(3):   # a duplicate number needs one delete per copy (a pair: two)
             for eid in todo:
                 try:
                     api.effect_delete(dev, eid)
@@ -311,9 +364,7 @@ class SafetyNet:
             todo = [eid for eid in mine if eid in lib]
             if todo:
                 continue        # readable again, but a copy of ours is still there
-            with self.lock:
-                st["effects"] = {k: v for k, v in st["effects"].items() if v in lib and v not in mine}
-                self._save()
+            self._prune(dev, det)
             self.repaired = True
             log.warning("Repaired: Trimlight can read the controller again.")
             return det
@@ -338,6 +389,8 @@ class SafetyNet:
             # The controller refuses timers that cross its own calendar events
             # ("The calendar schedules cannot be crossed"), and in Timer mode
             # both would run anyway. Write nothing; take back what's ours.
+            # Assumption (seen on firmware 1.17.77, Nov 2026; not documented by
+            # Trimlight): any shared date counts as crossing, whatever the times.
             for cid in list(owned_cal):
                 try:
                     api.calendar_delete(dev, cid)
@@ -400,16 +453,29 @@ class SafetyNet:
             if new and r["id"] in taken:
                 # Trimlight numbered a new pattern with a number already in
                 # use, which leaves its copy of the controller unreadable.
-                # Remove it (never the user's) and stop.
                 if r["id"] in set(owned_eff.values()) - self._user_effect_ids(dev):
+                    # Both copies are ours: delete them and read again.
                     with self.lock:
                         st["effects"] = {**owned_eff, k: r["id"]}
+                        st["unconfirmed"] = sorted(set(st.get("unconfirmed") or []) | {r["id"]})
                         self._save()
                     self._read(api, dev, now)
-                raise ValueError("Trimlight gave a new pattern a number that was already in use, so the safety net "
-                                 "stopped. It will try again later.")
+                    raise ValueError("Trimlight gave a new pattern a number that was already in use, so the safety "
+                                     "net removed it and stopped. It will try again later.")
+                # It shares the number with one of the owner's patterns. A
+                # delete by number might remove theirs, so it can't be undone
+                # from here: say exactly which one to delete in the Trimlight app.
+                stuck = {"id": r["id"], "name": payload["name"]}
+                with self.lock:
+                    st["stuck"] = stuck
+                    self._save()
+                log.warning("Trimlight numbered the new pattern %r %s, a number one of the owner's patterns has.",
+                            payload["name"], r["id"])
+                raise ValueError(_stuck_message(stuck))
             ids[k] = owned_eff[k] = r["id"]
             taken.add(r["id"])
+            with self.lock:   # saved, not yet seen in a good read: the only kind a repair may delete
+                st["unconfirmed"] = sorted(set(st.get("unconfirmed") or []) | {r["id"]})
             persist_effects()  # record ownership right away, so a failure later can't orphan it
             if new:
                 # Let the cloud catch up before the next new pattern: saving
@@ -499,7 +565,7 @@ class SafetyNet:
         for dev in dev_ids:
             with self.lock:
                 st = self.state["devices"].get(dev)
-            if not st or not (st.get("calendar") or st.get("effects")):
+            if not st or not (st.get("calendar") or st.get("effects") or st.get("stuck")):
                 continue
             try:
                 det = self._read(api, dev, now)
@@ -517,7 +583,7 @@ class SafetyNet:
                     self.state["devices"][dev] = {"ok": False, "message": "Safety net is off.", "effects": {}, "calendar": []}
                     self._save()
                 note("Safety net removed from the controller.")
-            except TrimlightError as e:
+            except (TrimlightError, ValueError) as e:
                 ok = False
                 note(f"Couldn't remove the safety net yet: {e}", logging.WARNING)
         return ok
