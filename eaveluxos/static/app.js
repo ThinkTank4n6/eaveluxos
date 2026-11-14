@@ -223,10 +223,26 @@ async function boot() {
   // The status at the top right (and its On/Off buttons) on every page, not
   // only after Home or Music has loaded it; kept fresh while the tab is open.
   refreshStatus().catch(() => {});
+  updateBar().catch(() => {});
   clearInterval(boot._pill);
   boot._pill = setInterval(() => { if (!document.hidden) refreshStatus().catch(() => {}); }, 60000);
   go((location.hash || '#home').slice(1));
 }
+/* "A new version is out" bar under the header (3.14). The app computer asks
+   GitHub once a day; hiding the bar lasts until the next version. */
+async function updateBar(fresh) {
+  const bar = $('#updbar'), u = fresh || await api('update');
+  S.update = u;
+  let hidden = null; try { hidden = localStorage.getItem('elx-update-hidden'); } catch (e) { /* no storage */ }
+  if (!u.newer || hidden === u.latest) { bar.hidden = true; return; }
+  const how = u.download ? `<a class="btn small primary" href="${esc(u.download)}" target="_blank" rel="noopener noreferrer">Download ${esc(u.download_name)}</a>` : '';
+  bar.innerHTML = `<span class="grow"><b>EaveLuxOS ${esc(u.latest)} is available.</b> You have ${esc(u.current)}. Your settings are kept when you update (Manual, section 23).</span>
+    ${how}<a class="btn small ${u.download ? 'ghost' : 'primary'}" href="${esc(u.url)}" target="_blank" rel="noopener noreferrer">What's new</a>
+    <button class="small ghost" data-updhide>Not now</button>`;
+  bar.hidden = false;
+  bar.onclick = e => { if (e.target.closest('[data-updhide]')) { try { localStorage.setItem('elx-update-hidden', u.latest); } catch (x) { /* no storage */ } bar.hidden = true; } };
+}
+
 /* Header buttons next to the status pill: lights on, lights off, and (only on
    the computer the app runs on) Quit. */
 function buildQuick(canControl, local) {
@@ -1580,6 +1596,7 @@ VIEWS.settings = async () => {
         <div class="panel stack"><h2>Version history</h2>
           <p class="note">Every save is kept (the last 100). Restoring brings back the patterns, schedule and house map from that moment; your account, phones and app address stay as they are.</p>
           <div class="list" id="hist"><p class="muted small">Loading…</p></div></div>` : ''}
+        <div class="panel stack" id="updbox"><h2>Updates</h2><p class="muted small">Loading…</p></div>
         <div class="panel stack"><h2>Setup and about</h2>
           ${admin ? '<div><button class="ghost" data-wizard>Run the setup assistant again</button></div>' : ''}
           <p class="small muted">Version ${esc(a.version)}${a.python ? ` · Python ${esc(a.python)}<br>Data folder: <code>${esc(a.data_dir)}</code>` : ''}</p>
@@ -1598,6 +1615,26 @@ VIEWS.settings = async () => {
     S.users = list;
   };
   drawUsers();
+  const drawUpdates = (u) => {
+    const box = $('#updbox'); if (!box || !u) return;
+    const state = !u.enabled ? 'Checking is off.'
+      : u.newer ? `<b>EaveLuxOS ${esc(u.latest)} is available</b> (you have ${esc(u.current)}).`
+      : u.latest ? `You have the latest version (${esc(u.current)}).`
+      : u.error ? `Couldn't check yet: ${esc(u.error)}` : 'Not checked yet. The first check runs a minute after the app starts.';
+    box.innerHTML = `<h2>Updates</h2>
+      <p>${state}${u.checked_label ? ` <span class="small muted">Last checked ${esc(u.checked_label)}.</span>` : ''}</p>
+      ${u.newer ? `<div class="row">${u.download ? `<a class="btn small primary" href="${esc(u.download)}" target="_blank" rel="noopener noreferrer">Download ${esc(u.download_name)}</a>` : ''}
+        <a class="btn small ${u.download ? 'ghost' : 'primary'}" href="${esc(u.url)}" target="_blank" rel="noopener noreferrer">What's new</a></div>
+        ${u.notes ? `<details><summary>Release notes</summary><div class="small" style="white-space:pre-wrap;margin-top:6px">${esc(u.notes)}</div></details>` : ''}
+        <p class="note">${u.from_source ? 'This copy runs from the source code: download the new zip from that page (or <code>git pull</code>) and start it the same way.' : 'Quit the app, open the download and start the new version; your settings are kept.'} See Manual, section 23.</p>` : ''}
+      ${admin ? `<label class="check"><input type="checkbox" id="updon" ${u.enabled ? 'checked' : ''}> Check GitHub for a new version once a day</label>
+        <div><button class="small ghost" data-updnow ${u.enabled ? '' : 'disabled'}>Check now</button></div>` : ''}
+      <p class="note">The app computer only asks GitHub which version is newest; nothing about your home is sent, and nothing is downloaded or installed by itself.</p>`;
+    const on = $('#updon');
+    if (on) on.onchange = () => busy(null, () => api('update/settings', { body: { enabled: on.checked } }))
+      .then(r => { drawUpdates(r); updateBar(r); }).catch(() => { on.checked = !on.checked; });
+  };
+  api('update').then(drawUpdates).catch(e => { const box = $('#updbox'); if (box) box.innerHTML = `<h2>Updates</h2><p class="muted small">${esc(e.message)}</p>`; });
   if (admin) api('history?limit=15').then(h => {
     $('#hist').innerHTML = h.length ? h.map((v, i) => `<div class="item"><div class="grow"><div class="name">${esc(new Date(v.saved_at).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }))}</div>
       <div class="sub">${esc(v.summary)}${i === 0 ? ' · current' : ''}</div></div>${i === 0 ? '' : `<button class="small ghost" data-restore="${v.rev}">Restore</button>`}</div>`).join('')
@@ -1637,6 +1674,8 @@ VIEWS.settings = async () => {
     if (d.copy) { const el = $('#' + d.copy); el.select(); const manual = () => toast(/Mac|iPhone|iPad|iOS/i.test(navigator.userAgentData?.platform || navigator.userAgent) ? 'Selected. Press \u2318C to copy.' : 'Selected. Press Ctrl+C to copy.');
       if (navigator.clipboard?.writeText) navigator.clipboard.writeText(el.value).then(() => toast('Copied'), manual); else manual(); }
     if (d.wizard !== undefined) wizard(0);
+    if (d.updnow !== undefined) return busy(b, () => api('update/check', { body: {} }))
+      .then(r => { drawUpdates(r); updateBar(r); toast(r.error ? r.error : r.newer ? `EaveLuxOS ${r.latest} is available` : 'You have the latest version', !!r.error); }).catch(() => {});
     if (d.port !== undefined) {
       const np = +$('#pport').value;
       if (!np || np === a.port) return toast('Enter a different port number.', true);

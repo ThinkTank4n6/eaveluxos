@@ -52,6 +52,14 @@ UNREADABLE_HELP = ("Trimlight's cloud can't read its copy of this controller rig
                    "Wi-Fi and open this controller so it syncs; see the manual, Troubleshooting.")
 
 
+def port_base(ports) -> int:
+    """Controllers number their four ports either 0-3 or 1-4 (Trimlight Edge
+    firmware 1.17.77 reports 1-4). Returns the first number in use, so the
+    screens can always show ports 1-4 and writes go back in the same numbers."""
+    ids = {p.get("id") for p in ports or [] if isinstance(p, dict)}
+    return 1 if ids and 0 not in ids and ids <= {1, 2, 3, 4} else 0
+
+
 def split_runs(payload: dict, limit: int):
     """Same pattern with every color run cut into pieces of at most `limit`
     bulbs (looks identical on the house). None if it would need over 30 slots."""

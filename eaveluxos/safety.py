@@ -37,6 +37,12 @@ from .api import TrimlightError
 log = logging.getLogger("eaveluxos.safety")
 
 
+def _is_auto(e) -> bool:
+    """A pattern this app saved (its name starts with "Auto "). Numbers can be
+    reused after a delete, so a number alone never proves a pattern is ours."""
+    return str((e or {}).get("name", "")).startswith(PREFIX)
+
+
 def _resync(api, dev, now):
     f = getattr(api, "resync", None)
     if f:
@@ -292,8 +298,8 @@ class SafetyNet:
             for eid in todo:
                 try:
                     api.effect_delete(dev, eid)
-                except TrimlightError:
-                    pass
+                except TrimlightError as e:
+                    log.warning("Couldn't delete pattern %s while repairing: %s", eid, e)
             _resync(api, dev, now)
             try:
                 det = api.get_device(dev, now, resync=False)
@@ -320,7 +326,7 @@ class SafetyNet:
             st["backup"] = self._backup(dev, det)
         lib = {e.get("id"): e for e in det.get("effects", [])}
         cal = {c.get("id"): c for c in det.get("calendar", [])}
-        owned_eff = {k: v for k, v in st["effects"].items() if v in lib}
+        owned_eff = {k: v for k, v in st["effects"].items() if v in lib and _is_auto(lib[v])}
         owned_cal = [i for i in st["calendar"] if i in cal]
         conflicts = []
         if any(x.get("enable") for x in det.get("daily", [])):
@@ -500,12 +506,12 @@ class SafetyNet:
                 with self.lock:
                     st["backup"] = self._backup(dev, det)
                 cal = {c.get("id") for c in det.get("calendar", [])}
-                lib = {e.get("id") for e in det.get("effects", [])}
+                lib = {e.get("id"): e for e in det.get("effects", [])}
                 for cid in st.get("calendar", []):
                     if cid in cal:
                         api.calendar_delete(dev, cid)
-                for eid in st.get("effects", {}).values():
-                    if eid in lib:
+                for eid in set(st.get("effects", {}).values()):
+                    if eid in lib and _is_auto(lib[eid]):     # never a pattern that took over its number
                         api.effect_delete(dev, eid)
                 with self.lock:
                     self.state["devices"][dev] = {"ok": False, "message": "Safety net is off.", "effects": {}, "calendar": []}

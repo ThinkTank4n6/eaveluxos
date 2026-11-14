@@ -16,7 +16,7 @@ import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from .api import TrimlightAPI, TrimlightError
+from .api import TrimlightAPI, TrimlightError, port_base
 
 GREEN, RED, BLACK = 0x00FF00, 0xFF0000, 0x000000
 
@@ -102,9 +102,10 @@ def run(store, data_dir: Path, ask=input, say=print, sleep=time.sleep, now=lambd
     backup = data_dir / f"hwtest-backup-{dev_id}-{time.strftime('%Y%m%d-%H%M%S')}.json"
     backup.write_text(json.dumps(det, indent=2), encoding="utf-8")
     ports = det.get("ports", [])
+    base = port_base(ports)              # labels: ports 1-4 whichever way the controller numbers them
     total = max([p.get("end", 0) for p in ports] + [1])
     rep.info += [f"Controller: {det.get('name')}  firmware {det.get('fwVersionName')}  chip {det.get('ic')}  order {det.get('colorOrder')}",
-                 "Ports: " + ", ".join(f"{p['id'] + 1}=[{p.get('start')},{p.get('end')}]" for p in ports),
+                 "Ports: " + ", ".join(f"{p['id'] + 1 - base}=[{p.get('start')},{p.get('end')}]" for p in ports),
                  f"Saved patterns: {len(det.get('effects', []))}/60  calendar entries: {len(det.get('calendar', []))}  "
                  f"daily timers on: {sum(1 for x in det.get('daily', []) if x.get('enable'))}",
                  f"Backup of the controller before testing: {backup.name}"]
@@ -156,7 +157,7 @@ def run(store, data_dir: Path, ask=input, say=print, sleep=time.sleep, now=lambd
             unused = [p for p in ports if not (p.get("start") and p.get("end"))]
             p = unused[0] if unused else ports[-1]
             orig = {"id": p["id"], "start": p.get("start", 0), "end": p.get("end", 0)}
-            cleanup.append((f"restore port {p['id'] + 1}", lambda orig=orig: api.update_device(dev_id, {"ports": [orig]})))
+            cleanup.append((f"restore port {p['id'] + 1 - base}", lambda orig=orig: api.update_device(dev_id, {"ports": [orig]})))
             api.preview_effect(dev_id, _custom([(GREEN, 1)]))
             try:
                 api.update_device(dev_id, {"ports": [{"id": p["id"], "start": 0, "end": 0}]})

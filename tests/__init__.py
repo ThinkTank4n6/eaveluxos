@@ -9,3 +9,6 @@ os.environ["EAVELUXOS_PORTABLE"] = "1"
 # The real cloud needs a moment after a resync request; the fake one does not.
 from eaveluxos.api import TrimlightAPI as _T
 _T.resync_wait = 0
+
+# Tests never ask GitHub for new versions.
+os.environ["EAVELUXOS_UPDATE_CHECK"] = "0"

@@ -1,7 +1,7 @@
 # EaveLuxOS: User Manual
 ### The Intelligent Lighting Control Platform
 
-Version 3.13.1 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
+Version 3.14.0 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
 
 > **Downloaded the ready-made app? You can skip most of the setup.**
 > The downloads on the project's GitHub **Releases** page
@@ -1214,6 +1214,21 @@ tells you if anything needs fixing. (The repository's starter kit is in this
 app's `tools/community-library` folder.)
 
 ## 23. Update, move or uninstall
+
+**Know when there's a new version**
+
+Once a day the app computer asks GitHub which EaveLuxOS release is the
+newest. When it's newer than yours, a green bar appears at the top of every
+screen: **EaveLuxOS 3.x.x is available**. If you use a ready-made download,
+it has a **Download** button for your computer's file. Either way there's a
+**What's new** button for the release page. **Not now** hides the bar until
+the next version comes out.
+
+**Settings › Updates** shows the version you have, when it last checked and
+the release notes, and has **Check now**. Administrators can turn the daily
+check off there. Only the question "which version is newest?" goes to GitHub;
+nothing about your home is sent, and nothing is downloaded or installed by
+itself. You still update yourself, as below.
 
 **Update to a new version**
 

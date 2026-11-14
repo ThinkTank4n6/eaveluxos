@@ -58,7 +58,10 @@ class H(BaseHTTPRequestHandler):
         if p == "/device/update":
             pl = body["payload"]
             if "ports" in pl:
-                for q in pl["ports"]: d["ports"][q["id"]] = q
+                for q in pl["ports"]:
+                    i = next((n for n, x in enumerate(d["ports"]) if x["id"] == q["id"]), None)
+                    if i is None: return self._err(12000, "Invalid parameter [ports]")
+                    d["ports"][i] = q
             for k in ("name", "ic", "colorOrder", "switchState"):
                 if k in pl: d[k] = pl[k]
             return self._ok()

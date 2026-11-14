@@ -1,5 +1,33 @@
 # Changelog
 
+## 3.14.0: tells you when a new version is out
+
+- Once a day (starting a minute after the app starts) the app computer asks
+  GitHub for the latest EaveLuxOS release. When it's newer, a green bar at the
+  top of every screen says so, with **What's new** and, for the ready-made
+  downloads, a **Download** button for this computer's file. **Not now** hides
+  it until the next version.
+- **Settings › Updates**: the version you have, the last check, release notes,
+  **Check now**, and (Administrators) a switch to turn the daily check off.
+- Only reads: nothing is sent about the household, nothing downloads or
+  installs by itself. The answer is size-capped, a redirect is refused, links
+  are kept only if they point into this project on GitHub, and test releases
+  are ignored. Kept in `data/updates.json`.
+
+## 3.13.2: Lights tab showed ports one row off
+
+- **Fixed:** controllers that number their ports 1-4 (Trimlight Edge firmware
+  1.17.77 does) showed on the Lights tab one row down: Port 1 "off", each port
+  showing the one before it, and port 4 missing. Saving would have written
+  that shifted layout. The app now detects how the controller numbers its
+  ports, shows them as Port 1-4, and writes them back in the controller's own
+  numbers (it reads the controller first if it hasn't yet). The hardware test
+  labels ports the same way.
+- **Safety net:** when removing or reusing its patterns, it now deletes only
+  ones whose name still starts with "Auto". A number alone isn't trusted,
+  because Trimlight reuses numbers after a delete.
+- **Safety net repair:** why a delete fails is now written to the log.
+
 ## 3.13.1: fix "Device data could not be parsed" (code 12006)
 
 - **Fixed:** turning the safety net on could break Trimlight's cloud copy of

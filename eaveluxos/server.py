@@ -37,8 +37,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from zoneinfo import available_timezones
 
-from . import autostart, catalog, community, winfirewall
-from .api import TrimlightAPI, TrimlightError
+from . import autostart, catalog, community, updates, winfirewall
+from .api import TrimlightAPI, TrimlightError, port_base
 from .controller import Controller
 from .safety import SafetyNet
 from .schedule import ConfigError, Effect, SetupNeeded, add_real, build_config, color_gamma, tz_info
@@ -259,6 +259,8 @@ class App:
         self.started = start
         self.store = Store(base)
         self.safety = SafetyNet(self.store.dir)
+        self.updates = updates.UpdateChecker(self.store.dir)   # "a new version is out"
+        self._port_base = {}         # controller id -> 0 or 1 (how it numbers its ports)
         self.lock = threading.RLock()
         self.ctrl: Controller | None = None
         self.cfg = None
@@ -323,6 +325,8 @@ class App:
         with self.lock:
             self.started = True
             self._start_thread()
+        if os.environ.get("EAVELUXOS_UPDATE_CHECK") != "0":
+            self.updates.start()
 
     def gamma(self) -> float | None:
         """Gamma correction in effect (None = off); bad values count as off
@@ -615,7 +619,10 @@ class App:
             try:
                 if isinstance(det, TrimlightError):
                     raise det
-                item.update({"name": det.get("name", item["name"]), "ports": det.get("ports", []),
+                base = port_base(det.get("ports"))
+                self._port_base[item["id"]] = base
+                item.update({"name": det.get("name", item["name"]),
+                             "ports": [{**p, "id": p.get("id", 0) - base} for p in det.get("ports", []) or []],
                              "ic": det.get("ic"), "colorOrder": det.get("colorOrder"),
                              "firmware": det.get("fwVersionName"), "switch": det.get("switchState"),
                              "effects": [{"id": e.get("id"), "name": e.get("name"), "category": e.get("category"),
@@ -670,6 +677,15 @@ class App:
                 ports.append({"id": pid, "start": st, "end": en})
             if ports and all(p["start"] == 0 and p["end"] == 0 for p in ports):
                 raise ApiError("At least one port needs bulbs. Turning every port off would leave the lights dark.")
+            base = self._port_base.get(dev)
+            if base is None:   # not listed yet: ask how this controller numbers its ports
+                try:
+                    base = port_base(self.client().get_device(dev, self.now()).get("ports"))
+                except TrimlightError as e:
+                    raise ApiError(f"Couldn't read the controller's ports first, so nothing was changed: {e}", 502)
+                self._port_base[dev] = base
+            for p in ports:
+                p["id"] += base      # back to the controller's own numbers
             payload["ports"] = ports
         if not payload:
             raise ApiError("Nothing to change.")
@@ -1164,6 +1180,8 @@ def make_server(app: App, host: str, port: int):
                 return self._json(500, {"error": "Something went wrong. Details are in the log."})
 
         def _get(self, path, q):
+            if path == "/api/update":
+                return app.updates.summary()
             if path == "/api/community":
                 try:
                     return app.community.index(app.store.settings, refresh=q.get("refresh") == "1")
@@ -1330,6 +1348,12 @@ def make_server(app: App, host: str, port: int):
 
         def _post(self, path, b):
             ctrl = app.ctrl
+            if path == "/api/update/check":        # Administrators (not on the editor list)
+                return app.updates.check()
+            if path == "/api/update/settings":
+                if not isinstance(b.get("enabled"), bool):
+                    raise ApiError("Say whether to check for new versions (true or false).")
+                return app.updates.set_enabled(b["enabled"])
             if path == "/api/action":
                 if ctrl is None:
                     raise ApiError("Finish setup first.", 409)

@@ -103,10 +103,10 @@ button,.btn{font:inherit;color:var(--ink);background:var(--surface);border:1px s
   padding:9px 16px;min-height:42px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:8px;
   text-decoration:none}
 button:hover{border-color:var(--muted)}
-button.primary{background:var(--lamp);border-color:var(--lamp);color:#fff;font-weight:650}
-@media (prefers-color-scheme: dark){ button.primary{color:#1D1A2E} }
+button.primary,.btn.primary{background:var(--lamp);border-color:var(--lamp);color:#fff;font-weight:650}
+@media (prefers-color-scheme: dark){ button.primary,.btn.primary{color:#1D1A2E} }
 button.danger{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 40%,transparent)}
-button.ghost{background:transparent}
+button.ghost,.btn.ghost{background:transparent}
 button.small{min-height:34px;padding:5px 12px;font-size:.88rem}
 button[disabled]{opacity:.5;cursor:not-allowed}
 button.current{border-color:var(--lamp);box-shadow:inset 0 0 0 1px var(--lamp)}
@@ -270,6 +270,7 @@ pre.code{padding:10px;white-space:pre-wrap;margin:0}
 /* ---------- accounts (3.4) ---------- */
 .pill.who{margin-left:8px;font-weight:500}
 .viewonly{margin:12px auto 0;max-width:1180px;width:calc(100% - 32px)}
+.updbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}.updbar[hidden]{display:none}.updbar .grow{flex:1;min-width:200px}
 /* ---------- house rooflines (3.4) ---------- */
 .photo:has(#pimg:not([hidden])){min-height:0}
 .roof{position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;overflow:visible}
