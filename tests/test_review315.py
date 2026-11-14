@@ -252,6 +252,10 @@ class GameDayFetching(unittest.TestCase):
 
 
 
+import shutil as _shutil
+
+
+@unittest.skipUnless(_shutil.which("node"), "Node.js isn't installed")
 class TonightHeading(unittest.TestCase):
     """Review #6: lights on by hand at noon, yet Tonight said "Lights on in
     4 h 45 min". Runs the page's own functions in Node."""
@@ -263,7 +267,10 @@ class TonightHeading(unittest.TestCase):
         fns = [re.search(r"^function %s\(.*?^}" % n, js, re.S | re.M).group(0) for n in ("inWords", "tonightPanel")]
         prog = ("const esc = s => String(s);\n" + "\n".join(fns) +
                 "\nconst h = tonightPanel(%s); console.log(h.match(/<h2>(.*?)<\\/h2>/)[1]);" % json.dumps(st))
-        return subprocess.run(["node", "-e", prog], capture_output=True, text=True, check=True).stdout.strip()
+        # UTF-8 explicitly: on Windows Python would read Node's output in the
+        # old Windows character set and garble the "·" (GitHub's Windows run).
+        return subprocess.run(["node", "-e", prog], capture_output=True, text=True, encoding="utf-8",
+                              errors="replace", check=True, timeout=60).stdout.strip()
 
     EV = [{"kind": "sunset", "at": "4:45 PM", "in_min": 285, "text": "Sunset"},
           {"kind": "on", "at": "5:00 PM", "in_min": 300, "text": "Every night: Warm white"}]
@@ -341,6 +348,20 @@ class CheckSchedulesNow(unittest.TestCase):
         finally:
             a.store.close()
             shutil.rmtree(d, ignore_errors=True)
+
+
+
+class NodeOutputIsUtf8(unittest.TestCase):
+    """Every test that runs Node reads its output as UTF-8 (Windows would
+    otherwise use its old character set and garble anything not plain ASCII)."""
+
+    def test_every_node_call(self):
+        import re
+        for f in sorted(Path(__file__).parent.glob("test_*.py")):
+            src = f.read_text(encoding="utf-8")
+            for m in re.finditer(r'subprocess\.run\(\["node"', src):
+                call = src[m.start():m.start() + 400]          # the call and its arguments
+                self.assertIn('encoding="utf-8"', call, f"{f.name}: {call[:80]}")
 
 
 if __name__ == "__main__":

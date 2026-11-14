@@ -29,6 +29,10 @@
   "Check schedules now" runs in the background. Phone alerts and game days no
   longer depend on the update check's switch (EAVELUXOS_BACKGROUND=0 turns
   off all background services).
+- Tests: the "Tonight" heading test read Node's output in the old Windows
+  character set on GitHub's Windows machine and failed on the "·"; every test
+  that runs Node now reads UTF-8, and a check keeps it that way. No change to
+  the app.
 
 ## 3.15.0: theme switch, favorites, calendar, away mode, game days, alerts and more
 
