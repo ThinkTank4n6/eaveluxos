@@ -146,6 +146,10 @@ const ICONS = {
   time: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
   power: '<path d="M12 3.5v8"/><path d="M7.2 6.6a7.5 7.5 0 1 0 9.6 0"/>',
   bulbon: '<path d="M9 17.5h6M10 21h4"/><path d="M8.2 14.2A6 6 0 1 1 15.8 14.2c-.8.8-1.3 1.8-1.3 2.9v.4h-5v-.4c0-1.1-.5-2.1-1.3-2.9z"/><path d="M12 2.2v-0M4 9.5H3M21 9.5h-1"/>',
+  star: '<path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M4.6 4.6l1.4 1.4M18 18l1.4 1.4M2.5 12h2M19.5 12h2M4.6 19.4L6 18M18 6l1.4-1.4"/>',
+  moon: '<path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/>',
+  themeauto: '<circle cx="12" cy="12" r="8.5"/><path d="M12 3.5v17a8.5 8.5 0 0 0 0-17z" fill="currentColor"/>',
   exit: '<path d="M14 4.5h4.5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H14"/><path d="M10 8l-4 4 4 4M6 12h9.5"/>',
   music: '<path d="M9 17.5V6.5l10-2.2v11"/><circle cx="6.6" cy="17.6" r="2.4"/><circle cx="16.6" cy="15.4" r="2.4"/><path d="M9 9.6l10-2.2"/>',
   settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
@@ -243,17 +247,112 @@ async function updateBar(fresh) {
   bar.onclick = e => { if (e.target.closest('[data-updhide]')) { try { localStorage.setItem('elx-update-hidden', u.latest); } catch (x) { /* no storage */ } bar.hidden = true; } };
 }
 
-/* Header buttons next to the status pill: lights on, lights off, and (only on
-   the computer the app runs on) Quit. */
+/* Settings › Lights usage (3.15): hours on per month, counted by this app,
+   with an optional cost estimate. */
+async function usagePanel(box) {
+  if (!box) return;
+  let r; try { r = await api('runtime'); } catch (e) { box.innerHTML = `<h2>Lights usage</h2><p class="muted small">${esc(e.message)}</p>`; return; }
+  const u = S.settings.usage || {}, ro = role() === 'viewer';
+  const months = r.months || [], max = Math.max(1, ...months.map(m => m.hours));
+  const cost = h => (u.watts && u.rate != null) ? h * u.watts / 1000 * u.rate : null;
+  const now = months[months.length - 1] || { hours: 0 }, c = cost(now.hours);
+  const label = k => new Date(k + '-15T12:00').toLocaleDateString([], { month: 'short' });
+  box.innerHTML = `<h2>Lights usage</h2>
+    <p><b class="num">${now.hours.toFixed(1)} hours</b> on this month${c != null ? `, about <b>$${c.toFixed(2)}</b>` : ''}.</p>
+    <div class="bars" role="img" aria-label="Hours on per month">${months.map(m => `<div class="bar" title="${esc(label(m.month))}: ${m.hours} h${cost(m.hours) != null ? ` (about $${cost(m.hours).toFixed(2)})` : ''}">
+      <span style="height:${Math.round(m.hours / max * 100)}%"></span><small>${esc(label(m.month)).slice(0, 1)}</small></div>`).join('')}</div>
+    <details><summary class="small">Estimate the cost</summary><div class="row" style="margin-top:8px">
+      <label class="field" style="flex:1;min-width:120px">Watts for the whole system <span class="hint">On the power supply's label (its maximum, so the estimate errs high)</span><input type="number" id="uswatts" min="0" max="5000" step="1" value="${u.watts ?? ''}" ${ro ? 'disabled' : ''}></label>
+      <label class="field" style="flex:1;min-width:120px">Price per kWh ($) <span class="hint">From your electric bill</span><input type="number" id="usrate" min="0" max="5" step="0.001" value="${u.rate ?? ''}" ${ro ? 'disabled' : ''}></label></div>
+      ${ro ? '' : '<div><button class="small ghost" data-ussave>Save</button></div>'}</details>
+    <p class="note">Counted by this app while it runs, from when it sent an on state (a music show counts as on). Time the app wasn\u2019t running isn\u2019t counted.</p>`;
+  box.onclick = e => {
+    const b = e.target.closest('[data-ussave]'); if (!b) return;
+    e.stopPropagation();
+    const num = id => { const v = $(id).value.trim(); return v === '' ? null : Number(v); };
+    const n = clone(S.settings); n.usage = { watts: num('#uswatts'), rate: num('#usrate') };
+    busy(b, () => saveSettings(n)).then(() => usagePanel(box)).catch(() => {});
+  };
+}
+
+/* Settings › Phone alerts (3.15): push messages through ntfy (free, no
+   account) when the lights can't be reached, a controller is offline or
+   unreadable, or a new version is out. Administrators only. */
+const ALERT_EVENTS = [['failed', 'The lights can\u2019t be reached to turn on or off (after 10 minutes)'],
+  ['offline', 'A controller is offline (after 15 minutes)'], ['unreadable', 'Trimlight can\u2019t read a controller (code 12006)'],
+  ['update', 'A new EaveLuxOS version is out']];
+async function alertPanel(box) {
+  if (!box) return;
+  let a; try { a = await api('alerts'); } catch (e) { box.innerHTML = `<h2>Phone alerts</h2><p class="muted small">${esc(e.message)}</p>`; return; }
+  box.innerHTML = `<h2>Phone alerts</h2>
+    <p class="note">Get a message on your phone when something needs you. It uses <b>ntfy</b>, a free app with no account.</p>
+    <ol class="small" style="margin:0;padding-left:1.2em">
+      <li>Install <b>ntfy</b> from the App Store or Google Play.</li>
+      <li>In ntfy, tap <b>+</b> (Subscribe to topic) and enter this topic:
+        <div class="row" style="margin:6px 0"><code id="altopic">${esc(a.topic)}</code><button class="small ghost" data-alcopy>Copy</button></div>
+        ${a.server !== 'https://ntfy.sh' ? `<span class="muted">Use another server: ${esc(a.server)}</span>` : ''}</li>
+      <li>Tap <b>Send a test</b> below.</li></ol>
+    <div class="row"><button class="small" data-altest>Send a test</button></div>
+    <label class="check"><input type="checkbox" id="alon" ${a.enabled ? 'checked' : ''}> <b>Send alerts</b></label>
+    <div class="stack" style="gap:4px;margin-left:4px">${ALERT_EVENTS.map(([k, l]) => `<label class="check small"><input type="checkbox" data-alev="${k}" ${a.events[k] ? 'checked' : ''}> ${l}</label>`).join('')}</div>
+    <details><summary class="small">Topic and server</summary><div class="stack" style="margin-top:8px">
+      <label class="field">Topic <span class="hint">Anyone who knows it can read your alerts, so keep it hard to guess.</span><input type="text" id="altop" value="${esc(a.topic)}" maxlength="64"></label>
+      <label class="field">ntfy server <span class="hint">Leave as is unless you run your own.</span><input type="url" id="alsrv" value="${esc(a.server)}"></label>
+      <div><button class="small ghost" data-alsave>Save topic and server</button></div></div></details>
+    <p class="note">A problem is sent once, then again at most every 6 hours, and a message follows when it\u2019s back to normal. Messages never include your address.</p>`;
+  const save = (body, b) => busy(b, () => api('alerts/settings', { body })).then(r => { toast('Saved'); return r; });
+  box.onchange = e => {
+    const t = e.target;
+    if (t.id === 'alon') save({ enabled: t.checked }).catch(() => { t.checked = !t.checked; });
+    else if (t.dataset.alev) save({ events: { [t.dataset.alev]: t.checked } }).catch(() => { t.checked = !t.checked; });
+  };
+  box.onclick = e => {
+    const b = e.target.closest('button'); if (!b) return;
+    e.stopPropagation();
+    if (b.dataset.alcopy !== undefined) { try { navigator.clipboard.writeText(a.topic); toast('Topic copied'); } catch (x) { toast('Select the topic and copy it.', true); } }
+    else if (b.dataset.altest !== undefined) busy(b, () => api('alerts/test', { body: {} })).then(() => toast('Sent. Check your phone.')).catch(() => {});
+    else if (b.dataset.alsave !== undefined) save({ topic: $('#altop').value.trim(), server: $('#alsrv').value.trim() }, b).then(() => alertPanel(box)).catch(() => {});
+  };
+}
+
+/* Light / Dark / Auto (3.15): theme.js applies the saved choice before the
+   page is drawn; this button cycles it. Kept per device. */
+const THEMES = { auto: ['themeauto', 'Auto', 'Theme: follows this device (tap for Light)'],
+                 light: ['sun', 'Light', 'Theme: Light (tap for Dark)'], dark: ['moon', 'Dark', 'Theme: Dark (tap for Auto)'] };
+function themeNow() { const t = document.documentElement.getAttribute('data-theme'); return t === 'light' || t === 'dark' ? t : 'auto'; }
+function setTheme(t) {
+  if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+  else { t = 'auto'; document.documentElement.removeAttribute('data-theme'); }
+  try { if (t === 'auto') localStorage.removeItem('elx-theme'); else localStorage.setItem('elx-theme', t); } catch (e) { /* no storage: this visit only */ }
+  // The phone's status-bar color follows the chosen theme too.
+  const d = $('#tcdark'), l = $('#tclight');
+  if (d && l) { d.media = t === 'auto' ? '(prefers-color-scheme: dark)' : t === 'dark' ? 'all' : 'not all';
+                l.media = t === 'auto' ? '(prefers-color-scheme: light)' : t === 'light' ? 'all' : 'not all'; }
+  return t;
+}
+
+/* Header buttons next to the status pill: lights on, lights off, the theme,
+   and (only on the computer the app runs on) Quit. */
 function buildQuick(canControl, local) {
   const q = $('#quick');
   const btn = (k, ic, label, title) => `<button type="button" class="qbtn${k === 'quit' ? ' qquit' : ''}" data-q="${k}" title="${title}" aria-label="${title}">${icon(ic)}<span class="qlbl">${label}</span></button>`;
+  const th = THEMES[themeNow()];
   q.innerHTML = (canControl ? btn('on', 'bulbon', 'On', 'Turn the lights on') + btn('off', 'power', 'Off', 'Turn the lights off') : '')
+    + btn('theme', th[0], th[1], th[2])
     + (local ? btn('quit', 'exit', 'Quit', 'Quit the app') : '');
   q.hidden = !q.innerHTML;
+  setTheme(themeNow());
   q.onclick = async e => {
     const b = e.target.closest('button'); if (!b) return;
     if (b.dataset.q === 'quit') return quitApp();
+    if (b.dataset.q === 'theme') {
+      const next = { auto: 'light', light: 'dark', dark: 'auto' }[themeNow()];
+      setTheme(next);
+      const [ic, label, title] = THEMES[next];
+      b.innerHTML = `${icon(ic)}<span class="qlbl">${label}</span>`; b.title = title; b.setAttribute('aria-label', title);
+      if (S.view === 'house' || S.view === 'create') VIEWS[S.view]();   // drawings pick up the new colors
+      return;
+    }
     const on = b.dataset.q === 'on';
     busy(b, async () => {
       S.status = await api('action', { body: { action: on ? 'on' : 'off' } });
@@ -441,6 +540,7 @@ VIEWS.home = async () => {
             ${st.setup?.problem ? `<p class="callout warn" style="margin-bottom:12px">${esc(st.setup.problem)}</p>` : ''}
             <h1>${esc(head)}</h1><p>${esc(sub)}</p>
             ${st.error ? `<p class="callout warn" style="margin-top:10px">Can't reach the lights right now: ${esc(st.error)}</p>` : ''}</div>
+          ${tonightPanel(st)}
           <div><div class="strip" aria-label="Today, midnight to midnight">${sky.join('')}</div>
             <div class="ticks"><span style="left:0">12 AM</span><span style="left:25%">6 AM</span><span style="left:50%">Noon</span><span style="left:75%">6 PM</span><span style="left:100%">12 AM</span></div>
             <div class="legend"><span>Sunrise <b>${esc(st.sun.sunrise ?? '—')}</b></span><span>Sunset <b>${esc(st.sun.sunset ?? '—')}</b></span><span>Now <b>${esc(st.now_label)} ${esc(st.tz)}</b></span></div>
@@ -450,7 +550,14 @@ VIEWS.home = async () => {
               : `Rotating ${esc(st.rotation.labels.join(', '))} every ${st.rotation.minutes} min.`}</p>` : ''}
           </div>
           <div class="panel"><h2>Turn on</h2>
-            <div class="chips">${effects.map(([k, e]) => `<button data-on="${esc(k)}" class="${t.on && t.effect_key === k ? 'current' : ''}">${swatches(effectSwatches(e), 4)}${esc(e.label || k)}</button>`).join('')}</div>
+            ${(() => {
+              const chip = ([k, e]) => `<button data-on="${esc(k)}" class="${t.on && t.effect_key === k ? 'current' : ''}">${swatches(effectSwatches(e), 4)}${esc(e.label || k)}</button>`;
+              const fav = favs();
+              if (!fav.length) return `<div class="chips">${effects.map(chip).join('')}</div>`
+                + (role() !== 'viewer' ? '<p class="note" style="margin-top:8px">Tip: tap the star on a pattern (Patterns tab) to pin it here as a big button.</p>' : '');
+              return `<div class="favs">${fav.map(k => { const e = S.settings.effects[k]; return `<button data-on="${esc(k)}" class="fav ${t.on && t.effect_key === k ? 'current' : ''}">${strand(e.colors || effectSwatches(e), e.colors ? e.counts : undefined)}<b>${esc(e.label || k)}</b></button>`; }).join('')}</div>
+                <details style="margin-top:12px"><summary class="small">All patterns (${effects.length})</summary><div class="chips" style="margin-top:10px">${effects.map(chip).join('')}</div></details>`;
+            })()}
             <div class="row" style="margin-top:12px"><button data-act="off" class="ghost">Turn off</button>
               ${(st.override || lv.adjusted) ? '<button data-act="resume" class="ghost">Return to schedule</button>' : ''}
               ${st.flash.available ? `<button data-act="${st.flash.active ? 'stop_flash' : 'flash'}" class="ghost danger">${st.flash.active ? 'Stop flash' : `Security flash (${st.flash.minutes} min)`}</button>` : ''}</div>
@@ -490,12 +597,42 @@ VIEWS.home = async () => {
   S.timers.push(setInterval(async () => { if (!document.hidden && !$('#dlg').open && document.activeElement?.type !== 'range') render(await refreshStatus()); }, 30000));
 };
 
+/* Home › Tonight (3.15): the next 24 hours of the schedule, with a countdown
+   to the next thing that happens. */
+function inWords(min) {
+  if (min < 1) return 'now';
+  const h = Math.floor(min / 60), m = min % 60;
+  return 'in ' + (h ? `${h} h${m ? ` ${m} min` : ''}` : `${m} min`);
+}
+function tonightPanel(st) {
+  const ev = st.tonight || [];
+  if (!ev.length) return '';
+  const icons = { sunset: '\u263e', on: '\u25cf', switch: '\u21bb', off: '\u25cb' };
+  const verb = { sunset: '', on: 'On: ', switch: 'Switches to ', off: 'Off: ' };
+  const first = ev.find(e => e.kind !== 'sunset') || ev[0], t = st.target || {};
+  // Something set by hand (or a flash or a music show) runs now: say that,
+  // not "Lights on in 4 h" while they're already on (3.15.1).
+  const nxt = st.next_change ? `${st.next_change}${st.next_change_day ? ' ' + st.next_change_day : ''}` : null;
+  const lead = t.reason === 'manual' ? `${t.on ? 'On' : 'Off'} by hand${nxt ? ` \u00b7 the schedule takes over at ${nxt}` : ''}`
+    : t.reason === 'flash' ? `Security flash${st.flash && st.flash.until ? ` until ${st.flash.until}` : ''}`
+    : t.reason === 'music' && !(st.music && st.music.scheduled) ? 'Music show, until it\u2019s stopped'
+    : first.kind === 'off' ? `Lights off ${inWords(first.in_min)}` : first.kind === 'sunset' ? `Sunset ${inWords(first.in_min)}`
+    : first.kind === 'switch' ? `${first.text.split(':')[0]} ${inWords(first.in_min)}` : `Lights on ${inWords(first.in_min)}`;
+  return `<div class="panel tonight" aria-label="Coming up in the next 24 hours"><div class="panel-head"><h2>${esc(lead)}</h2><span class="small muted">Next 24 hours</span></div>
+    <ol class="tl">${ev.map(e => `<li class="tl-${e.kind}"><span class="tl-ic" aria-hidden="true">${icons[e.kind] || ''}</span><span class="num tl-t">${esc(e.at)}${e.day ? ' ' + esc(e.day) : ''}</span>
+      <span class="grow">${esc(verb[e.kind] || '')}${esc(e.text)}</span><span class="small muted num">${esc(inWords(e.in_min))}</span></li>`).join('')}</ol></div>`;
+}
+
 /* ---------------------------------------------------------------- shared pattern helpers */
+// Favorites (3.15): patterns pinned to Home, in the order they were pinned.
+const MAX_FAVS = 6;
+function favs() { const e = S.settings.effects || {}; return (S.settings.favorites || []).filter(k => e[k]).slice(0, MAX_FAVS); }
 function usedBy(key) {
   const s = S.settings, out = [];
   (s.rules || []).forEach(r => { const e = Array.isArray(r.effect) ? r.effect : [r.effect]; if (e.includes(key)) out.push(`schedule rule “${r.name}”`); });
   (s.weather_rules || []).forEach(r => { const e = Array.isArray(r.effect) ? r.effect : [r.effect]; if (e.includes(key)) out.push(`weather rule “${r.name}”`); });
   if (s.security?.effect === key) out.push('the security flash');
+  (s.gameday?.teams || []).forEach(t => { if (t.effect === key) out.push(`game-day lights for ${t.name}`); });
   return out;
 }
 function fromController(e) {
@@ -551,7 +688,7 @@ VIEWS.patterns = async (tab) => {
   if (S.ptab === 'mine') {
     const effs = Object.entries(S.settings.effects || {});
     body.innerHTML = `<div class="cards">${effs.map(([k, e]) => `<div class="card">
-      <div class="title"><b>${esc(e.label || k)}</b></div>
+      <div class="title"><b>${esc(e.label || k)}</b><button class="small ghost favbtn" data-fav="${esc(k)}" aria-pressed="${favs().includes(k)}" title="${favs().includes(k) ? 'Remove from Home' : 'Pin to Home (up to ' + MAX_FAVS + ')'}" aria-label="${favs().includes(k) ? 'Remove from Home' : 'Pin to Home'}">${icon('star')}</button></div>
       ${e.colors ? strand(e.colors, e.counts) : strand(effectSwatches(e))}
       <p class="small muted">${esc(effectKind(e))}${usedBy(k).length ? ` · used by ${usedBy(k).length}` : ''}</p>
       <div class="actions"><button class="small" data-on="${esc(k)}">Turn on</button><button class="small ghost" data-edit="${esc(k)}">Edit</button><button class="small ghost danger" data-del="${esc(k)}">Delete</button></div>
@@ -629,7 +766,15 @@ VIEWS.patterns = async (tab) => {
       if (users.length) return confirmBox("Can't delete yet", `This pattern is used by ${esc(users.join(', '))}. Change those first.`, 'OK');
       if (!await confirmBox('Delete pattern?', `“${esc(S.settings.effects[d.del].label || d.del)}” will be removed from your patterns. Patterns in the Trimlight app aren't affected.`, 'Delete', true)) return;
       const n = clone(S.settings); delete n.effects[d.del];
+      if (Array.isArray(n.favorites)) n.favorites = n.favorites.filter(k => k !== d.del);
       return busy(b, () => saveSettings(n, 'Deleted')).then(() => VIEWS.patterns()).catch(() => {});
+    }
+    if (d.fav) {
+      const n = clone(S.settings), cur = favs();
+      if (cur.includes(d.fav)) n.favorites = cur.filter(k => k !== d.fav);
+      else if (cur.length >= MAX_FAVS) return toast(`Home holds ${MAX_FAVS} favorites. Unpin one first.`, true);
+      else n.favorites = [...cur, d.fav];
+      return busy(b, () => saveSettings(n, cur.includes(d.fav) ? 'Removed from Home' : 'Pinned to Home')).then(() => VIEWS.patterns()).catch(() => {});
     }
     if (d.comref !== undefined) { S.comRefresh = true; return VIEWS.patterns('community'); }
     if (d.comtry) return busy(b, async () => (await api('community/pattern?id=' + encodeURIComponent(d.comtry))).pattern)
@@ -1043,13 +1188,178 @@ function stateLine(st) {
   return { head, sub };
 }
 
+/* Schedule › Away mode (3.15): while you're away, each night's on and off
+   times move by a different amount (the same night always by the same), so
+   the house looks lived in rather than on a timer. */
+const localIso = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+function awayActive() {
+  const a = S.settings.away || {};
+  return a.enabled && a.until && a.until >= localIso() ? a : null;
+}
+function awayPanel(box) {
+  if (!box) return;
+  const a = S.settings.away || {}, on = awayActive(), ro = role() === 'viewer';
+  const d = new Date(); d.setDate(d.getDate() + 7);
+  const def = localIso(d);
+  box.innerHTML = `<h2>Away mode</h2>
+    <p class="note">Going away? Each night the lights come on and go off a little earlier or later than usual, so the house looks lived in, not on a timer.</p>
+    ${on ? `<p class="callout ok">On until <b>${esc(new Date(on.until + 'T12:00').toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }))}</b>: times move by up to ${on.minutes} minutes. The calendar under Coming up shows the real times.</p>`
+      : a.enabled ? '<p class="note">It ended on the date you came back.</p>' : ''}
+    <div class="row">
+      <label class="field" style="flex:1;min-width:140px">Back on<input type="date" id="awuntil" value="${esc(on ? on.until : def)}" ${ro ? 'disabled' : ''}></label>
+      <label class="field" style="flex:1;min-width:140px">Move times by up to<select id="awmin" ${ro ? 'disabled' : ''}>${[10, 20, 30, 45, 60].map(n => `<option value="${n}" ${(a.minutes || 20) === n ? 'selected' : ''}>${n} minutes</option>`).join('')}</select></label></div>
+    ${ro ? '' : `<div class="row"><button class="${on ? 'small' : 'primary small'}" data-awsave>${on ? 'Update' : 'Turn on away mode'}</button>${on ? '<button class="small ghost" data-awoff>Turn off (I\u2019m back)</button>' : ''}</div>`}`;
+  box.onclick = e => {
+    const b = e.target.closest('button'); if (!b) return;
+    e.stopPropagation();
+    const n = clone(S.settings);
+    if (b.dataset.awoff !== undefined) n.away = { ...(n.away || {}), enabled: false };
+    else if (b.dataset.awsave !== undefined) {
+      const until = $('#awuntil').value;
+      if (!until || until < localIso()) return toast('Pick the day you\u2019re back.', true);
+      const seed = (n.away && n.away.seed) || Array.from(crypto.getRandomValues(new Uint8Array(8)), x => x.toString(16).padStart(2, '0')).join('');
+      n.away = { enabled: true, until, minutes: +$('#awmin').value, seed };
+    } else return;
+    busy(b, () => saveSettings(n, n.away.enabled ? 'Away mode on' : 'Away mode off')).then(() => { awayPanel(box); upcomingPanel($('#upcbox')); }).catch(() => {});
+  };
+}
+
+/* Schedule › Game-day lights (3.15): team colors on the nights your team
+   plays. Game dates come from ESPN's public schedule (gameday.py). */
+async function gamePanel(box) {
+  if (!box) return;
+  let g; try { g = await api('gameday'); } catch (e) { box.innerHTML = `<h2>Game-day lights</h2><p class="muted small">${esc(e.message)}</p>`; return; }
+  const s = S.settings, gd = s.gameday || { enabled: false, teams: [] }, ro = role() === 'viewer';
+  const effs = Object.entries(s.effects || {});
+  const info = k => g.teams.find(t => t.key === k) || {};
+  const day = d => new Date(d + 'T12:00').toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+  box.innerHTML = `<h2>Game-day lights</h2>
+    <p class="note">Your team\u2019s colors on the nights they play, instead of the usual pattern (even during a holiday season). Game dates come from ESPN\u2019s public schedule; if it can\u2019t be reached, your normal schedule runs.</p>
+    <label class="check"><input type="checkbox" id="gdon" ${gd.enabled ? 'checked' : ''} ${ro ? 'disabled' : ''}> <b>Use game-day lights</b></label>
+    ${(gd.teams || []).map((t, i) => { const inf = info(`${t.league}-${t.team}`); return `<div class="panel stack" style="background:var(--surface2);padding:12px">
+      <div class="panel-head"><b>${esc(t.name || t.team.toUpperCase())}</b><span class="small muted">${esc((g.leagues[t.league] || t.league))}</span>${ro ? '' : `<button class="small ghost danger" data-gddel="${i}">Remove</button>`}</div>
+      <div class="row"><label class="field" style="flex:2;min-width:150px">Pattern<select data-gdeff="${i}" ${ro ? 'disabled' : ''}>${effs.map(([k, e]) => `<option value="${esc(k)}" ${t.effect === k ? 'selected' : ''}>${esc(e.label || k)}</option>`).join('')}</select></label>
+        <label class="field" style="flex:1;min-width:110px">On<input type="text" data-gdon="${i}" value="${esc(t.on || 'sunset')}" ${ro ? 'disabled' : ''}></label>
+        <label class="field" style="flex:1;min-width:110px">Off<input type="text" data-gdoff="${i}" value="${esc(t.off || '23:00')}" ${ro ? 'disabled' : ''}></label></div>
+      <p class="small ${inf.error && !inf.known ? 'warn' : 'muted'}">${inf.next && inf.next.length ? 'Next games: ' + inf.next.map(day).map(esc).join(', ') : inf.error ? 'Schedule not available yet: ' + esc(inf.error) : inf.known ? 'No more games this season.' : 'Schedule not checked yet.'}</p></div>`; }).join('')}
+    ${ro ? '' : `<div class="row"><select id="gdpick"><option value="">Add a team\u2026</option>${g.presets.map(p => `<option value="${esc(p.id)}">${esc(p.name)} (${esc(g.leagues[p.league])})</option>`).join('')}<option value="other">Another team\u2026</option></select>
+      <span id="gdother" hidden><select id="gdleague">${Object.entries(g.leagues).map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select>
+        <input type="text" id="gdteam" placeholder="ESPN team code, e.g. nyg" maxlength="5" style="width:12em"></span>
+      <button class="small" data-gdadd>Add</button>
+      ${(gd.teams || []).length && isAdmin() ? '<button class="small ghost" data-gdrefresh>Check schedules now</button>' : ''}</div>`}
+    ${(gd.teams || []).length ? '<p class="note">Times work like rules: sunset, sunset + 30, 18:00. The Month view under Coming up shows game nights.</p>' : ''}`;
+  const save = (n, msg) => saveSettings(n, msg).then(() => gamePanel(box));
+  box.onchange = e => {
+    const t = e.target, ds = t.dataset, n = clone(S.settings);
+    n.gameday = n.gameday || { enabled: false, teams: [] };
+    if (t.id === 'gdon') { n.gameday.enabled = t.checked; return busy(null, () => save(n, t.checked ? 'Game-day lights on' : 'Game-day lights off')).catch(() => { t.checked = !t.checked; }); }
+    if (t.id === 'gdpick') { $('#gdother').hidden = t.value !== 'other'; return; }
+    const i = ds.gdeff ?? ds.gdon ?? ds.gdoff; if (i === undefined) return;
+    const team = n.gameday.teams[+i];
+    if (ds.gdeff !== undefined) team.effect = t.value;
+    if (ds.gdon !== undefined) team.on = t.value.trim() || 'sunset';
+    if (ds.gdoff !== undefined) team.off = t.value.trim() || '23:00';
+    busy(null, () => save(n)).catch(() => {});
+  };
+  box.onclick = e => {
+    const b = e.target.closest('button'); if (!b) return;
+    e.stopPropagation();
+    const n = clone(S.settings);
+    n.gameday = n.gameday || { enabled: false, teams: [] };
+    if (b.dataset.gddel !== undefined) { n.gameday.teams.splice(+b.dataset.gddel, 1); return busy(b, () => save(n, 'Removed')).catch(() => {}); }
+    if (b.dataset.gdrefresh !== undefined) return busy(b, () => api('gameday/refresh', { body: {} })).then(() => {
+      toast('Checking the schedules\u2026');
+      setTimeout(() => { if (S.view === 'schedule') gamePanel(box); }, 8000);
+    }).catch(() => {});
+    if (b.dataset.gdadd === undefined) return;
+    const pick = $('#gdpick').value; if (!pick) return toast('Choose a team.', true);
+    let team;
+    if (pick === 'other') {
+      const code = $('#gdteam').value.trim().toLowerCase();
+      if (!/^[a-z]{2,5}$/.test(code)) return toast('Enter ESPN\u2019s short team code, like nyg.', true);
+      team = { league: $('#gdleague').value, team: code, name: `${code.toUpperCase()} (${g.leagues[$('#gdleague').value]})` };
+    } else {
+      const p = g.presets.find(x => x.id === pick);
+      team = { league: p.league, team: p.team, name: p.name };
+      const key = `team_${p.id.replace('-', '_')}`;
+      if (!n.effects[key]) n.effects[key] = { label: `${p.name} colors`, colors: p.colors, counts: p.colors.map(() => 4), custom_mode: 0, brightness: 220 };
+      team.effect = key;
+    }
+    if ((n.gameday.teams || []).some(t => t.league === team.league && t.team === team.team)) return toast('That team is already on the list.', true);
+    if ((n.gameday.teams || []).length >= 6) return toast('Up to 6 teams.', true);
+    team.effect = team.effect || Object.keys(n.effects)[0];
+    team.on = 'sunset'; team.off = '23:00';
+    n.gameday.teams = [...(n.gameday.teams || []), team];
+    n.gameday.enabled = true;
+    busy(b, () => save(n, `${team.name} added`)).catch(() => {});
+  };
+}
+
+/* Schedule › Coming up: the next 3 weeks as a list, or a month as a calendar
+   (3.15). Each rule keeps one color everywhere, so a season stands out. */
+const RULE_COLORS = ['#E8833A', '#3A86E8', '#2FA36B', '#C04BD1', '#D6455D', '#1FA5A5', '#B08A1E', '#6C63FF'];
+function ruleColor(name) {
+  const i = (S.settings.rules || []).findIndex(r => r.name === name);
+  if (i >= 0) return RULE_COLORS[i % RULE_COLORS.length];
+  let h = 0; for (const c of String(name)) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return RULE_COLORS[h % RULE_COLORS.length];
+}
+function upcomingPanel(box) {
+  if (!box) return;
+  const view = S.upcView || 'list';
+  const now = new Date(), ym = S.calMonth || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const [y, mo] = ym.split('-').map(Number);
+  const title = new Date(y, mo - 1, 1).toLocaleDateString([], { month: 'long', year: 'numeric' });
+  box.innerHTML = `<div class="panel-head"><h2>Coming up</h2><div class="seg" role="group" aria-label="Show as">
+      <button data-upv="list" aria-pressed="${view === 'list'}">List</button><button data-upv="month" aria-pressed="${view === 'month'}">Month</button></div></div>
+    ${view === 'month' ? `<div class="calnav"><button class="small ghost" data-calm="-1" aria-label="Previous month">‹</button><b>${esc(title)}</b><button class="small ghost" data-calm="1" aria-label="Next month">›</button></div>` : ''}
+    <div id="upc" style="margin-top:8px"><p class="muted">Loading…</p></div>`;
+  const day = d => new Date(d.date + 'T12:00');
+  const times = d => (d.windows || []).length ? d.windows.map(w => `<div class="win"><span class="dot" style="background:${ruleColor(w.rule)}"></span><span class="num">${esc(hm12(w.on_label))} – ${esc(hm12(w.off_label))}</span> <span class="sub">${esc(w.rule)}${w.effect && w.effect !== w.rule ? ' · ' + esc(w.effect) : ''}</span></div>`).join('') : '<span class="sub">Off</span>';
+  const q = view === 'month' ? `upcoming?month=${ym}` : 'upcoming?days=21';
+  api(q).then(list => {
+    const out = $('#upc'); if (!out) return;
+    if (!list.length) { out.innerHTML = '<p class="muted">Finish setup to see upcoming times.</p>'; return; }
+    if (view === 'list') {
+      out.innerHTML = `<div class="list">${list.map(d => `<div class="item"><div style="width:5.5em" class="small"><b>${esc(day(d).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }))}</b></div>
+        <div class="grow">${times(d)}${d.dst_change ? `<div class="dst">${esc(d.abbr)} starts today</div>` : ''}</div><div class="sub num">☾ ${esc(hm12(d.sunset))}</div></div>`).join('')}</div>`;
+      return;
+    }
+    const lead = day(list[0]).getDay(), today = new Date().toDateString();
+    const rules = [...new Set(list.flatMap(d => (d.windows || []).map(w => w.rule)))];
+    out.innerHTML = `<div class="cal" role="grid" aria-label="${esc(title)}">
+        ${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(w => `<div class="calh">${w}</div>`).join('')}
+        ${'<div></div>'.repeat(lead)}
+        ${list.map((d, i) => `<button class="calday${day(d).toDateString() === today ? ' today' : ''}${(d.windows || []).length ? '' : ' off'}" data-calday="${i}" aria-label="${esc(day(d).toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' }))}: ${esc((d.windows || []).map(w => w.rule).join(', ') || 'off')}">
+          <span class="n">${day(d).getDate()}</span>${(d.windows || []).map(w => `<span class="bar" style="background:${ruleColor(w.rule)}" title="${esc(w.rule)}"><span>${esc(w.rule)}</span></span>`).join('')}</button>`).join('')}
+      </div>
+      ${rules.length ? `<div class="legend" style="margin-top:10px">${rules.map(r => `<span><span class="dot" style="background:${ruleColor(r)}"></span>${esc(r)}</span>`).join('')}</div>` : '<p class="muted small" style="margin-top:8px">Nothing scheduled this month.</p>'}
+      <div id="caldetail" class="note" style="margin-top:10px">Tap a day for its times.</div>`;
+    out.onclick = e => {
+      const b = e.target.closest('[data-calday]'); if (!b) return;
+      const d = list[+b.dataset.calday];
+      $('#caldetail').innerHTML = `<b>${esc(day(d).toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' }))}</b> · sunset ${esc(hm12(d.sunset))}${d.dst_change ? ` · ${esc(d.abbr)} starts` : ''}<div style="margin-top:4px">${times(d)}</div>`;
+    };
+  }).catch(e => { const out = $('#upc'); if (out) out.innerHTML = `<p class="muted">${esc(e.message)}</p>`; });
+  box.onclick = e => {
+    const b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.upv) { e.stopPropagation(); S.upcView = b.dataset.upv; upcomingPanel(box); }
+    else if (b.dataset.calm) {
+      e.stopPropagation();
+      const d = new Date(y, mo - 1 + +b.dataset.calm, 1);
+      S.calMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; upcomingPanel(box);
+    }
+  };
+}
+
 // The Schedule tab's "Right now" panel with "Run the schedule".
 function schedNowPanel(box, st) {
   if (!box || !st || st.setup_only || !st.target) { if (box) box.hidden = true; return; }
   const t = st.target, { head, sub } = stateLine(st);
   const following = t.reason !== 'manual' && t.reason !== 'flash' && !(t.reason === 'music' && !st.music.scheduled) && !st.levels?.adjusted;
   box.hidden = false;
-  box.innerHTML = `<div class="panel-head"><h2>Right now</h2><button class="primary" data-runsched ${role() === 'viewer' ? 'disabled' : ''}>Run the schedule</button></div>
+  const aw = awayActive();
+  box.innerHTML = `${aw ? `<p class="callout ok small" style="margin:0 0 8px">Away mode: times move by up to ${aw.minutes} minutes each night until ${esc(new Date(aw.until + 'T12:00').toLocaleDateString([], { month: 'short', day: 'numeric' }))}.</p>` : ''}<div class="panel-head"><h2>Right now</h2><button class="primary" data-runsched ${role() === 'viewer' ? 'disabled' : ''}>Run the schedule</button></div>
     <p><b>${esc(following ? 'Following the schedule' : head)}</b>. ${esc(sub)}</p>
     ${st.error ? `<p class="callout warn small">Can't reach the lights right now: ${esc(st.error)}</p>` : ''}
     <p class="note">${following ? 'Changed the lights in the Trimlight Edge app? ' : ''}<b>Run the schedule</b> ends anything set by hand (a pattern, Off, a music show from the Music button, a security flash) and sends what the schedule says right now to the controller again. Show nights from the Music tab are part of the schedule and keep running.</p>`;
@@ -1086,11 +1396,15 @@ VIEWS.schedule = async () => {
           <div class="row"><label class="field grow">Pattern<select id="secp"><option value="">Off</option>${Object.keys(effs).map(k => `<option value="${esc(k)}" ${s.security?.effect === k ? 'selected' : ''}>${esc(effLabel(k))}</option>`).join('')}</select></label>
             <label class="field">Minutes<input type="number" id="secm" min="1" max="240" value="${s.security?.minutes ?? 5}"></label></div>
           <div><button class="small" data-savesec>Save</button></div></div>
+        <div class="panel stack" id="awaybox"></div>
+        <div class="panel stack" id="gamebox"></div>
         <div class="panel stack" id="safetybox"><p class="muted">Loading…</p></div>
       </div>
-      <div class="panel"><h2>Coming up</h2><div id="upc" class="list" style="margin-top:8px"><p class="muted">Loading…</p></div></div>
+      <div class="panel" id="upcbox"></div>
     </div></div>`;
   safetyPanel($('#safetybox'));
+  awayPanel($('#awaybox'));
+  gamePanel($('#gamebox'));
   schedNowPanel($('#schednow'), S.status);
   api('status').then(st => { S.status = st; if (S.view === 'schedule') schedNowPanel($('#schednow'), st); }).catch(() => {});
   api('rulecheck').then(rc => { for (const [name, info] of Object.entries(rc)) {
@@ -1098,12 +1412,7 @@ VIEWS.schedule = async () => {
     const el = $$('[data-rulename]', m).find(x => x.dataset.rulename === name);
     if (el) el.insertAdjacentHTML('beforeend', `<div class="callout warn small" style="margin-top:6px">Never runs in the next year: \u201c${esc(info.blocked_by)}\u201d wins on all its nights. ${esc(info.hint)}</div>`);
   } }).catch(() => {});
-  api('upcoming?days=21').then(list => {
-    $('#upc').innerHTML = list.length ? list.map(d => `<div class="item"><div style="width:5.5em" class="small"><b>${esc(new Date(d.date + 'T12:00').toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }))}</b></div>
-      <div class="grow">${(d.windows || []).length ? d.windows.map(w => `<div class="win"><div class="num">${esc(hm12(w.on_label))} – ${esc(hm12(w.off_label))}</div><div class="sub">${esc(w.rule)}</div></div>`).join('') : '<span class="sub">Off</span>'}
-        ${d.dst_change ? `<div class="dst">${esc(d.abbr)} starts today</div>` : ''}</div><div class="sub num">☾ ${esc(hm12(d.sunset))}</div></div>`).join('')
-      : '<p class="muted">Finish setup to see upcoming times.</p>';
-  }).catch(e => { $('#upc').innerHTML = `<p class="muted">${esc(e.message)}</p>`; });
+  upcomingPanel($('#upcbox'));
   m.onclick = async e => {
     const b = e.target.closest('button'); if (!b) return; const d = b.dataset;
     if (d.runsched !== undefined) {
@@ -1363,6 +1672,51 @@ function devCards(devs, cur, chosen) {
       ${run ? '' : '<span class="dc-tag">Not run by this app</span>'}</button>`;
   }).join('')}</div>`;
 }
+/* Lights › Pattern backups (3.15): put patterns back on the controller from
+   one of the backups taken before every safety-net change. Only adds; a
+   pattern whose name is already there is skipped. Administrators only. */
+async function backupPanel(box, d) {
+  if (!box) return;
+  const all = await api('backups').catch(e => { box.innerHTML = `<h2>Pattern backups</h2><p class="muted small">${esc(e.message)}</p>`; return null; });
+  if (!all) return;
+  const list = all.filter(b => b.device === d.id);
+  const have = new Set((d.effects || []).map(e => String(e.name || '').trim().toLowerCase()));
+  if (!list.length) {
+    box.innerHTML = '<h2>Pattern backups</h2><p class="muted small">No backups of this controller yet. One is taken before every change the safety net makes (Schedule tab).</p>';
+    return;
+  }
+  const pick = S.bkFile && list.some(b => b.file === S.bkFile) ? S.bkFile : list[0].file;
+  box.innerHTML = `<h2>Pattern backups</h2>
+    <p class="note">Put patterns back on the controller, for example after a factory reset or deleting one by mistake. It only adds: patterns already on the controller are left alone.</p>
+    <label class="field">Backup<select id="bkfile">${list.map(b => `<option value="${esc(b.file)}" ${b.file === pick ? 'selected' : ''}>${esc(b.label)} (${b.patterns} patterns)</option>`).join('')}</select></label>
+    <div id="bklist"><p class="muted small">Loading…</p></div>`;
+  const load = async file => {
+    S.bkFile = file;
+    let r; try { r = await api('backups/patterns?file=' + encodeURIComponent(file)); }
+    catch (e) { $('#bklist').innerHTML = `<p class="callout warn">${esc(e.message)}</p>`; return; }
+    const missing = r.patterns.filter(p => !have.has(p.name.trim().toLowerCase()));
+    $('#bklist').innerHTML = `${r.patterns.length ? `<div class="list">${r.patterns.map(p => { const there = have.has(p.name.trim().toLowerCase());
+        return `<label class="check"><input type="checkbox" data-bk="${p.id}" ${there || d.error ? 'disabled' : missing.length <= 10 ? 'checked' : ''}> <span class="grow">${esc(p.name)} <span class="small muted">${esc(p.kind)}${there ? ' · on the controller now' : ''}</span></span></label>`; }).join('')}</div>`
+      : '<p class="muted small">This backup has no patterns.</p>'}
+      ${missing.length ? `<div class="row" style="margin-top:10px"><button class="primary small" data-bkgo ${d.error ? 'disabled' : ''}>Put back selected</button><span class="small muted">${missing.length} not on the controller now</span></div>`
+        : r.patterns.length ? '<p class="small muted" style="margin-top:8px">Every pattern in this backup is on the controller now.</p>' : ''}`;
+  };
+  $('#bkfile').onchange = e => load(e.target.value);
+  box.onclick = async e => {
+    const b = e.target.closest('[data-bkgo]'); if (!b) return;
+    e.stopPropagation();
+    const ids = [...box.querySelectorAll('[data-bk]:checked')].map(x => +x.dataset.bk);
+    if (!ids.length) return toast('Tick the patterns to put back.', true);
+    if (!await confirmBox('Put these patterns back?', `${ids.length} pattern${ids.length > 1 ? 's' : ''} will be added to ${esc(d.name || 'the controller')}. Nothing on it is changed or deleted. This takes a few seconds per pattern.`, 'Put back')) return;
+    busy(b, () => api('backups/restore', { body: { file: S.bkFile, ids } })).then(r => {
+      const dup = (r.duplicates || []).length ? ` Skipped ${r.duplicates.length} more with the same name as one put back (${r.duplicates.join(', ')}).` : '';
+      toast((r.restored.length ? `Put back: ${r.restored.join(', ')}.` : 'Nothing to put back: those patterns are already there.') + dup);
+      S.devices = null; VIEWS.lights({ keep: true });
+    }).catch(() => {});
+  };
+  load(pick);
+}
+
 VIEWS.lights = async (opts = {}) => {
   const m = $('#main');
   if (!opts.keep) { S.portDraft = null; m.innerHTML = '<div class="view"><h2>Lights</h2><p class="muted">Asking the controller…</p></div>'; }
@@ -1413,12 +1767,14 @@ VIEWS.lights = async (opts = {}) => {
           <div class="row"><span class="small">Test colors:</span>${[['Red', '#FF0000'], ['Green', '#00FF00'], ['Blue', '#0000FF'], ['White', '#FFFFFF']].map(([n, c]) => `<button class="small" data-test="${c}">${swatches([c], 1)}${n}</button>`).join('')}</div>
         </div>
         <div class="panel stack" id="gbox"></div>
+        ${isAdmin() ? '<div class="panel stack" id="bkbox"></div>' : ''}
         ${devs.length > 1 ? `<div class="panel stack"><h2>Controlled by this app</h2>${devs.map(x => `<label class="check"><input type="checkbox" data-ctl="${esc(x.id)}" ${!chosen.length || chosen.includes(x.id) ? 'checked' : ''}>${esc(x.name)}</label>`).join('')}
           <div><button class="small" data-savectl>Save</button></div></div>` : ''}
       </div>
     </div></div>`;
   draw();
   colorPanel($('#gbox'));
+  backupPanel($('#bkbox'), d);
   m.oninput = e => {
     const t = e.target, ds = t.dataset;
     if (ds.pc !== undefined) P[+ds.pc].count = Math.max(0, Math.min(2048, +t.value || 0));
@@ -1574,7 +1930,7 @@ VIEWS.settings = async () => {
             ${local ? '<div class="row"><button class="small" data-lancheck>Check this computer</button></div><div id="lanresult" class="stack" aria-live="polite"></div>' : ''}
           </details></div>
         <div class="panel stack"><h2>Share and back up</h2>
-          <p class="note">Export your patterns and schedule to a file you can keep or share with other Trimlight owners. It never includes your Trimlight credentials, passwords or location.</p>
+          <p class="note">Export your patterns and schedule to a file you can keep or share with other Trimlight owners. It never includes your Trimlight credentials, passwords, location or away mode.</p>
           <div class="row"><button data-export>Export patterns and schedule</button>${role() !== 'viewer' ? '<label class="btn" tabindex="0">Import a file<input type="file" id="impf" accept=".json,application/json" hidden></label>' : ''}</div></div>
       </div>
       <div class="stack">
@@ -1596,7 +1952,9 @@ VIEWS.settings = async () => {
         <div class="panel stack"><h2>Version history</h2>
           <p class="note">Every save is kept (the last 100). Restoring brings back the patterns, schedule and house map from that moment; your account, phones and app address stay as they are.</p>
           <div class="list" id="hist"><p class="muted small">Loading…</p></div></div>` : ''}
+        <div class="panel stack" id="usagebox"></div>
         <div class="panel stack" id="updbox"><h2>Updates</h2><p class="muted small">Loading…</p></div>
+        ${admin ? '<div class="panel stack" id="alertbox"><h2>Phone alerts</h2><p class="muted small">Loading…</p></div>' : ''}
         <div class="panel stack"><h2>Setup and about</h2>
           ${admin ? '<div><button class="ghost" data-wizard>Run the setup assistant again</button></div>' : ''}
           <p class="small muted">Version ${esc(a.version)}${a.python ? ` · Python ${esc(a.python)}<br>Data folder: <code>${esc(a.data_dir)}</code>` : ''}</p>
@@ -1634,6 +1992,8 @@ VIEWS.settings = async () => {
     if (on) on.onchange = () => busy(null, () => api('update/settings', { body: { enabled: on.checked } }))
       .then(r => { drawUpdates(r); updateBar(r); }).catch(() => { on.checked = !on.checked; });
   };
+  if (admin) alertPanel($('#alertbox'));
+  usagePanel($('#usagebox'));
   api('update').then(drawUpdates).catch(e => { const box = $('#updbox'); if (box) box.innerHTML = `<h2>Updates</h2><p class="muted small">${esc(e.message)}</p>`; });
   if (admin) api('history?limit=15').then(h => {
     $('#hist').innerHTML = h.length ? h.map((v, i) => `<div class="item"><div class="grow"><div class="name">${esc(new Date(v.saved_at).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }))}</div>

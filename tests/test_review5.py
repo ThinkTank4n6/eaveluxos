@@ -315,6 +315,48 @@ class PatternCheck(unittest.TestCase):
         self.run_checks(c, 12)                                  # an hour of checks
         self.assertEqual(len(self.previews(api)), 2)            # one restore at most, then it stops trying
 
+    def test_learned_report_survives_a_restart(self):
+        """3.15: the owner's log showed "changed outside this app ... Restoring"
+        about 5 minutes after every start, then "doesn't report this pattern
+        back exactly". The report is learned once and kept, so a restart
+        resends nothing; and a real change in the Trimlight app is still
+        caught (before, checking stopped for the rest of the night)."""
+        import shutil, tempfile
+        d = tempfile.mkdtemp()
+        try:
+            report = lambda sent: {**sent, "brightness": sent["brightness"] - 1}
+            api = self.Cloud(report=report)
+            c = Controller(make_cfg(), api, data_dir=d)
+            c.tick()
+            self.run_checks(c, 12)
+            self.assertEqual(len(self.previews(api)), 2)        # one restore, then learned
+            self.assertTrue(any("Learned how the controller reports" in e["msg"] for e in c.events))
+            # A real change in the Trimlight app is still restored.
+            api.current = {"id": 4, "category": 0, "mode": 12, "speed": 140, "brightness": 255}
+            self.run_checks(c, 2)
+            c.tick()
+            self.assertEqual(len(self.previews(api)), 3)
+            # Restart: a new controller object, the lights as they were.
+            api2 = self.Cloud(report=report)
+            api2.current = api.current
+            c2 = Controller(make_cfg(), api2, data_dir=d)
+            c2.tick()
+            self.run_checks(c2, 12)
+            self.assertEqual(len(self.previews(api2)), 1)       # only the start's own send: no restore
+            self.assertFalse(any("changed outside" in e["msg"] for e in c2.events))
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+    def test_damaged_learned_file_is_ignored(self):
+        import shutil, tempfile, os
+        d = tempfile.mkdtemp()
+        try:
+            with open(os.path.join(d, "reported-patterns.json"), "w") as f:
+                f.write('{"abc": 5, "x": ["ok"]')                # cut short
+            self.assertEqual(Controller(make_cfg(), FakeAPI(), data_dir=d).reported, {})
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
     def test_no_current_effect_reported_changes_nothing(self):
         api = self.Cloud(report=lambda sent: None)              # older firmware: no currentEffect
         c = Controller(make_cfg(), api)

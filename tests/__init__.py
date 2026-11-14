@@ -12,3 +12,6 @@ _T.resync_wait = 0
 
 # Tests never ask GitHub for new versions.
 os.environ["EAVELUXOS_UPDATE_CHECK"] = "0"
+
+# Nor do they start phone alerts or game-day fetching.
+os.environ["EAVELUXOS_BACKGROUND"] = "0"

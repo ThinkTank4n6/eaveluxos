@@ -14,6 +14,7 @@ to the rule listed first. Default priorities: rules with dates 200, everyday
 rules 100, weather rules 150. Manual control and the security flash sit above
 all of them.
 """
+import hashlib
 import os
 import re
 import tomllib
@@ -418,6 +419,7 @@ class Rule:
     date_start: tuple[int, int] | None = None
     date_end: tuple[int, int] | None = None
     weekdays: frozenset = frozenset(range(7))
+    only_dates: frozenset | None = None      # game-day rules: just these dates (3.15)
 
     @property
     def effect(self):
@@ -495,6 +497,8 @@ class Rule:
         return rule
 
     def applies_on(self, d: date) -> bool:
+        if self.only_dates is not None:
+            return d in self.only_dates
         if d.weekday() not in self.weekdays:
             return False
         if self.date_start is None:
@@ -544,11 +548,36 @@ def _rank(w: Window):
     return (-w.rule.priority, w.rule.order)
 
 
+def away_shift(seed: str, d: date, edge: str, minutes: int) -> int:
+    """Away mode (3.15): how many minutes (-minutes..+minutes) to move one
+    night's on or off time. Looks random from night to night, but the same
+    night always gets the same shift, so a restart can't move tonight's off
+    time or make the lights blink. Every rule moves by the same amount on a
+    night, so rules that meet still meet (a game night and the everyday rule
+    shifted apart made a 6-minute switch back between them)."""
+    h = hashlib.sha256(f"{seed}|{d.isoformat()}|{edge}".encode()).digest()
+    return int.from_bytes(h[:4], "big") % (2 * minutes + 1) - minutes
+
+
 class Schedule:
-    def __init__(self, rules: list[Rule], loc: Location):
+    def __init__(self, rules: list[Rule], loc: Location, away: dict | None = None):
         self.rules = rules
         self.loc = loc
+        self.away = away if away and away.get("enabled") else None   # {"until": date, "minutes": n, "seed": str}
         self._wcache: dict = {}
+
+    def away_on(self, d: date) -> bool:
+        return bool(self.away) and d <= self.away["until"]
+
+    def _shifted(self, w: Window | None, d: date) -> Window | None:
+        if w is None or not self.away_on(d):
+            return w
+        m, seed = self.away["minutes"], self.away["seed"]
+        start = add_real(w.start, timedelta(minutes=away_shift(seed, d, "on", m)))
+        end = add_real(w.end, timedelta(minutes=away_shift(seed, d, "off", m)))
+        if ts(end) - ts(start) < 15 * 60:          # never squeeze a window to nothing
+            return Window(w.rule, start, w.end) if ts(w.end) - ts(start) >= 15 * 60 else w
+        return Window(w.rule, start, end)
 
     def _window(self, rule: Rule, d: date) -> Window | None:
         """rule.window(d), remembered: windows depend only on the rule, the
@@ -558,7 +587,7 @@ class Schedule:
         k = (rule.order, d)
         w = self._wcache.get(k, _MISSING)
         if w is _MISSING:
-            w = rule.window(d, self.loc)
+            w = self._shifted(rule.window(d, self.loc), d)
             if len(self._wcache) > 20000:
                 self._wcache.clear()
             self._wcache[k] = w
@@ -767,7 +796,43 @@ class SetupNeeded(ConfigError):
     """Settings are valid so far but something essential isn't filled in."""
 
 
-def build_config(raw: dict, secrets: dict, need_secrets: bool = True) -> Config:
+def _game_rules(gd, effects: dict, order0: int, gamedates: dict, taken_names=()) -> list:
+    """Game-day lights (gameday.py): one rule per team, running only on its
+    game dates, above seasonal rules."""
+    from .gameday import LEAGUES, PRIORITY, GameDayError, check_team, team_key
+    if gd is None:
+        return []
+    if not isinstance(gd, dict) or not isinstance(gd.get("teams", []), list):
+        raise ConfigError("Game-day settings must be an object with a list of teams.")
+    if not gd.get("enabled") or not gd.get("teams"):
+        return []
+    if len(gd["teams"]) > 6:
+        raise ConfigError("Game-day lights can follow up to 6 teams.")
+    out, used = [], set(taken_names)
+    for i, t in enumerate(gd["teams"]):
+        try:
+            c = check_team(t)
+        except GameDayError as e:
+            raise ConfigError(str(e)) from None
+        eff = t.get("effect")
+        if eff not in effects:
+            raise ConfigError(f"Game day '{c['name']}': choose a pattern.")
+        # Unique names whatever the teams are called (two "PHI" teams, or a
+        # rule of your own named the same), 3.15.1.
+        name = f"{c['name']} game day"
+        if name in used:
+            name = f"{c['name']} ({LEAGUES[c['league']][1]}) game day"
+        base, k = name, 2
+        while name in used:
+            name, k = f"{base} {k}", k + 1
+        used.add(name)
+        out.append(Rule(name=name, on=TimeExpr.parse(t.get("on") or "sunset"),
+                        off=TimeExpr.parse(t.get("off") or "23:00"), effects=[effects[eff]], priority=PRIORITY,
+                        order=order0 + i, only_dates=frozenset(gamedates.get(team_key(c["league"], c["team"]), ()))))
+    return out
+
+
+def build_config(raw: dict, secrets: dict, need_secrets: bool = True, gamedates: dict | None = None) -> Config:
     """raw: the settings document (same shape as config.toml).
     secrets: client_id, client_secret, ui_password, webhook_token."""
     loc_c = raw.get("location", {})
@@ -795,7 +860,11 @@ def build_config(raw: dict, secrets: dict, need_secrets: bool = True) -> Config:
     gamma = color_gamma(raw)
     effects = {k: Effect.from_config(k, v, gamma) for k, v in eff_c.items()}
 
+    favs = raw.get("favorites", [])
+    if not isinstance(favs, list) or len(favs) > 6 or not all(isinstance(k, str) for k in favs):
+        raise ConfigError("Favorites must be a list of up to 6 pattern names.")
     rules = [Rule.from_config(i, r, effects) for i, r in enumerate(raw.get("rules", []))]
+    rules += _game_rules(raw.get("gameday"), effects, len(rules), gamedates or {}, [r.name for r in rules])
     names = [r.name for r in rules]
     if len(names) != len(set(names)):
         raise ConfigError("Two schedule rules have the same name. Give each one its own name.")
@@ -814,6 +883,26 @@ def build_config(raw: dict, secrets: dict, need_secrets: bool = True) -> Config:
     if sec_eff is not None and sec_eff not in effects:
         raise ConfigError(f"Security flash pattern '{sec_eff}' doesn't exist")
     security = {"effect": sec_eff, "minutes": max(1, min(240, int(sc.get("minutes", 5))))}
+    us = raw.get("usage") or {}
+    if not isinstance(us, dict):
+        raise ConfigError("Usage settings must be an object.")
+    for k, hi, what in (("watts", 5000, "Watts"), ("rate", 5, "Price per kWh")):
+        v = us.get(k)
+        if v is not None and (isinstance(v, bool) or not isinstance(v, (int, float)) or not 0 <= v <= hi):
+            raise ConfigError(f"{what} must be a number from 0 to {hi}.")
+    aw = raw.get("away") or {}
+    away = None
+    if not isinstance(aw, dict):
+        raise ConfigError("Away mode settings must be an object.")
+    if aw.get("enabled"):
+        try:
+            until = date.fromisoformat(str(aw.get("until", "")))
+        except ValueError:
+            raise ConfigError("Away mode needs the date you're back, like 2026-12-28.") from None
+        minutes = aw.get("minutes", 20)
+        if not isinstance(minutes, int) or isinstance(minutes, bool) or not 5 <= minutes <= 60:
+            raise ConfigError("Away mode shifts times by 5 to 60 minutes.")
+        away = {"enabled": True, "until": until, "minutes": minutes, "seed": str(aw.get("seed") or "eaveluxos")[:64]}
     sf = raw.get("safety", {}) or {}
     safety = {"enabled": bool(sf.get("enabled", False)), "days": max(1, min(14, int(sf.get("days", 7))))}
 
@@ -827,7 +916,7 @@ def build_config(raw: dict, secrets: dict, need_secrets: bool = True) -> Config:
         raise ConfigError("The webhook token should be at least 16 characters.")
 
     return Config(
-        loc=loc, effects=effects, schedule=Schedule(rules, loc), weather_rules=wrules,
+        loc=loc, effects=effects, schedule=Schedule(rules, loc, away), weather_rules=wrules,
         weather=weather, security=security, safety=safety,
         devices=[str(d) for d in svc.get("devices", [])],
         web_host=str(svc.get("web_host", "0.0.0.0")),

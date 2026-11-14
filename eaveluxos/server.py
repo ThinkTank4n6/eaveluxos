@@ -32,12 +32,12 @@ import threading
 import time
 import urllib.parse
 import urllib.request
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from zoneinfo import available_timezones
 
-from . import autostart, catalog, community, updates, winfirewall
+from . import alerts, autostart, catalog, community, gameday, restore, updates, winfirewall
 from .api import TrimlightAPI, TrimlightError, port_base
 from .controller import Controller
 from .safety import SafetyNet
@@ -170,11 +170,15 @@ REAUTH_SECONDS = 300
 # household's location, controllers, weather or safety-net settings, accounts,
 # or anything on the admin list. Viewers can look but not change anything.
 EDITOR_POSTS = {"/api/action", "/api/settings", "/api/photo", "/api/photo/upload", "/api/photo/delete", "/api/device/save_effect", "/api/import"}
-ADMIN_GETS = {"/api/users", "/api/safety/backup"}
+ADMIN_GETS = {"/api/users", "/api/safety/backup", "/api/backups", "/api/backups/patterns", "/api/alerts"}
 # Household settings only an Administrator may change. "community" is the
 # address the app computer fetches the pattern library from: anyone who could
 # set it could make this computer request any address on the home network.
 HOUSEHOLD_KEYS = ("location", "safety", "weather", "setup_done", "color", "community")
+# This home's own, never in an export and never taken from someone's file:
+# away mode reveals when nobody's home, and usage is this home's equipment and
+# electric rate (3.15.1).
+PRIVATE_KEYS = ("away", "usage")
 ROLE_NAMES = {"admin": "Administrator", "editor": "Editor", "viewer": "Viewer"}
 # A browser on the app computer itself (when it doesn't require a password).
 LOCAL_USER = {"id": None, "username": "this computer", "role": "admin", "disabled": False, "local": True}
@@ -260,6 +264,8 @@ class App:
         self.store = Store(base)
         self.safety = SafetyNet(self.store.dir)
         self.updates = updates.UpdateChecker(self.store.dir)   # "a new version is out"
+        self.alerts = alerts.Alerts(self.store.dir, probe=self.alert_probe)   # phone alerts (ntfy)
+        self.gameday = gameday.GameDays(self.store.dir, on_change=self.rebuild)  # game-day lights
         self._port_base = {}         # controller id -> 0 or 1 (how it numbers its ports)
         self.lock = threading.RLock()
         self.ctrl: Controller | None = None
@@ -294,7 +300,7 @@ class App:
     def rebuild(self, creds_changed=False):
         with self.lock:
             try:
-                cfg = build_config(self.store.settings, self.store.secrets)
+                cfg = build_config(self.store.settings, self.store.secrets, gamedates=self.gameday.dates())
             except SetupNeeded as e:
                 self.problem, self.problem_is_setup = str(e), True
                 return False
@@ -306,7 +312,7 @@ class App:
             api.clock_offset_min = self.clock_offset()
             self.cfg = cfg
             if self.ctrl is None:
-                self.ctrl = Controller(cfg, api, safety=self.safety)
+                self.ctrl = Controller(cfg, api, safety=self.safety, data_dir=self.store.dir)
                 if self.started:
                     self._start_thread()
             else:
@@ -325,8 +331,14 @@ class App:
         with self.lock:
             self.started = True
             self._start_thread()
-        if os.environ.get("EAVELUXOS_UPDATE_CHECK") != "0":
-            self.updates.start()
+        # Background services that reach the internet. EAVELUXOS_BACKGROUND=0
+        # turns them all off (the tests do); EAVELUXOS_UPDATE_CHECK=0 only the
+        # GitHub version check (3.15.1: they used to share that one switch).
+        if os.environ.get("EAVELUXOS_BACKGROUND") != "0":
+            if os.environ.get("EAVELUXOS_UPDATE_CHECK") != "0":
+                self.updates.start()
+            self.alerts.start()
+            self.gameday.start(self.game_teams, lambda: self.cfg.loc.tz if self.cfg else timezone.utc)
 
     def gamma(self) -> float | None:
         """Gamma correction in effect (None = off); bad values count as off
@@ -585,12 +597,90 @@ class App:
         if not isinstance(data, dict):
             raise ApiError("Settings must be an object.")
         self.validate(data)
+        teams_before = self._team_keys()
         try:
             rev = self.store.save_settings(data, expect_rev)
         except Conflict:
             raise ApiError("These settings were changed on another device. Reloaded the latest; please make your change again.", 409)
         self.rebuild()
+        if self._team_keys() - teams_before:
+            self.gameday.next_at = 0      # a team was added: fetch its game dates soon (not on every save)
         return rev
+
+    def _team_keys(self) -> set:
+        return {gameday.team_key(t["league"], t["team"]) for t in self.game_teams()}
+
+    def game_teams(self) -> list[dict]:
+        gd = self.store.settings.get("gameday") or {}
+        if not (isinstance(gd, dict) and gd.get("enabled")):
+            return []
+        out = []
+        for t in gd.get("teams") or []:
+            try:
+                out.append(gameday.check_team(t))
+            except gameday.GameDayError:
+                pass
+        return out
+
+    def gameday_refresh_soon(self) -> dict:
+        """Check schedules now, in the background: ESPN can take up to 20 s per
+        team, too long to hold a web request (3.15.1). One at a time."""
+        if getattr(self, "_gd_thread", None) and self._gd_thread.is_alive():
+            return {**self.gameday_status(), "checking": True}
+
+        def run():
+            try:
+                if self.gameday.refresh(self.game_teams(), self.cfg.loc.tz if self.cfg else timezone.utc):
+                    self.rebuild()
+            except Exception:
+                log.exception("Game-day check failed")
+        self._gd_thread = threading.Thread(target=run, daemon=True, name="gameday-now")
+        self._gd_thread.start()
+        return {**self.gameday_status(), "checking": True}
+
+    def gameday_status(self) -> dict:
+        today = self.cfg.loc.now().date() if self.cfg else date.today()
+        return {"presets": gameday.PRESETS, "leagues": {k: v[1] for k, v in gameday.LEAGUES.items()},
+                "teams": self.gameday.summary(self.game_teams(), today)}
+
+    def alert_probe(self) -> dict:
+        """What phone alerts look at, once a minute (alerts.py)."""
+        out = {}
+        c = self.ctrl
+        if c:
+            out["failed"] = (c.fail_count >= 2, (c.last_error or "")[:200])
+            snap = (c.status_cache or {}).get("data") or []
+            off = [str(d.get("name") or "A controller") for d in snap if isinstance(d, dict) and d.get("online") is False]
+            out["offline"] = (bool(off), ", ".join(off))
+            out["unreadable"] = ("12006" in (c.read_error or ""), "your controller")
+        u = self.updates.summary()
+        out["update"] = (bool(u["newer"]), u["latest"] or "")
+        return out
+
+    def restore_patterns(self, name, ids) -> dict:
+        """Put patterns from a controller backup back on that controller."""
+        if not isinstance(ids, list) or not ids:
+            raise ApiError("Choose at least one pattern to put back.")
+        try:
+            det = restore.read_backup(self.safety.backup_dir, name)
+        except restore.RestoreError as e:
+            raise ApiError(str(e), 404)
+        m = restore.NAME_RE.fullmatch(str(name))
+        dev = m.group(1)
+        if dev not in self.target_devices():
+            raise ApiError("That backup is of a controller this app doesn't use now.", 409)
+        try:   # the command lock is held per pattern inside, not for the whole restore
+            r = restore.restore(self.client(), dev, self.now(), det, ids,
+                                backup=lambda cur: self.safety._backup(dev, cur),
+                                lock=self.ctrl.apply_lock if self.ctrl else None)
+        except restore.RestoreError as e:
+            raise ApiError(str(e), 502)
+        if self.ctrl:
+            with self.ctrl.lock:
+                self.ctrl.saved = {}          # read the library again
+        if r["restored"]:
+            log.info("Put back from backup %s: %s", name, ", ".join(r["restored"]))
+        return r
 
     # ------------------------------------------------------------ devices
     def devices(self) -> list[dict]:
@@ -757,13 +847,24 @@ class App:
         return {"ok": True, "saved": out}
 
     # ------------------------------------------------------------ misc
-    def upcoming(self, days: int):
+    def upcoming(self, days: int, month: str | None = None):
+        """What runs each night from today (or, with month="YYYY-MM", that
+        whole month: the Schedule tab's month view, 3.15)."""
         if not self.cfg:
             return []
         sch, loc = self.cfg.schedule, self.cfg.loc
         out = []
         start = loc.now().date()
         from datetime import timedelta
+        if month is not None:
+            import calendar
+            m = re.fullmatch(r"(\d{4})-(\d{2})", str(month))
+            if not m or not 1 <= int(m.group(2)) <= 12:
+                raise ApiError("Month must look like 2026-12.")
+            y, mo = int(m.group(1)), int(m.group(2))
+            if not start.year - 1 <= y <= start.year + 2:
+                raise ApiError("Pick a month from last year to two years ahead.")
+            start, days = date(y, mo, 1), calendar.monthrange(y, mo)[1]
         prev = None
         for i in range(days):
             d = start + timedelta(days=i)
@@ -807,13 +908,13 @@ class App:
         # Never taken from a file: this home's own setup, and where the
         # community library is fetched from (a shared file could otherwise
         # make this computer request any address on the home network).
-        for k in ("setup_done", "_rev", "controller", "service", "community"):
+        for k in ("setup_done", "_rev", "controller", "service", "community", *PRIVATE_KEYS):
             incoming.pop(k, None)
         cur = copy.deepcopy(self.store.settings)
         if body.get("mode") == "replace":
             # This home's own settings, never taken from a file (a shared file
             # could otherwise repoint the community library, for example).
-            keep = {k: cur.get(k) for k in ("location", "service", "setup_done", "controller", "community") if k in cur}
+            keep = {k: cur.get(k) for k in ("location", "service", "setup_done", "controller", "community", *PRIVATE_KEYS) if k in cur}
             # Exports leave out the house map and safety-net settings, so a
             # file without them must not erase this home's copies.
             for k in ("map", "safety"):
@@ -1218,7 +1319,7 @@ def make_server(app: App, host: str, port: int):
             if path == "/api/devices":
                 return app.devices()
             if path == "/api/upcoming":
-                return app.upcoming(max(1, min(400, int(q.get("days", 14)))))
+                return app.upcoming(max(1, min(400, int(q.get("days", 14)))), q.get("month"))
             if path == "/api/timezones":
                 rest = sorted(z for z in available_timezones() if "/" in z and not z.startswith(("Etc/", "SystemV/")))
                 return {"common": COMMON_TZ, "all": rest}
@@ -1257,6 +1358,20 @@ def make_server(app: App, host: str, port: int):
                 return sorted(f.stem for f in d.glob("*.jpg")) if d.is_dir() else []
             if path == "/api/rulecheck":
                 return app.rule_check()
+            if path == "/api/runtime":                # hours on per month (3.15)
+                return {"months": app.ctrl.runtime.summary(12) if app.ctrl else []}
+            if path == "/api/alerts":
+                return app.alerts.settings()
+            if path == "/api/gameday":
+                return app.gameday_status()
+            if path == "/api/backups":                 # controller backups to restore patterns from (3.15)
+                return restore.list_backups(app.safety.backup_dir)
+            if path == "/api/backups/patterns":
+                try:
+                    det = restore.read_backup(app.safety.backup_dir, q.get("file", ""))
+                except restore.RestoreError as e:
+                    raise ApiError(str(e), 404)
+                return {"file": q.get("file"), "patterns": restore.patterns_in(det)}
             if path == "/api/safety/backup":
                 name = q.get("file", "")
                 if not re.fullmatch(r"[A-Za-z0-9_-]+-(\d{8}-\d{6}-\d{6}|original)\.json", name):
@@ -1267,7 +1382,7 @@ def make_server(app: App, host: str, port: int):
                 return json.loads(f.read_text(encoding="utf-8"))
             if path == "/api/export":
                 data = copy.deepcopy(app.store.settings)
-                for k in ("location", "service", "setup_done", "_rev", "controller", "map", "safety", "community"):
+                for k in ("location", "service", "setup_done", "_rev", "controller", "map", "safety", "community", *PRIVATE_KEYS):
                     data.pop(k, None)
                 return {"format": "eaveluxos", "version": VERSION,
                         "exported": datetime.now().isoformat(timespec="seconds"), "settings": data}
@@ -1350,6 +1465,21 @@ def make_server(app: App, host: str, port: int):
 
         def _post(self, path, b):
             ctrl = app.ctrl
+            if path == "/api/gameday/refresh":      # Administrators (not on the editor list)
+                return app.gameday_refresh_soon()
+            if path == "/api/alerts/settings":      # Administrators (not on the editor list)
+                try:
+                    return app.alerts.update(b)
+                except alerts.AlertError as e:
+                    raise ApiError(str(e))
+            if path == "/api/alerts/test":
+                try:
+                    app.alerts.test()
+                except alerts.AlertError as e:
+                    raise ApiError(str(e), 502)
+                return {"ok": True}
+            if path == "/api/backups/restore":      # Administrators (not on the editor list)
+                return app.restore_patterns(b.get("file"), b.get("ids"))
             if path == "/api/update/check":        # Administrators (not on the editor list)
                 return app.updates.check()
             if path == "/api/update/settings":

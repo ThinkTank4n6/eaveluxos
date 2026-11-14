@@ -1,7 +1,7 @@
 # EaveLuxOS: User Manual
 ### The Intelligent Lighting Control Platform
 
-Version 3.14.1 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
+Version 3.15.1 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
 
 > **Downloaded the ready-made app? You can skip most of the setup.**
 > The downloads on the project's GitHub **Releases** page
@@ -320,8 +320,8 @@ from a version before 2.3.2, each phone signs in once more.
 Home shows what the lights are doing now and lets you take over quickly.
 
 **On every screen,** the top right shows what the lights are doing (*Lights
-on*, *Lights off* or *Music show*) next to three buttons. On a phone they show
-as icons only: a light bulb, a power symbol and a door.
+on*, *Lights off* or *Music show*) next to four buttons. On a phone they show
+as icons only: a light bulb, a power symbol, the theme and a door.
 
 - **On** turns the lights on with tonight's scheduled pattern: the one
   showing now, or the next one on the schedule. With nothing scheduled in the
@@ -330,18 +330,26 @@ as icons only: a light bulb, a power symbol and a door.
 - Both last until the next scheduled change, like **Turn on** and **Turn off**
   below. The one that matches what the lights are already doing is grayed out.
   Viewers don't see them.
+- **Theme (Auto, Light or Dark):** tap to switch. **Auto** follows the
+  phone's or computer's own setting; **Light** and **Dark** stay that way. The
+  choice is kept on each phone or computer separately.
 - **Quit** stops the app, after asking first. It's shown only on the computer
   the app runs on (see **Quit the app** in section 20).
 
 - **The headline** says whether the lights are on and why. For example, "Every
   night: Warm white until 11:00 PM" or "Christmas, set by hand".
+- **Tonight** (under the headline): what the schedule does in the next 24
+  hours, with sunset, when the lights come on, a switch to another rule, and
+  when they go off, plus a countdown to the next one ("Lights on in 2 h 5
+  min"). Away mode and game days are included.
 - **The day bar** runs from midnight to midnight:
   - Dark is night, light blue is daytime, and the in-between shades are dawn
     and dusk.
   - **Amber** shows when the lights are scheduled on.
   - The thin line is now.
 - **Turn on:** tap any pattern to show it right away. It stays on until the
-  next scheduled change.
+  next scheduled change. **Favorites** (patterns you starred on the Patterns
+  tab, up to 6) show as big buttons; the rest are under **All patterns**.
 - **Turn off:** turns the lights off until the next scheduled change.
 - **Return to schedule** appears after a manual change. Tap it to go back to
   the schedule immediately. The Schedule tab's **Run the schedule** button
@@ -365,6 +373,8 @@ The buttons at the top switch between three lists.
   brightness and length.
 - **Delete** removes it. A pattern that a rule uses can't be deleted until
   you change that rule.
+- **The star** pins it to Home as a big one-tap button (up to 6). Tap it again
+  to unpin.
 
 **In the Trimlight app** lists the patterns saved in your Trimlight Edge app,
 read from your controller.
@@ -659,8 +669,12 @@ next scheduled change.
    - **Custom:** any number. Higher wins.
 9. Tap **Save**.
 
-The **Coming up** list on the right shows the next three weeks so you can
-check the result. Daylight saving changes are marked.
+**Coming up** on the right shows what will run, two ways:
+- **List:** the next three weeks, with on and off times. Daylight saving
+  changes are marked.
+- **Month:** a calendar. Each rule has its own color, so seasons, game nights
+  and gaps stand out. Use **‹ ›** to change month (up to two years ahead) and
+  tap a day for its exact times.
 
 If a rule shows **"Never runs in the next year"**, another rule wins on every
 one of its nights, usually one with the same priority that is listed first.
@@ -710,6 +724,41 @@ Tap **Import from Trimlight app**, tick the timers you want, and tap
 afterward to switch to sunset-based times. The patterns they use are added
 to My patterns automatically.
 
+### Away mode
+
+Going away? Choose the day you're **Back on** and how much to **Move times by**
+(10 to 60 minutes), then tap **Turn on away mode**. Each night the lights then
+come on and go off a little earlier or later than usual, so the house looks
+lived in rather than on a timer.
+
+- Every rule moves by the same amount on a given night, and the same night
+  always moves by the same amount, so restarting the app never changes
+  tonight's times.
+- The Month calendar and Home show the real, shifted times, and the safety
+  net copies them to the controller too.
+- It ends by itself after the day you're back, or tap **Turn off (I'm back)**.
+
+### Game-day lights
+
+Your team's colors on the nights they play, instead of the usual pattern.
+
+1. Under **Game-day lights**, choose a team in **Add a team…** and tap
+   **Add**. The Eagles, Phillies, 76ers and Flyers come with a team-color
+   pattern made for you. For any other NFL, MLB, NBA or NHL team, choose
+   **Another team…**, pick the league and enter ESPN's short team code (the
+   letters in the team's address on espn.com, for example `nyg` for the
+   Giants).
+2. Change the **Pattern** or the **On** and **Off** times if you like (sunset
+   to 11:00 PM to start).
+3. The panel lists the next games. They also show on the Month calendar.
+
+Game dates come from ESPN's public schedule (regular season and playoffs),
+checked twice a day. It's free and needs no account, but isn't an official
+service, so it could change. If it can't be reached, the dates already known
+are kept, and with none your normal schedule simply runs. A game night wins
+over seasonal rules (priority 250), so an Eagles game in December shows Eagles
+colors. Turn **Use game-day lights** off to pause it without losing the teams.
+
 ### How overlapping rules are decided
 
 From highest to lowest:
@@ -717,9 +766,11 @@ From highest to lowest:
 1. **Security flash.**
 2. **Something you turned on or off by hand** (until the next scheduled change).
 3. **A weather rule** (section 14).
-4. **The scheduled rule with the highest priority.** If two have the same
-   priority, the one listed first wins. This only decides overlapping time:
-   rules at different times of day (morning and evening) each run.
+4. **The scheduled rule with the highest priority.** Game days are 250,
+   dated rules 200 and everyday rules 100 unless you change them. If two have
+   the same priority, the one listed first wins. This only decides
+   overlapping time: rules at different times of day (morning and evening)
+   each run.
 
 ## 14. Weather rules
 
@@ -991,6 +1042,25 @@ end to end.
 - If a dealer or installer set up your system, check with them before changing
   ports, chip type or color order.
 
+### Pattern backups
+
+Before every change it makes, the safety net (section 17) saves a backup of
+the controller, including every pattern saved in the Trimlight app. The first
+one, from before EaveLuxOS ever changed the controller, is kept forever. After
+a factory reset, or after deleting a pattern by mistake, you can put patterns
+back from these backups (Administrators only):
+
+1. In **Pattern backups**, choose a **Backup** (newest first).
+2. Tick the patterns to put back. Ones already on the controller (by name)
+   are marked and can't be ticked.
+3. Tap **Put back selected**.
+
+It only adds: nothing on the controller is changed or deleted. It backs up the
+controller first and waits a moment between patterns, so Trimlight's cloud
+gives each one its own number. If Trimlight reuses a number anyway, it stops
+and tells you which pattern to delete in the Trimlight Edge app. The
+controller's library holds 60 patterns.
+
 ### Color correction (gamma)
 
 Colors picked on a screen often look pale or washed out on LEDs. A soft
@@ -1093,6 +1163,26 @@ correction.
   `python3 main.py port 8790` in the app folder and restart the app.
 - **Start automatically:** see section 7.
 - **Webhooks:** see section 21.
+- **Lights usage:** hours the lights were on each month, for the last 12
+  months. Under **Estimate the cost**, enter your system's watts (on the power
+  supply's label; that's its maximum, so the estimate errs high) and your
+  price per kWh from your electric bill. Only time the app was running counts.
+- **Updates:** see section 23.
+- **Phone alerts** (Administrators): a message on your phone when the lights
+  can't be reached to turn on or off (after 10 minutes), a controller is
+  offline (after 15 minutes), Trimlight can't read a controller (code 12006),
+  or a new version is out. To set it up:
+  1. Install the free **ntfy** app (App Store or Google Play). No account is
+     needed.
+  2. In ntfy, tap **+** and subscribe to the topic shown in EaveLuxOS (tap
+     **Copy**).
+  3. Tap **Send a test**, then tick **Send alerts** and the alerts you want.
+
+  Each problem is sent once, then at most every 6 hours while it lasts, and a
+  message follows when it's back to normal. Anyone who knows the topic can
+  read the alerts, so the one EaveLuxOS picks is random; change it under
+  **Topic and server**, where you can also use your own ntfy server. The topic
+  is kept out of exports. Messages never include your address.
 - **Version history:** every save is kept, up to the last 100. Tap
   **Restore** to go back to the patterns, schedule and house map from that
   moment. Your account, phones and app address stay as they are. The restore
@@ -1183,8 +1273,9 @@ app computer, not from the app's screens.
 1. Go to **Settings › Share and back up › Export patterns and schedule**.
 2. A file named like `eaveluxos-patterns-2026-11-11.json` downloads. It
    contains your patterns, rules, weather rules and security flash settings.
-   It **never** contains your Trimlight credentials, password, location or
-   controller details.
+   It **never** contains your Trimlight credentials, password, location,
+   controller details, away mode (it would tell others when you're away) or
+   usage settings.
 
 **To use someone else's file:**
 
@@ -1192,8 +1283,8 @@ app computer, not from the app's screens.
 2. Choose one of:
    - **Add to mine:** adds patterns and rules whose names you don't already
      have.
-   - **Replace mine:** replaces your patterns and schedule. Your location and
-     controllers are kept.
+   - **Replace mine:** replaces your patterns and schedule. Your location,
+     controllers, away mode and usage settings are kept.
 
 Export is also a good backup before big changes.
 

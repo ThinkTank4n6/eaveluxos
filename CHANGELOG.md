@@ -1,5 +1,72 @@
 # Changelog
 
+## 3.15.1: fixes from the code review of 3.15.0
+
+- **Privacy:** exported pattern files included away mode, with the date
+  you're back, and your usage settings; "Replace mine" took someone else's
+  away mode. Both are now this home's own: never exported, never imported.
+- **Fixed:** choosing a pattern in the Trimlight app twice within about 10
+  minutes could get it "learned" as how the controller reports this app's
+  pattern, so it was never undone again, even after a restart. Only a report
+  that's clearly the same pattern is learned now (never another saved
+  pattern, kind or animation), and the file is written outside the status
+  lock.
+- **Fixed:** putting patterns back from a backup held the command lock the
+  whole time (about 3 s per pattern), so a scheduled on/off could wait
+  minutes. It's now held for each pattern's save and its wait for the cloud
+  together, and released between patterns.
+- **Fixed:** two teams with the same name (two "PHI" teams from different
+  leagues, or a rule of your own called "Eagles game day") couldn't be saved.
+  Game-day rules now get unique names, and "Another team" is named with its
+  league.
+- **Fixed:** every settings save fetched every team's schedule from ESPN
+  again; now only adding a team does.
+- **Fixed:** "Tonight" said "Lights on in 4 h" while the lights were on by
+  hand; it now says "On by hand · the schedule takes over at …" (and names a
+  security flash or music show).
+- A second pattern with the same name in a backup is reported as such, not as
+  "already on the controller". Monthly usage follows a changed time zone.
+  "Check schedules now" runs in the background. Phone alerts and game days no
+  longer depend on the update check's switch (EAVELUXOS_BACKGROUND=0 turns
+  off all background services).
+
+## 3.15.0: theme switch, favorites, calendar, away mode, game days, alerts and more
+
+- **Light / Dark / Auto:** a theme button at the top of every screen. Auto
+  follows the device; the choice is kept per device and applies before the
+  page is drawn, so there's no flash of the other theme.
+- **Favorites:** star up to 6 patterns on the Patterns tab; they become big
+  one-tap buttons on Home, with the rest folded under "All patterns".
+- **Tonight on Home:** the next 24 hours of the schedule (sunset, on, a
+  switch to another rule, off) with a countdown worked out on the app
+  computer.
+- **Month calendar:** Schedule › Coming up has List and Month views. Each
+  rule has its own color; tap a day for its times.
+- **Away mode:** each night's on and off times move by up to 10-60 minutes
+  until the day you're back. The same night always moves the same way (a
+  restart can't change tonight), and all rules move together so they still
+  meet.
+- **Game-day lights:** team colors on game nights, with the Eagles, Phillies,
+  76ers and Flyers ready to add (any NFL, MLB, NBA or NHL team works). Game
+  dates come from ESPN's public schedule twice a day; if it can't be reached,
+  the normal schedule runs. Game nights win over seasonal rules.
+- **Pattern backups (Lights tab):** put patterns back on the controller from
+  the safety net's backups, for example after a factory reset. Only adds,
+  backs up first, waits between patterns so each gets its own number, and
+  stops with clear advice if one doesn't.
+- **Phone alerts (ntfy):** when the lights can't be reached, a controller is
+  offline or unreadable, or a new version is out. Once per problem, again at
+  most every 6 hours, then "back to normal". Kept out of settings exports.
+- **Lights usage:** hours on per month for a year, with an optional cost
+  estimate.
+- **Fixed:** about 5 minutes after every start, the app resent the pattern
+  ("changed outside this app ... Restoring") because the controller reports
+  it back slightly differently, which could make the lights flicker. It now
+  learns how the controller reports each pattern, keeps that across restarts,
+  and keeps checking against it, so a real change in the Trimlight app is
+  still caught.
+- The Patterns tab won't delete a pattern a game day uses.
+
 ## 3.14.1: fixes from the code review of 3.13–3.14
 
 - **Fixed (could delete your pattern):** while Trimlight couldn't read the

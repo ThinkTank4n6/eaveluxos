@@ -18,8 +18,10 @@ scheduled change.
 - Failed commands retry with backoff (30s, 60s, 2m, then every 5m).
 - Once a day it sends the correct local time to the controller.
 """
+import hashlib
 import json
 import logging
+import os
 import threading
 import time
 from collections import deque
@@ -27,12 +29,23 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
 from .api import TrimlightAPI, TrimlightError
+from .runtime import Runtime
 from .safety import _same_effect
 from .schedule import add_real, ts
 from .weather import WeatherService
 
 log = logging.getLogger("eaveluxos")
 VERIFY_EVERY = 300  # seconds between read-backs of the controllers
+
+
+def effect_fp(obj) -> str | None:
+    """A short fingerprint of a pattern as sent or as reported back."""
+    if not isinstance(obj, dict) or not obj:
+        return None
+    try:
+        return hashlib.sha1(json.dumps(obj, sort_keys=True, default=str).encode()).hexdigest()[:16]
+    except (TypeError, ValueError):
+        return None
 
 
 def effect_matches(current, sent) -> bool | None:
@@ -70,7 +83,7 @@ class Target:
 
 
 class Controller:
-    def __init__(self, cfg, api: TrimlightAPI, weather: WeatherService | None = None, safety=None):
+    def __init__(self, cfg, api: TrimlightAPI, weather: WeatherService | None = None, safety=None, data_dir=None):
         self.cfg = cfg
         self.api = api
         self.lock = threading.RLock()
@@ -88,6 +101,7 @@ class Controller:
         self.fail_count = 0
         self.next_try = 0.0
         self.last_error = None
+        self.read_error = None                # the last read-back's failure (alerts: code 12006)
         self.last_clock_sync = None
         self.status_cache = {"at": 0.0, "data": []}
         self.events = deque(maxlen=150)
@@ -112,6 +126,12 @@ class Controller:
         self.sent_effect: dict = {}           # deviceId -> what was last sent (for the pattern check)
         self.pattern_mismatches = 0
         self.pattern_restored = None          # target key restored for a pattern change, until a reading matches
+        # How each controller reports back a pattern this app sent, when that
+        # differs from what was sent (learned once, kept across restarts, so a
+        # restart doesn't "restore" a pattern that never changed). 3.15.
+        self.reported_path = os.path.join(str(data_dir), "reported-patterns.json") if data_dir else None
+        self.reported = self._load_reported()
+        self.runtime = Runtime(data_dir, tz=lambda: self.cfg.loc.tz)    # hours on per month; follows a changed time zone
         self.pattern_unverified = set()       # target keys the controller doesn't report back as sent
 
     def _invalidate(self):
@@ -497,7 +517,9 @@ class Controller:
             snap = self._read_devices()
         except TrimlightError as e:
             log.debug("controller check failed: %s", e)
+            self.read_error = str(e)
             return
+        self.read_error = None
         self.last_clock_sync = today
         restored = None
         with self.lock:
@@ -514,9 +536,108 @@ class Controller:
                 restored = ", ".join(str(d["name"]) for d in wrong)
             elif not wrong:
                 restored = self._check_pattern(t, snap)
+        self._save_reported()
         if restored:
             self.note(f"{restored} was changed outside this app (power blip or the Trimlight app). Restoring it.",
                       logging.WARNING)
+
+    def _tonight(self, now: datetime, fmt) -> list[dict]:
+        """Home's "Tonight" timeline (3.15): what the schedule does in the
+        next 24 hours (sunset, on, a switch to another rule, off), with
+        minutes from now worked out here, so a phone's own clock can't skew
+        the countdown."""
+        sch, loc = self.cfg.schedule, self.cfg.loc
+        horizon = ts(now) + 24 * 3600
+        seen, plans = set(), []
+        for dd in (now.date() - timedelta(days=1), now.date(), now.date() + timedelta(days=1)):
+            for p in sch.day_plans(dd):
+                k = (ts(p.start), ts(p.end))
+                if k not in seen and ts(p.end) > ts(now) and ts(p.start) < horizon:
+                    seen.add(k)
+                    plans.append(p)
+        plans.sort(key=lambda p: ts(p.start))
+        ev = []
+        for dd in (now.date(), now.date() + timedelta(days=1)):
+            ss = loc.sun(dd).get("sunset")
+            if ss and ts(now) < ts(ss) < horizon:
+                ev.append((ts(ss), "sunset", ss, "Sunset"))
+                break
+        for i, p in enumerate(plans):
+            prev_end = ts(plans[i - 1].end) if i else None
+            what = f"{p.rule.name}: {p.effect_label()}" if p.effect_label() != p.rule.name else p.rule.name
+            if ts(p.start) > ts(now):
+                ev.append((ts(p.start), "switch" if prev_end == ts(p.start) else "on", p.start, what))
+            if not (i + 1 < len(plans) and ts(plans[i + 1].start) == ts(p.end)) and ts(p.end) < horizon:
+                ev.append((ts(p.end), "off", p.end, p.rule.name))
+        ev.sort(key=lambda e: e[0])
+        return [{"kind": k, "at": fmt(at), "day": at.strftime("%a") if at.date() != now.date() else None,
+                 "in_min": max(0, round((t0 - ts(now)) / 60)), "text": text} for t0, k, at, text in ev[:6]]
+
+    def _load_reported(self) -> dict:
+        if not self.reported_path:
+            return {}
+        try:
+            with open(self.reported_path, encoding="utf-8") as f:
+                raw = json.load(f)
+            return {str(k): [str(x) for x in v][:3] for k, v in raw.items()
+                    if isinstance(v, list)} if isinstance(raw, dict) else {}
+        except (OSError, ValueError, AttributeError, TypeError):
+            return {}
+
+    @staticmethod
+    def _learnable(sent, current) -> bool:
+        """Only a report that's clearly the same pattern, described a little
+        differently, may be learned (3.15.1). Never another saved pattern
+        (a different id), another kind (built-in vs custom colors) or another
+        animation: those are real changes, made in the Trimlight app, and
+        learning one would stop them ever being undone."""
+        if not (isinstance(sent, dict) and isinstance(current, dict)):
+            return False
+        cid, sid = current.get("id"), sent.get("id")
+        if cid is not None and cid >= 0 and cid != sid:
+            return False                                   # a different saved pattern runs
+        for k in ("category", "mode"):
+            if k in sent and k in current and sent[k] != current[k]:
+                return False
+        return True
+
+    def _learn_reported(self, sent, current):
+        """Remember that the controller reports `sent` back as `current`."""
+        if not self._learnable(sent, current):
+            return False
+        s, c = effect_fp(sent), effect_fp(current)
+        if not (s and c):
+            return False
+        seen = self.reported.setdefault(s, [])
+        if c not in seen:
+            seen.insert(0, c)
+            del seen[3:]
+        while len(self.reported) > 300:                    # oldest first (dicts keep insertion order)
+            self.reported.pop(next(iter(self.reported)))
+        self._reported_dirty = True                        # saved after the lock is released
+        return True
+
+    def _save_reported(self):
+        """Write the learned reports (outside self.lock: a slow disk mustn't
+        hold up the status page)."""
+        if not (self.reported_path and getattr(self, "_reported_dirty", False)):
+            return
+        with self.lock:
+            body = json.dumps(self.reported)
+            self._reported_dirty = False
+        try:
+            tmp = self.reported_path + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                f.write(body)
+            os.replace(tmp, self.reported_path)
+        except OSError as e:
+            log.debug("couldn't save reported patterns: %s", e)
+
+    def _matches(self, current, sent):
+        ok = effect_matches(current, sent)
+        if ok is False and effect_fp(current) in self.reported.get(effect_fp(sent) or "", ()):
+            return True                                     # how this controller reports this pattern
+        return ok
 
     def _check_pattern(self, t, snap) -> str | None:
         """The switch is right; is the pattern? (Someone chose another one in
@@ -530,7 +651,7 @@ class Controller:
         if not t.on or t.delegated or t.key in self.pattern_unverified:
             self.pattern_mismatches = 0
             return None
-        verdicts = [(d, effect_matches(d.get("effect_raw"), self.sent_effect.get(d["id"])))
+        verdicts = [(d, self._matches(d.get("effect_raw"), self.sent_effect.get(d["id"])))
                     for d in snap if d["online"]]
         wrong = [d for d, ok in verdicts if ok is False]
         if any(ok for _, ok in verdicts) and not wrong:
@@ -540,6 +661,15 @@ class Controller:
             return None
         self.pattern_mismatches = 0
         if self.pattern_restored == t.key:
+            # Just restored, and it still reads differently: that's how the
+            # controller reports this pattern. Learn it (kept across restarts)
+            # and go on checking against it, so a real change is still caught.
+            if all(self._learn_reported(self.sent_effect.get(d["id"]), d.get("effect_raw")) for d in wrong):
+                self.pattern_restored = "learned|" + t.key
+                self.note("Learned how the controller reports this pattern back; it won't be resent for that "
+                          "again, also after a restart.", logging.INFO)
+                return None
+        if self.pattern_restored in (t.key, "learned|" + t.key):
             if len(self.pattern_unverified) > 500:   # one entry per night or pattern; keep it small
                 self.pattern_unverified.clear()
             self.pattern_unverified.add(t.key)
@@ -762,7 +892,19 @@ class Controller:
                 self.tick()
             except Exception:  # never let the loop die
                 log.exception("Unexpected error in scheduler loop")
+            try:
+                self.runtime.add(self.lights_on())
+            except Exception:
+                log.exception("Runtime count failed")
             self.stop_event.wait(self.cfg.interval)
+        self.runtime.save()
+
+    def lights_on(self) -> bool:
+        """On as far as this app knows: the scheduled or chosen state was sent
+        and it's an on state, or a music show runs."""
+        with self.lock:
+            t = self._target(commit=False)
+            return bool(t.hands_off or (t.on and self.applied_key == t.key))
 
     # ------------------------------------------------------------ status
     def device_status(self, max_age=None):
@@ -832,6 +974,7 @@ class Controller:
                 seg = {"start": m, "end": m, "rule": name}
         self._strip_cache = (memo_key, strip)
         nxt = sch.next_change(now)
+        tonight = self._tonight(now, fmt)
         base = self.base_levels(t.effect)
         levels = {**base, **t.levels} if t.on else {}
         rot = None
@@ -863,7 +1006,7 @@ class Controller:
             "next_change": fmt(nxt), "next_change_day": nxt.strftime("%a") if nxt and nxt.date() != now.date() else None,
             "sun": {k: fmt(v) for k, v in sun.items()},
             "sun_min": {k: mins(v) for k, v in sun.items()},
-            "strip": strip, "days": days, "error": err,
+            "strip": strip, "days": days, "error": err, "tonight": tonight,
             "effects": [{"key": e.key, "label": e.label, "swatches": e.swatches()} for e in self.cfg.effects.values()],
             "devices": devices, "events": list(self.events)[:40],
         }
