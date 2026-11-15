@@ -297,6 +297,24 @@ class AppEndpoints(unittest.TestCase):
         self.assertEqual(cm.exception.code, 502)
         self.assertIsNone(self.app.ctrl.music)
 
+    def test_home_shows_the_address_and_whether_it_answers(self):
+        """4.1.2: the cloud doesn't report the controller's IP; Home shows the
+        saved one and whether it answered there lately."""
+        self.app.musiclink_address("")
+        self.assertIsNone(self.app.lan_home())
+        self.app.musiclink_address("127.0.0.1")
+        first = self.app.lan_home()
+        self.assertEqual(first["address"], "127.0.0.1")
+        self.assertTrue(wait_for(lambda: self.app.lan_home()["ok"] is True))
+        hellos = len([g for g in self.ctl.got if g[0] == "hello"])
+        self.assertEqual(hellos, 0, "the check only connects; it sends nothing")
+        L.TCP_PORT = 1                                   # now nothing answers there
+        self.assertTrue(self.app.lan_home()["ok"], "checked at most every 5 minutes")
+        self.app.lan_recheck()
+        self.assertTrue(wait_for(lambda: self.app.lan_home()["ok"] is False))
+        from eaveluxos import server
+        self.assertIn('st["lan"] = app.lan_home()', Path(server.__file__).read_text(encoding="utf-8"))
+
     def test_roles(self):
         from eaveluxos import server
         self.assertIn("/api/musiclink", server.EDITOR_POSTS)
@@ -456,6 +474,29 @@ class Browser(unittest.TestCase):
             pg.goto(base + "#music")
             pg.wait_for_selector("#linkbox [data-lkgo]")
             self.assertEqual(pg.input_value("#lkaddr"), "127.0.0.1")
+            if size["width"] == 1300:
+                # 4.1.3: the Music tab rebuilt itself every 15 seconds (menus closed, the page jumped).
+                pg.clock.install()
+                pg.goto(base + "#music")
+                pg.wait_for_selector("#linkbox [data-lkgo]")
+                pg.evaluate("window.__redraws = 0; new MutationObserver(() => window.__redraws++)"
+                            ".observe(document.querySelector('#main'), {childList: true})")
+                for _ in range(4):
+                    pg.clock.run_for(16000)
+                    pg.wait_for_timeout(300)
+                self.assertEqual(pg.evaluate("window.__redraws"), 0, "not rebuilt every 15 seconds")
+                self.assertIn("tab", pg.inner_text("#lkin"), "the tab-sharing choice")
+                pg.close()
+                pg = ctx.new_page()
+                pg.on("pageerror", lambda e: errors.append(str(e)))
+                pg.goto(base + "#home")
+                pg.wait_for_selector(".lanline")
+                self.assertTrue(wait_for(lambda: app.lan_seen["ok"] is True))
+                pg.reload()
+                pg.wait_for_selector(".lanline")
+                self.assertIn("127.0.0.1 · answering", pg.inner_text(".lanline"))
+                pg.goto(base + "#music")
+                pg.wait_for_selector("#linkbox [data-lkgo]")
             if size["width"] == 390:
                 self.assertEqual(pg.evaluate("document.documentElement.scrollWidth"), 390, "fits a phone")
                 continue
@@ -470,5 +511,18 @@ class Browser(unittest.TestCase):
             self.assertTrue(pg.is_disabled("[data-moodgo]") or not pg.query_selector("[data-moodgo]"))
             pg.click("#linkbox [data-lkstop]")
             self.assertTrue(wait_for(lambda: app.ctrl.music is None, 5), "Stop hands the lights back")
+        # Firefox-based browsers (LibreWolf) can't share sound: said up front (4.1.3).
+        ctx = br.new_context(user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0")
+        self.addCleanup(ctx.close)
+        pg = ctx.new_page()
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.goto(base + "#music")
+        pg.wait_for_selector("#linkbox [data-lkgo]")
+        self.assertIn("Edge or Chrome only", pg.inner_text("#lkin"))
+        pg.select_option("#lkin", "screen")
+        pg.click("#linkbox [data-lkgo]")
+        pg.wait_for_selector("#linkbox .callout.warn")
+        self.assertIn("LibreWolf", pg.inner_text("#linkbox .callout.warn"))
+        self.assertIsNone(app.ctrl.music, "nothing started")
         self.assertEqual(errors, [])
         self.assertEqual(ctl.errors, [])

@@ -1,5 +1,37 @@
 # Changelog
 
+## 4.1.3: the Music tab stays put; sharing sound
+
+- **Fixed:** the Music tab rebuilt itself every 15 seconds, so the page
+  jumped and open menus closed. It now redraws only when the music show
+  starts, stops or changes, never while you're using it, and Music from this
+  computer no longer blanks while it checks its status.
+- **Sharing sound:** the share window now opens on the list of browser tabs:
+  pick the tab playing the music and keep "Also share tab audio" on (on by
+  default). "Also share system audio" for Entire screen doesn't appear on
+  every computer.
+- **Firefox and LibreWolf** can't share sound at all; the page now says so
+  up front ("Edge or Chrome only") instead of after the share window.
+- The page and the Manual explain **Stereo Mix**, which lets any browser
+  (LibreWolf included) hear everything the computer plays.
+- **Windows Defender false alarm** ("executes commands from an attacker" on
+  EaveLuxOS.exe): the Windows build now compiles PyInstaller's launcher from
+  source instead of using the ready-made one that countless programs share
+  (malware included), and the .exe carries its name, publisher and version
+  under Properties › Details. Each release now lists **SHA256SUMS.txt**, so a
+  download can be checked against what GitHub built. The Manual's
+  Troubleshooting says how to check, restore and report it.
+
+## 4.1.2: the controller's address on Home
+
+- **New:** Home shows the controller's IP address on your home network and
+  whether it's answering there, above Controllers and activity. Trimlight's
+  cloud doesn't report the address, so it's the one entered under Music ›
+  Music from this computer; until then, Administrators see a link to add it.
+  The app checks every 5 minutes, in the background, by opening and closing
+  a connection (nothing is sent); **Test connection** updates it at once.
+  "Not answering" usually means the router handed out a new address.
+
 ## 4.1.1: the capture tool on a Windows screen
 
 - **Fixed:** `summarize_capture.py` without `--out` stopped with

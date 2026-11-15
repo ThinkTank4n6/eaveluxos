@@ -50,9 +50,43 @@ def pyinstaller(name: str, *extra: str):
 
 
 # ------------------------------------------------------------------ Windows
+def win_version_file(ver: str, name: str, description: str) -> Path:
+    """The details Windows shows under the .exe's Properties › Details
+    (4.1.3). An .exe with none looks anonymous to Microsoft Defender's
+    guesses; this says what it is and who made it."""
+    nums = [int(n) for n in re.findall(r"\d+", ver)[:4]]
+    nums += [0] * (4 - len(nums))
+    tup = tuple(nums)
+    text = f"""VSVersionInfo(
+  ffi=FixedFileInfo(filevers={tup}, prodvers={tup}, mask=0x3f, flags=0x0, OS=0x40004, fileType=0x1,
+                    subtype=0x0, date=(0, 0)),
+  kids=[
+    StringFileInfo([StringTable('040904B0', [
+      StringStruct('CompanyName', 'Christopher A. Tankelewicz (ThinkTank4n6)'),
+      StringStruct('FileDescription', {description!r}),
+      StringStruct('FileVersion', {ver!r}),
+      StringStruct('InternalName', {name!r}),
+      StringStruct('LegalCopyright', '\u00a9 2026 Christopher A. Tankelewicz (ThinkTank4n6). MIT License.'),
+      StringStruct('OriginalFilename', {name + '.exe'!r}),
+      StringStruct('ProductName', 'EaveLuxOS'),
+      StringStruct('ProductVersion', {ver!r}),
+      StringStruct('Comments', 'Schedules Trimlight Edge permanent lights. https://github.com/ThinkTank4n6/eaveluxos')])]),
+    VarFileInfo([VarStruct('Translation', [1033, 1200])])
+  ]
+)
+"""
+    out = ROOT / "build" / f"{name}-version.txt"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(text, encoding="utf-8")
+    return out
+
+
 def build_windows():
-    pyinstaller("EaveLuxOS", "--onefile", "--windowed")
-    pyinstaller("EaveLuxOS-cli", "--onefile")
+    ver = version()
+    pyinstaller("EaveLuxOS", "--onefile", "--windowed", "--version-file",
+                str(win_version_file(ver, "EaveLuxOS", "EaveLuxOS lighting control for Trimlight Edge")))
+    pyinstaller("EaveLuxOS-cli", "--onefile", "--version-file",
+                str(win_version_file(ver, "EaveLuxOS-cli", "EaveLuxOS command line")))
     out = DIST / "EaveLuxOS-Windows.zip"
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
         for f in ("EaveLuxOS.exe", "EaveLuxOS-cli.exe"):

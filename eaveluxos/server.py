@@ -281,6 +281,7 @@ class App:
         self.ai_calls = []                                                       # times of AI calls, for the limits (3.18.2)
         self.mood_state = None                                                   # mood follow: {"level", "key", "at"}
         self.lanshow = lanlink.Streamer(on_end=self._musiclink_ended)          # music from this computer (4.1)
+        self.lan_seen = {"address": None, "ok": None, "at": 0.0, "checking": False}  # is it answering there? (4.1.2)
         self._port_base = {}         # controller id -> 0 or 1 (how it numbers its ports)
         self._port_write_base = {}   # controller id -> 0 or 1 when the cloud takes other numbers than it shows (4.0.3)
         self._bulbs = None           # last bulb count read from the controller (zones without a House map total)
@@ -845,6 +846,40 @@ class App:
                 "show": bool(self.ctrl and self.ctrl.music), "patterns": list(lanlink.PATTERNS),
                 "sensitivity": list(lanlink.SENSITIVITY)}
 
+    LAN_CHECK_EVERY = 300          # seconds between "is the controller answering at its address?" checks
+
+    def lan_home(self) -> dict | None:
+        """For Home (4.1.2): the controller's address on the home network
+        (Trimlight's cloud doesn't report it, so it's the one saved under
+        Music) and whether it answered there lately. Checked in the
+        background at most every 5 minutes, by opening and closing a
+        connection (nothing is sent); while a show runs, it's answering."""
+        addr = self._lan_address()
+        if not addr:
+            return None
+        seen = self.lan_seen
+        if self.lanshow.running():
+            return {"address": addr, "ok": True}
+        if seen["address"] != addr:
+            seen.update(address=addr, ok=None, at=0.0)
+        if not seen["checking"] and time.time() - seen["at"] >= self.LAN_CHECK_EVERY:
+            seen["checking"] = True
+
+            def check():
+                try:
+                    with socket.create_connection((addr, lanlink.TCP_PORT), timeout=1.5):
+                        ok = True
+                except OSError:
+                    ok = False
+                if seen["address"] == addr:
+                    seen.update(ok=ok, at=time.time())
+                seen["checking"] = False
+            threading.Thread(target=check, daemon=True, name="lan-check").start()
+        return {"address": addr, "ok": seen["ok"]}
+
+    def lan_recheck(self):
+        self.lan_seen.update(at=0.0, ok=None)
+
     def musiclink_address(self, addr) -> dict:
         """Administrators: the controller's address on the home network."""
         if addr is None or (isinstance(addr, str) and not addr.strip()):
@@ -855,6 +890,7 @@ class App:
             except lanlink.LinkError as e:
                 raise ApiError(str(e)) from None
         s = copy.deepcopy(self.store.settings)
+        self.lan_recheck()
         if addr:
             s["lan"] = {"address": addr}
         else:
@@ -880,7 +916,11 @@ class App:
                     dump = link.read_all(self.cfg.loc.now() if self.cfg else datetime.now())
                     out.update(bytes=len(dump), names=lanlink.names_in(dump))
         except lanlink.LinkError as e:
+            if addr == self._lan_address():
+                self.lan_seen.update(address=addr, ok=False, at=time.time())
             raise ApiError(str(e), 502) from None
+        if addr == self._lan_address():
+            self.lan_seen.update(address=addr, ok=True, at=time.time())
         log.info("Local link to %s works (%s ms)%s", addr, out["ms"], " and read the controller" if read else "")
         return out
 
@@ -1849,6 +1889,7 @@ def make_server(app: App, host: str, port: int):
                 st["setup"] = app.setup_state()
                 st["slot_limit"] = TrimlightAPI.slot_limit     # bulbs per color slot this controller takes (90 or 60)
                 st["coming"] = app.coming_up()                  # next holiday and game, for the panel summaries (4.0.1)
+                st["lan"] = app.lan_home()                      # the controller's home-network address, for Home (4.1.2)
                 return st
             if path == "/api/catalog":
                 return catalog.catalog()

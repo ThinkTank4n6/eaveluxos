@@ -409,3 +409,4 @@ pre.code{padding:10px;white-space:pre-wrap;margin:0}
 .grid3>*{min-width:0}
 .bars{display:flex;align-items:flex-end;gap:3px;height:56px;padding:6px;border-radius:10px;background:var(--surface2)}
 .bars i{flex:1;min-width:0;height:2%;border-radius:3px 3px 0 0;background:var(--lamp);transition:height .08s linear}
+.lanline{margin:0 0 8px}.lanline .ok{color:var(--ok)}.lanline .bad{color:var(--warn)}

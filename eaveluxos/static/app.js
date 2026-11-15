@@ -716,7 +716,7 @@ VIEWS.home = async () => {
               return `<tr class="${i === 0 ? 'today' : ''}"><td class="d">${i === 0 ? 'Today' : esc(d.dow)}<small>${esc(d.label)}</small></td>
                 <td>${(d.windows || []).length ? d.windows.map(w => `<div class="win"><span class="num">${esc(w.on)} – ${esc(w.off)}</span><div class="r">${esc(w.rule)}</div></div>`).join('') : '<span class="r">Off</span>'}${dst}</td>
                 <td class="sun num">☀ ${esc(d.sunrise ?? '—')}<br>☾ ${esc(d.sunset ?? '—')}</td></tr>`; }).join('')}</tbody></table></div>
-          <div class="panel"><details><summary>Controllers and activity</summary>
+          <div class="panel">${lanLine(st.lan)}<details><summary>Controllers and activity</summary>
             <ul class="log">${st.devices.map(d => d.error ? `<li class="warning">${esc(d.error)}</li>` : `<li><b>${esc(d.name)}</b>: ${d.online ? 'online' : 'offline'}, ${esc(d.switch)}, firmware ${esc(d.firmware)}</li>`).join('')}</ul>
             <ul class="log">${st.events.map(e => `<li class="${esc(e.level)}"><time>${esc(e.label || e.t)}</time>${esc(e.msg)}</li>`).join('')}</ul>
           </details></div>
@@ -2197,6 +2197,16 @@ function colorPanel(box) {
 }
 
 /* ---------------------------------------------------------------- music */
+/* Home (4.1.2): the controller's address on the home network. Trimlight's
+   cloud doesn't report it, so it's the one saved under Music › Music from
+   this computer; the app checks every few minutes that it answers there. */
+function lanLine(lan) {
+  if (!lan) return role() === 'admin'
+    ? `<p class="small muted lanline">Controller\u2019s home-network address: not set. <a href="#music">Add it under Music</a> (the Trimlight app shows it when it opens).</p>` : '';
+  const state = lan.ok === true ? '<span class="ok">answering</span>' : lan.ok === false ? '<span class="bad">not answering</span>' : '<span class="muted">checking\u2026</span>';
+  return `<p class="small lanline">Controller\u2019s home-network address: <b class="num">${esc(lan.address)}</b> \u00b7 ${state}${lan.ok === false ? ' (if it changed, check the Trimlight app and update it under Music)' : ''}</p>`;
+}
+
 /* Music › Music from this computer (4.1, experimental). This browser
    listens (a microphone or line-in, or the computer's own sound), turns it
    into 16 sound levels (bands.js) and sends them about 9 times a second; the
@@ -2214,12 +2224,25 @@ function linkOpts() {
            minutes: Number.isInteger(o.minutes) ? o.minutes : 60 };
 }
 function linkSave(o) { try { localStorage.setItem('linkopts', JSON.stringify(o)); } catch { /* private window */ } }
+// Firefox and browsers built on it (LibreWolf, Waterfox) can share a screen
+// but never its sound (4.1.3).
+const SHARES_SOUND = !/Firefox\//.test(navigator.userAgent);
 async function linkListen(input) {
   if (input === 'screen') {
+    if (!SHARES_SOUND) throw new Error('This browser (Firefox or one built on it, like LibreWolf) can\u2019t share a tab\u2019s sound. Choose Stereo Mix under Listen to (see the note below), or open the app in Microsoft Edge or Chrome for tab sharing.');
     if (!navigator.mediaDevices.getDisplayMedia) throw new Error('This browser can\u2019t share the computer\u2019s sound. Use Chrome or Edge, or choose a microphone or line-in.');
-    const s = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }, systemAudio: 'include' });
+    // 4.1.3: open on the list of tabs. A tab playing music shares its sound
+    // with "Also share tab audio", which is on by default; "Also share system
+    // audio" only appears for Entire screen, and not on every computer.
+    const s = await navigator.mediaDevices.getDisplayMedia({
+      video: { displaySurface: 'browser' },
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, suppressLocalAudioPlayback: false },
+      systemAudio: 'include', windowAudio: 'system', selfBrowserSurface: 'exclude', surfaceSwitching: 'include', preferCurrentTab: false });
     s.getVideoTracks().forEach(t => t.stop());
-    if (!s.getAudioTracks().length) throw new Error('No sound was shared. Start again, choose Entire screen and tick \u201cAlso share system audio\u201d.');
+    if (!s.getAudioTracks().length) {
+      s.getTracks().forEach(t => t.stop());
+      throw new Error('No sound was shared. Start again and pick the browser tab that\u2019s playing the music (keep \u201cAlso share tab audio\u201d on). Or, for everything this computer plays, use Stereo Mix (see the note below).');
+    }
     return s;
   }
   const audio = { echoCancellation: false, noiseSuppression: false, autoGainControl: false };
@@ -2279,11 +2302,17 @@ function linkStop(tell = true) {
   moodPanel($('#moodbox'));
 }
 window.addEventListener('pagehide', () => { if (LINK.on) { linkStop(false); api('musiclink', { body: { op: 'stop', tab: LINK.tab }, keepalive: true }).catch(() => {}); } });
-async function linkPanel(box) {
+async function linkPanel(box, fresh = true) {
   if (!box) return;
-  let st;
-  try { st = await api('musiclink'); } catch (e) { box.innerHTML = `<h2>Music from this computer</h2><p class="callout warn small">${esc(e.message)}</p>`; return; }
-  if (!document.body.contains(box)) return;
+  // 4.1.3: draw at once from the last answer, so the page doesn't jump while
+  // it asks again (the Music tab redraws only when the show changes now).
+  if (fresh) {
+    if (LINK.st && !box.innerHTML.trim()) linkPanel(box, false);
+    try { LINK.st = await api('musiclink'); } catch (e) { if (!LINK.st) box.innerHTML = `<h2>Music from this computer</h2><p class="callout warn small">${esc(e.message)}</p>`; return; }
+    if (!document.body.contains(box)) return;
+  }
+  const st = LINK.st;
+  if (!st) return;
   const o = linkOpts(), admin = role() === 'admin', ro = role() === 'viewer';
   const pats = [], sens = [];
   for (let i = st.patterns[0]; i <= st.patterns[1]; i++) pats.push(i);
@@ -2291,7 +2320,7 @@ async function linkPanel(box) {
   if (moodAvailable() && navigator.mediaDevices.enumerateDevices && !LINK.devices.length) {
     navigator.mediaDevices.enumerateDevices().then(ds => {
       LINK.devices = ds.filter(d => d.kind === 'audioinput' && d.deviceId && d.deviceId !== 'default');
-      if (LINK.devices.length && !LINK.on) linkPanel(box);
+      if (LINK.devices.length && !LINK.on && !box.contains(document.activeElement)) linkPanel(box, false);
     }).catch(() => {});
   }
   const running = LINK.on || (st.running && st.host);
@@ -2305,7 +2334,7 @@ async function linkPanel(box) {
       <div id="lkout">${LINK.out || ''}</div>`
     : `<p class="note">Controller\u2019s address: <b>${st.address ? esc(st.address) : 'not set yet'}</b>${st.address ? '' : ' (an Administrator enters it here)'}.</p>`;
   const inputs = [['default', 'Default microphone or line-in'], ...LINK.devices.map(d => [d.deviceId, d.label || 'Microphone']),
-                  ['screen', 'This computer\u2019s sound (share it from the browser)']];
+                  ['screen', `Music playing in a browser tab (share the tab)${SHARES_SOUND ? '' : ' \u2013 Edge or Chrome only'}`]];
   box.innerHTML = `<div class="panel-head"><h2>Music from this computer</h2>
       ${LINK.on ? '<button class="small danger" data-lkstop>Stop</button>'
         : `<button class="small primary" data-lkgo ${ro || !st.address || !moodAvailable() || MOOD.on || st.show ? 'disabled' : ''}>Start the show</button>`}</div>
@@ -2324,7 +2353,8 @@ async function linkPanel(box) {
     ${MOOD.on ? '<p class="callout small">Mood follow is listening. Stop it first: both can\u2019t run the lights at once.</p>' : ''}
     ${st.show && !LINK.on ? '<p class="callout small">A music show is already on. Stop it above first.</p>' : ''}
     ${LINK.err || st.error ? `<p class="callout warn small">${esc(LINK.err || st.error)}</p>` : ''}
-    <p class="hint">Experimental: built from a capture of the Trimlight app (firmware 1.17.77). The computer and the controller must be on the same home network. Sound from a microphone arrives a moment late; the computer\u2019s own sound is right on time.</p>`;
+    <p class="hint"><b>Music in a browser tab</b> (YouTube, Spotify\u2019s web player): play it in another tab, start the show and pick that tab; keep \u201cAlso share tab audio\u201d on. <b>Everything this computer plays</b> (the Spotify app, a playlist): in Windows, open Sound settings \u203a More sound settings \u203a Recording, right-click \u203a Show disabled devices, and enable <b>Stereo Mix</b> (if your sound card has it); then choose it under Listen to. A microphone works too, a moment late.</p>
+    <p class="hint">Experimental: built from captures of the Trimlight app (firmware 1.17.77). The computer and the controller must be on the same home network.</p>`;
   // Kept, so the answer stays when the panel redraws (every 15 seconds).
   const show = html => { LINK.out = html; const o2 = $('#lkout'); if (o2) o2.innerHTML = html; };
   box.onclick = async e => {
@@ -2427,7 +2457,16 @@ VIEWS.music = async () => {
   const render0 = render;
   render = st => { render0(st); moodPanel($('#moodbox')); linkPanel($('#linkbox')); };
   try { render(await refreshStatus()); } catch (e) { m.innerHTML = `<div class="view"><p class="callout warn">${esc(e.message)}</p></div>`; return; }
-  S.timers.push(setInterval(async () => { if (!document.hidden && !$('#dlg').open) render(await refreshStatus()); }, 15000));
+  // 4.1.3: redraw only when the show's state changed, and never under the
+  // user's hands (it rebuilt everything every 15 seconds, closing menus).
+  const musicKey = st => JSON.stringify([st.music, st.flash?.active, st.target?.reason]);
+  let shown = musicKey(S.status || {});
+  S.timers.push(setInterval(async () => {
+    if (document.hidden || $('#dlg').open) return;
+    const st = await refreshStatus(), k = musicKey(st);
+    if (k === shown || m.contains(document.activeElement) && document.activeElement !== document.body) return;
+    shown = k; render(st);
+  }, 15000));
   const act = (body, btn) => busy(btn, async () => { S.status = await api('action', { body }); statusPill(S.status); render(S.status); }).catch(() => {});
   m.onclick = async e => {
     const b = e.target.closest('button'); if (!b) return; const d = b.dataset;

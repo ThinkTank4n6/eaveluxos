@@ -1,7 +1,7 @@
 # EaveLuxOS: User Manual
 ### The Intelligent Lighting Control Platform
 
-Version 4.1.1 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
+Version 4.1.3 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
 
 > **Downloaded the ready-made app? You can skip most of the setup.**
 > The downloads on the project's GitHub **Releases** page
@@ -391,6 +391,15 @@ door, and the tabs are along the bottom of the screen.
   next scheduled change.
 - **This week:** each day's on and off times and which rule runs. A note
   appears on the day daylight saving time changes.
+- **Controller's home-network address** (above Controllers and activity):
+  its IP address on your home network, such as `192.168.1.50`, and whether
+  it's **answering** there. Trimlight's cloud doesn't report this address,
+  so it's the one entered under **Music › Music from this computer**
+  (section 16); until then, Administrators see a link to add it. The app
+  checks every 5 minutes by opening and closing a connection to the
+  controller (nothing is sent). **Not answering** usually means the router
+  gave the controller a new address: the Trimlight app shows the current
+  one when it opens. Reserve it in the router so it stays the same.
 - **Controllers and activity:** each controller's status, plus a log of
   everything the app did.
 
@@ -1261,11 +1270,23 @@ same router, or devices the router can reach directly).
    - **Default microphone or line-in**, or a particular one from the list.
      A microphone near the speakers works; a cable from a player into the
      computer's line-in is better (only the music, no room noise).
-   - **This computer's sound**: music playing on the computer itself
-     (Spotify, YouTube, a playlist). The browser asks what to share: choose
-     **Entire screen** and tick **Also share system audio** (Chrome or Edge on
-     Windows). Only the sound is used; the picture is dropped right away.
-     This is the most accurate choice: no delay and no room noise.
+   - **Music playing in a browser tab**: play the music in another tab
+     (YouTube, Spotify's web player). When you start, the browser asks what
+     to share: pick that tab and keep **Also share tab audio** on (it is by
+     default). Only the sound is used; the picture is dropped right away.
+     No delay and no room noise. This needs **Microsoft Edge** (built into
+     Windows) or **Chrome**: Firefox and browsers built on it, such as
+     LibreWolf, can't share sound. (**Entire screen** with **Also share
+     system audio** works too where Edge or Chrome offers it, but that
+     switch doesn't appear on every computer.)
+   - **Stereo Mix**: everything the computer plays, including the Spotify
+     app. Many Windows sound cards have it, turned off: open **Sound
+     settings › More sound settings › Recording**, right-click the list ›
+     **Show disabled devices**, right-click **Stereo Mix** › **Enable**. It
+     then shows under **Listen to** (allow the microphone once so the browser
+     lists its name). It works in any browser, LibreWolf and Firefox
+     included. No sound card Stereo Mix? The free VB-Audio Virtual Cable does
+     the same.
 3. Choose a **Music pattern** (1 is the first in the Trimlight app's music
    list), **How long**, and **Sensitivity** (1 to 14, as in the Trimlight
    app). **Input level** makes quiet or loud sound fit better; the bars show
@@ -2029,7 +2050,8 @@ Sharing it helps other Trimlight owners know what works on their firmware.
 | "The settings database couldn't be read" | Rare, usually after a disk problem. The app kept the damaged file, restored your patterns and schedule from its plain-text copy (`settings.last-good.json`), and asks you to enter your Trimlight account and app password again. |
 | Music from this computer: "Couldn't reach the controller" or "didn't answer" | Check the address the Trimlight Edge app shows when it opens, and that the app computer is on the same home network (not a guest network). Unplugging the controller for 30 seconds clears a stuck connection. Close the Trimlight app on your phone while testing; it may hold the controller's attention. After a firmware update, a new capture (`tools/music-capture`) shows whether the messages changed. |
 | Music from this computer: the bars move but the lights don't follow the beat | Raise **Sensitivity** or **Input level**; try another music pattern. With a microphone, move it closer to the speakers, or use **This computer's sound**. |
-| Music from this computer: "No sound was shared" | When the browser asks what to share, choose **Entire screen** and tick **Also share system audio**. Window or tab sharing may leave the sound out. |
+| Music from this computer: "No sound was shared" | Pick the **browser tab** that's playing the music and keep **Also share tab audio** on. Sharing a window leaves the sound out, and **Also share system audio** for Entire screen doesn't appear on every computer. For music from an app (Spotify), use **Stereo Mix** (section 16). |
+| Microsoft Defender blocks or removes EaveLuxOS.exe ("executes commands from an attacker", Suspicious Behavior) | A false alarm: Defender guesses from behavior, and an unsigned program that runs a small web server and starts helpers (PowerShell for the phone check, `icacls` to lock its data folder) looks like that to it. Since 4.1.3 the Windows build uses its own launcher, which Defender flags far less. **1)** Check the file is the one GitHub built: in Command Prompt, `certutil -hashfile "%USERPROFILE%\Downloads\EaveLuxOS-Windows.zip" SHA256` must match the zip's line in **SHA256SUMS.txt** on the release page. **2)** In **Windows Security › Virus & threat protection › Protection history**, open the item and choose **Restore** (or **Allow on device**). **3)** Report it so Microsoft clears it for everyone: microsoft.com/wdsi/filesubmission, "Software developer" or "Home customer", **Incorrectly detected**. |
 | I changed something and want it back | **Setup › App › Version history**: tap **Restore** next to an earlier save (section 20). |
 | Forgot a password | Ask an Administrator to set a new one under **Setup › Accounts & access**, or on the app computer run `python3 main.py reset-password NAME`. |
 | "This account can only view" | You're signed in as a Viewer. An Administrator can make you an Editor. |
