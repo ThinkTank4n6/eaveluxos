@@ -151,7 +151,10 @@ class MusicControllerTests(unittest.TestCase):
         c.start_music(None)
         c.start_flash(5)
         self.assertEqual(c._target(commit=False).reason, "flash")
-        self.assertEqual(self.at(18, 6).reason, "music")      # the show carries on after it
+        # The flash's pattern knocked the controller out of music mode, which
+        # can't be switched back on from here: the show ends and the schedule
+        # runs afterward, instead of leaving the flash pattern on (3.16.1).
+        self.assertEqual(self.at(18, 6).reason, "schedule")
 
     def test_show_night_runs_and_can_be_stopped_for_tonight_only(self):
         c = self.make([{"name": "TSO Friday", "on": "19:00", "off": "21:00", "days": ["fri"]}])

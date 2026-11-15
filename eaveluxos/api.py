@@ -212,6 +212,14 @@ class TrimlightAPI:
             # reply the first request may have worked, and sending it again
             # would add a second copy of a saved pattern (and lower the limit
             # for good over a passing network problem).
+            if smaller is None and e.refused and TrimlightAPI.slot_limit > 60 and \
+                    any(p.get("count", 0) > 60 for p in payload.get("pixels") or []):
+                # It would fit at 90 bulbs per color slot but not at 60 (3.17.1):
+                # say so, instead of passing on the cloud's bare refusal.
+                TrimlightAPI.slot_limit = 60
+                raise TrimlightError("This controller takes at most 60 bulbs per color slot, and this pattern would "
+                                     "need more than 30 slots that way. Use fewer separate lit spots or fewer colors.",
+                                     kind=e.kind, status=e.status, code=e.code) from None
             if smaller is None or TrimlightAPI.slot_limit == 60 or not e.refused:
                 raise
             r = self._request("POST", path, {"deviceId": device_id, "payload": smaller})

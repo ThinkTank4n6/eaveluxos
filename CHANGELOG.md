@@ -1,5 +1,290 @@
 # Changelog
 
+## 4.0.1: review fixes (saving, New pattern, phones)
+
+- **Fixed (most important):** changes made quickly one after another (a few
+  clicks on a number field, two settings changed together) kept only the
+  first and showed "changed on another device". Saves now wait their turn,
+  only what each one changed is put on top of the latest settings, and
+  saves waiting together go as one, so version history isn't filled with
+  tiny steps. A real change from another device is still caught.
+  (Reproduced in `tests/repro_quick_saves.py`.)
+- **Fixed:** **New pattern** didn't open the designer. It never had, but
+  Create used to have its own tab; in 4.0 it's the way in.
+- **Fixed:** on a phone, the Setup section you're in was off the screen.
+- **Fixed:** on a phone, the tab bar sat on top of the keyboard while
+  typing; it steps aside now.
+- **Fixed:** Viewers could change Alerts controls (the change wasn't saved).
+- "Coming up" shows the next night once tonight's lights are off; Holidays
+  and Game-day lights show what's next ("next: Thanksgiving, Thu, Nov 26").
+- Folded panels load when opened, not on every visit.
+- The browser's **Back** button returns to the previous tab.
+- Folding panels tell screen readers what they open; leftover webhook code
+  removed from Setup; where each address goes is in `nav.js` and the save
+  merging in `merge.js`, both tested with Node on every machine.
+
+## 4.0.0: a new layout (seven tabs)
+
+Nothing was removed or changed in how the lights run; the app is
+reorganized so each tab has one job.
+
+- **Seven tabs** instead of ten: Home, Patterns, Schedule, **Alerts**, Music,
+  House and **Setup**. The pattern designer (Create) opens from Patterns
+  (**New pattern**, **Edit**, **‹ Patterns** back); the Manual is the **?**
+  button at the top of every screen.
+- **Schedule** has two parts: **Every night** (rules, Coming up) and
+  **Special days** (holidays, game-day lights, away mode).
+- **Alerts** (new) gathers everything that reacts: weather rules, severe
+  weather alerts, the security flash, webhooks and phone alerts.
+- **Setup** has four sections: **Lights & controller** (with the backup
+  timer, color correction and pattern backups), **Location & time** (was
+  Date & Time), **Accounts & access** and **App** (were Settings).
+- **Folding panels** with a one-line summary ("Holidays · 3 holidays",
+  "Security flash · Security white for 5 min"); the app remembers which
+  ones you keep open. On a phone the Schedule tab went from about 9 screens
+  of scrolling to about 3, and Settings' 7 became Setup sections of 2 to 3.
+- **On phones the tabs are along the bottom**, all seven always in reach.
+- **Saving is consistent**: the security flash and the usual show length
+  save as you change them, like the rest of the app.
+- **Plainer names**: the safety net is now the **backup timer** (also in the
+  event log); Address space is **Bulb numbering**; the screen theme button
+  says "Theme" so it isn't mistaken for the lights' automatic mode.
+- Old bookmarks still work: `#settings`, `#lights`, `#time`, `#create`.
+- The Manual has a "Where things are" guide and renamed chapters to match.
+
+## 3.20.0: named colors (the RGB charts)
+
+- **Color by name or code** (Create): type a name ("crimson", "forest green";
+  suggestions as you type) or a code from an RGB chart ("FF1493", "#FF1493",
+  "255 20 147", "FF 14 93"), or paste a list or chart rows to use as the
+  pattern or add after the selected color.
+- **Named colors…**: the 141 standard web color names, grouped like the
+  charts, searchable, each with a note on how it looks on LED lights
+  (whites and pale colors look white, grays are dim white, browns look
+  orange, dark colors are dim versions); a switch shows only the colors that
+  show well.
+- Colors have names everywhere: the selected color in Create, and any color
+  strip when you hold the pointer over it ("#E0A060 · near Sandy Brown").
+- **Describe it** knows all the names ("crimson and forest green chase",
+  "midnight blue twinkle"); the app's own color words and themes still win,
+  and "dim gray" or "dark green" is a color, not a dimmer pattern.
+- Crimson is now exactly the standard #DC143C (in Describe it and the
+  Thanksgiving and Columbus Day themes).
+
+## 3.19.1: review fixes (share codes, public holidays, holidays)
+
+- **Fixed (most important):** a share code pasted with the rest of a message
+  ("Here's my pattern: ELX1:… enjoy!") was often refused as damaged: every
+  space was removed to rejoin wrapped lines, which glued the next word on.
+  Only line breaks are joined now, and a code must end exactly where its
+  data does, so a damaged code is reported, never half-read.
+  (Reproduced in `tests/repro_share_message.py`.)
+- **Fixed:** checking another country's holidays replaced the chosen
+  country's dates; each country is kept separately, and only the chosen
+  one can be checked.
+- **Fixed:** after choosing a new country, a failed first check wasn't
+  retried for a week; it's retried within hours.
+- **Fixed:** deleting a pattern a holiday uses gave a confusing error; it now
+  says which holiday uses it.
+- **Fixed:** big QR codes were wider than a phone screen.
+- **Fixed:** Viewers saw Share but were refused; they can make codes now.
+- Restarting the app on a holiday no longer announces it twice.
+- "Next" says when a holiday season's lights start ("lights from …").
+- Dates moved for past years are dropped, so they never pile up.
+- Adding several shared patterns is one save; a holiday never clashes with
+  your own rule names; the holiday service can't redirect elsewhere; Check
+  now works once a minute; the Holidays panel loads faster.
+
+## 3.19.0: holidays that find their own dates, share codes and QR codes
+
+- **Holidays** (Schedule tab): pick holidays and give each a playlist; the
+  app works out the date every year and loads the playlist that morning.
+  Fixed dates, rules (Thanksgiving, Memorial Day, Mother's Day…), Easter and
+  the days from it, Rosh Hashanah and Hanukkah from the Hebrew calendar
+  (exact for any year), and Lunar New Year, Holi, Diwali and the Eids from
+  published dates through 2035. Days before and after make a season; a date
+  can be moved for one year. Each comes with ready-made themed patterns.
+  Holidays (priority 210) beat seasons and the everyday schedule; game days
+  beat holidays.
+- **Another country's public holidays** from the free Nager.Date service
+  (weekly, kept in a file, only the country code sent), with one playlist.
+- **Share codes and QR codes** (Patterns): share a pattern or up to 8 as a
+  playlist as an `ELX1:` code and a QR code drawn by the app. **Open a share
+  code** previews before adding; codes are checked like Community patterns
+  (only colors and motion get in, size limits before and after unpacking).
+  Browsers that can read QR codes can scan one, or read it from a picture.
+- Removed a test screenshot folder (`ui3182`) that slipped into 3.18.2.
+
+## 3.18.2: review fixes (mood follow, AI key, night curves, ports)
+
+- **Fixed (most important):** mood follow during a severe weather warning
+  dismissed the warning (for up to 7 days), because it went through the same
+  path as choosing a pattern by hand. Mood follow now ranks below everything
+  you or the house decided: an alert stays on top and isn't dismissed, a
+  music show keeps running, and a pattern chosen by hand wins until it ends.
+  (Reproduced in `tests/repro_mood_alert.py`.)
+- **Fixed:** saving or removing the AI key didn't ask for the app password
+  again, as other credentials do.
+- **Fixed:** mood follow counted timer ticks to know when 10 seconds had
+  passed. Browsers slow timers in background tabs (Chrome to once a minute),
+  so reports could stop and the lights went back to the schedule while music
+  played. It now goes by the clock, and samples from the audio thread.
+- **Fixed:** 30 seconds of quiet (or Stop) ended any pattern chosen by hand,
+  not just mood follow's own.
+- **Fixed:** two listening pages flipped the lights between them. One page
+  listens at a time; closing it hands the lights back right away.
+- **Fixed:** a night curve restarted a moving pattern's motion every 10
+  minutes; moving patterns now step every 30. A weather pattern keeps its own
+  whites (and still dims with the curve).
+- **Fixed:** saving only some ports (an older page or the API) marked the
+  rest connected again.
+- **Fixed:** "warm white and white" gave only warm white.
+- **New:** AI ideas are limited to 6 a minute and 100 a day (they cost money
+  on your key), and the AI model is a setting, with a clear message when a
+  model is retired. Only an Administrator can change it, and files don't
+  carry it.
+- The note when mood follow ends says so, instead of "Preview ended".
+- The "bulbs 1–600" note on the Lights tab no longer shows for ports you
+  set up there, and has an **It's really connected** button.
+- The hardware test reports a cloud that accepts a port at 0-0 without
+  failing when it can't put the port back.
+
+## 3.18.1: ports that aren't connected
+
+- **Fixed:** saving ports with one turned off failed with "code 12000
+  (Invalid parameter [port -> start])". The app sent start 0, end 0 to mean
+  "off", and Trimlight's cloud has no off for a port. A port marked **Not
+  connected** now keeps the numbers the controller already holds (nothing
+  invalid is sent), and this app remembers to leave it out of the bulb count,
+  the bulb finder and the house tools.
+- Ports that read **bulbs 1–600** (how the controller reports a port that was
+  never set up) are pointed out on the Lights tab, so the app can count the
+  real bulbs instead of 600.
+
+## 3.18.0: describe a pattern, night curves, mood follow
+
+- **Describe it** (Create): type "cyberpunk rainy night" or "slow candy cane
+  twinkle" and get colors, motion, speed and brightness to adjust and save.
+  Built in (themes, color, motion and speed words; free, on this computer),
+  or with Claude through your own Anthropic API key (Settings › AI pattern
+  ideas; stored encrypted, never exported; the answer is checked like any
+  pattern). **Try another** gives other takes.
+- **Night curves** (rules): 2 to 6 points of time, white and brightness; the
+  lights change at every 10-minute mark between them. Whites take the
+  curve's color temperature, other colors keep their hue. A brightness set
+  by hand wins. The safety net copies the opening look. Home shows where the
+  curve is.
+- **Mood follow (beta)** (Music): the app computer's microphone (a browser
+  allows it only on the computer itself) tells calm, lively and party music
+  apart every 10 seconds and switches between three of your patterns. The
+  mood, not the beat (Trimlight's cloud is too slow for that). Ends by itself
+  after 30 seconds of quiet or 3 minutes after the page closes. Sound is
+  never recorded or sent; only the mood is.
+- The app's pages may now use the microphone (Permissions-Policy
+  `microphone=(self)`), for mood follow; other sites still can't.
+
+## 3.17.1: fixes from the code review of 3.17.0
+
+- **Fixed:** a rule's brightness and speed flattened a pattern split by
+  controller: a slow, dim twinkle upstairs ran at the garage's speed and
+  brightness. Each part now keeps its own speed, and a rule's or the slider's
+  brightness scales every part by the same ratio.
+- **Fixed:** on a controller that takes only 60 bulbs per color slot, a scene
+  that fit at 90 could fail when sent. The scene counter now counts at the
+  controller's own limit, and the error says why when a pattern can't fit.
+- **Fixed:** a malformed scene (from an imported file, for example) was
+  accepted and broke the House view; it's refused now.
+- **Fixed:** editing a split pattern dropped the part for a controller the
+  app wasn't running at that moment.
+- **Fixed:** the House map loaded each photo twice at once, and the second
+  load could release the first one's copy, leaving a broken photo.
+- House view redraws still scenes and patterns twice a second instead of 60
+  times (easier on a phone's battery). Scenes made for a different number of
+  bulbs, and line bulb numbers past the last bulb, are flagged. Group buttons
+  count the bulbs each group really lights. Scenes can be built by typing
+  bulb numbers (`10-12, 40`). The manual explains dimming with color
+  correction off. New browser tests cover the scene builder and the split
+  dialog.
+
+## 3.17.0: the house photo as a design tool
+
+- **Bulbs on each line:** a traced roof edge on the House map can hold its
+  bulb numbers (first and last point, counting up or down). The bulbs are
+  spread along it, skipping wire-only stretches.
+- **House view: preview on your house.** Any pattern made of colors animates
+  on the photo, with a Night view. Create has **Preview on house** for a
+  design before it's saved. Create's own preview and the house view now share
+  one motion model.
+- **Scenes:** tap bulbs on the photo (1 to 9 at a time), light every landmark
+  named "window" in one step, use groups with their own color and brightness,
+  and save the result as an ordinary pattern with the rest of the house dark.
+  A live counter shows the controller's 30 color slots. Saved scenes can be
+  edited again.
+- **Brightness per zone** in Paint by zone (100% to 10%), done by darkening
+  the zone's color, since a controller has one brightness per pattern.
+- **Split by controller:** with two or more controllers, one pattern can run
+  a different pattern on each (or leave one off), each with its own motion,
+  speed and brightness. It works in rules, rotations, game days and the
+  safety net, and the live check expects a controller left off to be off.
+  Importing patterns keeps a split's parts pointing at the right patterns.
+
+## 3.16.1: fixes from the code review of 3.16.0
+
+- **Fixed:** a short alert ended a longer one: a 15-second package alert
+  during a 10-minute alarm ended the alarm. Flashes now have an order (the
+  security flash and urgent alerts such as `alarm`, then a severe weather
+  warning, then other alerts, then score celebrations). A less important one
+  is skipped (the webhook reply says `"flash_started": false`), and a shorter
+  one hands back to the longer one it interrupted.
+- **Fixed:** a score celebration could cut a security flash short when
+  "Only while the lights are on" was off.
+- **Fixed:** a flash during a music show left its pattern on for the rest of
+  the show (it knocks the controller out of music mode). Only urgent alerts
+  show during a show now, and they end it, so the schedule runs afterward.
+- **Fixed:** a score celebration replaced a severe weather warning.
+- **Fixed:** MLB doubleheaders: the first game listed was followed even when
+  it was over, so game 2 never celebrated. The game being played is followed.
+- **Fixed:** a dismissed weather warning came back each time the Weather
+  Service updated it. It now stays dismissed by name until it's over, also
+  after a restart; dismissals older than a week are forgotten.
+- **Fixed:** changing the weather alert settings dropped a warning that was
+  showing for up to 30 seconds.
+- **Fixed:** Off (or any pattern) chosen by hand during a warning did nothing
+  when warnings turn the lights on; it now dismisses the warning.
+- A team that isn't on ESPN's scoreboard on a game day is reported on the
+  Game-day panel. Last night's game is followed only until 4 AM, and a game
+  that's over is checked every 3 hours, not every 15 minutes. A game still
+  being played after midnight is looked up on its own day. A score taken back
+  after a review and restored isn't celebrated twice. Old scores are
+  forgotten. Viewers no longer see a Dismiss button they can't use. The
+  manual explains zones with more than one controller.
+
+## 3.16.0: lights that react to events
+
+- **Alerts from webhooks:** `flash` now takes a pattern, a length in seconds
+  and a zone: `{"effect": "package", "zone": "Front porch", "seconds": 30}`.
+  Ready-made alert patterns (package, alarm, doorbell, delivery, severe,
+  security) work without adding them to your patterns, or send a plain
+  `color`. A zone lights only its bulbs (the rest stay dark, the Trimlight
+  app's "X"), with the alert's colors spread over it. **Settings › Webhooks ›
+  Try an alert** tests one from the app. Plain `flash` is still the security
+  flash.
+- **Severe weather alerts** (Schedule tab): National Weather Service warnings
+  for your location switch the lights to an alert pattern until the warning
+  ends: tornado, severe thunderstorm, winter storm, flash flood, hurricane,
+  extreme heat or cold, and high wind. Optionally turns the lights on for a
+  warning. Never during a music show; **Dismiss weather alert** on Home (or
+  the `dismiss_alert` webhook) puts the lights back.
+- **Score celebrations** (Game-day lights): when your team scores, the lights
+  flash its colors, moving fast, for 10 to 60 seconds, then go back to what
+  was on. Live scores from ESPN's free scoreboard, checked every 20 seconds
+  during the game; the panel shows the live score. Only while the lights are
+  on unless you change that.
+- A short flash now ends on time: the scheduler wakes when a flash ends
+  instead of at its next 20-second check, and stops promptly.
+- Home, Tonight and the activity list name the flash or alert that's
+  showing.
+
 ## 3.15.1: fixes from the code review of 3.15.0
 
 - **Privacy:** exported pattern files included away mode, with the date

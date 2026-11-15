@@ -374,7 +374,7 @@ class HardwareTestScript(unittest.TestCase):
     def test_full_run_passes_and_restores_everything(self):
         code, report, before, after = self._run()
         self.assertEqual(code, 0, report)
-        for line in ("[PASS] 90 bulbs per color slot", "[PASS] Save pattern to library", "[PASS] Port off as 0/0",
+        for line in ("[PASS] 90 bulbs per color slot", "[PASS] Save pattern to library", "[PASS] Port 0-0 refused",
                      "[PASS] Controller timer turns lights on", "[PASS] Timer entry reads back as written"):
             self.assertIn(line, report)
         self.assertEqual(after["ports"], before["ports"])

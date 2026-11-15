@@ -43,6 +43,9 @@
     return segs;
   }
   const slotsNeeded = canvas => compress(canvas).length;
+  /* Slots on a controller that takes at most `limit` bulbs per slot (some
+     take 60, not 90): every run counts once per `limit` bulbs (3.17.1). */
+  const slotsAt = (canvas, limit) => compress(canvas).reduce((n, s) => n + Math.ceil(s.n / (limit || PER_SLOT)), 0);
 
   /* Bulb numbers are 1-based, like the House map's bulb finder. */
   function clampRange(canvas, from, to) {
@@ -80,7 +83,7 @@
     return out;
   }
 
-  const api = { MAX_SLOTS, PER_SLOT, MAX_BULBS, expand, compress, slotsNeeded, paintBulb, paintRange, paintEvery, fill, resize, checkColor };
+  const api = { MAX_SLOTS, PER_SLOT, MAX_BULBS, expand, compress, slotsNeeded, slotsAt, paintBulb, paintRange, paintEvery, fill, resize, checkColor };
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.Painter = api;
 })(typeof window !== 'undefined' ? window : globalThis);

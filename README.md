@@ -1,7 +1,7 @@
 # EaveLuxOS
 ### The Intelligent Lighting Control Platform
 
-By **Christopher A. Tankelewicz (ThinkTank4n6)** · MIT License · version 3.15.1
+By **Christopher A. Tankelewicz (ThinkTank4n6)** · MIT License · version 4.0.1
 
 EaveLuxOS currently works with **Trimlight Edge** permanent-lighting controllers.
 Its scheduling, mapping and design tools are built to grow to other brands.
@@ -27,12 +27,29 @@ owner and are used here only to say which hardware EaveLuxOS works with.*
   official rules. You can also hold daylight time or standard time all year.
 - **Sorts out overlapping schedules with clear priorities.** Holidays beat your
   everyday lights, and you decide the rest.
+- **Finds holidays by itself.** Thanksgiving, Easter, Mother's Day, Hanukkah,
+  Diwali, Lunar New Year and more are worked out every year, each with a
+  themed playlist loaded that morning, plus any country's public holidays.
+- **Speaks the RGB charts.** Type a color by name (crimson, forest green) or
+  by code (FF1493, 255 20 147), paste a list, or browse all 141 named colors,
+  each with a note on how it really looks on LED lights.
+- **Shares patterns as a code or QR code.** Send a pattern (or a playlist) in a
+  message; the other person pastes it and sees it before adding it.
 - **Can react to weather.** For example, it can switch to a snowfall pattern
   when it's snowing (US National Weather Service, no account needed).
 - **Rotates patterns.** It can switch among any number of patterns every few
   minutes.
 - **Has a security flash.** Bright lights on demand, from a button, Home
   Assistant or a webhook, and then the lights go back to normal.
+- **Alerts from your other systems.** Home Assistant, Frigate or Blue Iris can
+  flash any pattern for a set number of seconds, on just one zone of the house
+  (green over the porch for a package, red everywhere for an alarm), with
+  ready-made alert patterns.
+- **Severe weather alerts.** National Weather Service warnings for your
+  location (tornado, winter storm and more) switch the lights to an alert
+  pattern until the warning ends.
+- **Score celebrations.** When your team scores, the lights flash its colors
+  for a few seconds (ESPN's free live scoreboard), then go back to normal.
 - **Gamma-corrected colors (optional):** LED colors look like the colors you
   pick instead of pale and washed out, with a side-by-side converter and a
   test on the house.
@@ -51,7 +68,12 @@ owner and are used here only to say which hardware EaveLuxOS works with.*
     point by point, plus hand-traced ridges and "wire only" stretches.
   - A **flat diagram** of every side, with landmarks and bulb numbers, that
     you can download as an SVG.
-  - Named zones you can paint in one step.
+  - Named zones you can paint in one step, each at its own brightness.
+  - **House view:** preview any pattern animating on your house photo, and
+    build **architectural scenes** by tapping bulbs (warm white above each
+    window and peak, the rest dark).
+- **A different pattern on each controller** at the same time, with its own
+  motion, speed and brightness (with two or more controllers).
 - **Accounts with roles:** Administrators, Editors (patterns, schedules, house
   map, light controls) and Viewers (look only).
 - **A different pattern each night,** in any order you choose.
@@ -63,6 +85,12 @@ owner and are used here only to say which hardware EaveLuxOS works with.*
 - **A community library** of patterns shared by other owners.
 - **Home Assistant and Apple Home:** a ready-made Home Assistant package, and
   webhooks for motion sensors and automations.
+- **Describe a pattern in words** ("cyberpunk rainy night"): built in and
+  free, or with Claude using your own Anthropic API key.
+- **Night curves:** whites warm up and the lights dim through the night
+  (crisp at dusk, warm at 9 PM, a 15% glow after midnight).
+- **Mood follow (beta):** the app computer's microphone switches between
+  calm, lively and party patterns as the music changes.
 - **Music shows that don't get cut off.** Start a show (or plan show nights)
   and this app leaves the lights to the controller's music mode instead of
   switching them back to the schedule mid-song.
@@ -111,7 +139,7 @@ computer.
   Anyway** next to EaveLuxOS. On older macOS versions, right-click the app
   and choose **Open**.
 - It runs in the background with no Dock icon; your browser opens to it. To
-  stop it, use **Settings › Quit the app**.
+  stop it, use **Quit** (top of the screen).
 - Settings are kept in `~/Library/Application Support/EaveLuxOS`.
 
 **Linux PC (Ubuntu, Debian, Mint):** `eaveluxos_<version>_amd64.deb`
@@ -123,7 +151,7 @@ computer.
 **Raspberry Pi (64-bit Raspberry Pi OS, Pi 3/4/5):** `eaveluxos_<version>_arm64.deb`
 - Install with `sudo apt install ./eaveluxos_<version>_arm64.deb`.
 - A Pi usually runs without a screen. Start it with `eaveluxos run`, then open
-  `http://<pi-address>:8787` from your phone. Under **Settings › Start
+  `http://<pi-address>:8787` from your phone. Under **Setup › App › Start
   automatically**, make it start with the Pi, then run
   `sudo loginctl enable-linger $USER` once so it starts without anyone
   logging in.
@@ -150,12 +178,12 @@ On Linux and the Pi, settings are kept in `~/.local/share/eaveluxos`.
    account for signing in from your phone.
 4. In the **Trimlight Edge app**, set the controller to **Manual** and turn off
    its timers, so the two schedules don't fight.
-5. Under **Settings › Start automatically**, turn on starting the app with the
+5. Under **Setup › App › Start automatically**, turn on starting the app with the
    computer.
 
 ### On your phone
 
-Open the address shown under **Settings › Phones and other computers**, for
+Open the address shown under **Setup › Accounts & access › Phones and other computers**, for
 example `http://192.168.1.20:8787`, while you're on your home Wi-Fi. Then sign
 in with your account. In Safari, choose **Share › Add to Home Screen** to
 get an app icon.
@@ -164,16 +192,16 @@ get an app icon.
 
 | Tab | What it's for |
 |---|---|
-| **Home** | Shows what's on now and today's sunrise, sunset and lights-on bar. It has one-tap patterns, brightness and speed, the security flash, and the week ahead. |
-| **Patterns** | Your patterns, the patterns saved in the Trimlight app, and all 180 built-in effects. You can try any of them on your lights. |
-| **Create** | The pattern designer: pick colors, set bulbs per color, or paint single bulbs, ranges and every Nth bulb, choose an animation, preview it, and save. |
-| **Schedule** | Rules (sun-based or set times, date ranges, days, rotation, brightness, priority), plus weather rules, the security flash, and importing timers from the Trimlight app. |
-| **Music** | Music shows: steps aside while the controller's own music mode (started in the Trimlight app) makes the lights dance, for a set time or on planned show nights. |
-| **Lights** | A card for each controller on the account (online, on/off, bulbs); tap one to manage it. Bulbs per port (Simple mode) or exact bulb ranges, including mirrored ports (Advanced mode). Also the LED chip type, color order, color test and controller name. |
-| **Date & Time** | Location, time zone, daylight saving mode, today's sun times and the controller clock. |
-| **House map** | Bulb finder, photos of each side, automatic roofline detection, landmarks, zones and the flat diagram. |
-| **Manual** | This guide (MANUAL.md) inside the app, with a search box and clickable contents. |
-| **Settings** | Your Trimlight account, your account and password, accounts for other people, start automatically, webhooks, and backup and sharing. |
+| **Home** | What's on now and today's sunrise, sunset and lights-on bar. One-tap patterns, brightness and speed, the security flash, and the week ahead. |
+| **Patterns** | Your patterns, Community, the patterns saved in the Trimlight app, and all 180 built-in effects; try any of them on your lights. **New pattern** opens the designer: colors (by name or code too), bulbs per color, painting single bulbs, ranges and zones, animation, preview. |
+| **Schedule** | **Every night:** rules (sun-based or set times, date ranges, days, rotation, brightness, night curves, priority) and what's coming up. **Special days:** holidays that find their own dates, game-day lights and away mode. |
+| **Alerts** | What reacts: weather rules, severe weather alerts, the security flash, webhooks (Home Assistant, cameras, alarms) and phone alerts. |
+| **Music** | Music shows (the controller's own music mode, for a set time or on show nights) and mood follow. |
+| **House** | Bulb finder, photos of each side, automatic roofline detection, landmarks, zones, bulb numbering and the flat diagram. |
+| **Setup** | **Lights & controller** (a card per controller, ports, LED chip and color order, the backup timer, color correction, pattern backups), **Location & time**, **Accounts & access** and **App** (sharing and backup, updates, start automatically, AI pattern ideas, version history). |
+
+The **?** button at the top opens the Manual (this guide) with a search box
+and clickable contents. On a phone, the tabs are along the bottom.
 
 The bottom of every screen, including the sign-in page, shows the version,
 the copyright notice and a link to the MIT License.
@@ -224,7 +252,7 @@ The scheduler checks these from highest to lowest:
   `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;` to its
   `location` block. A proxy or port forward that adds no such header (nginx
   without that line, `ssh -L`, `socat`, a TCP-only tunnel) looks exactly like a
-  browser on this computer, so turn on **Settings › Require signing in on this
+  browser on this computer, so turn on **Setup › Accounts & access › Require signing in on this
   computer too** before using one.
 - Sign-ins are short: they end after **8 hours without use** (an Administrator
   can choose 1 hour to 7 days) and always **7 days** after signing in.
@@ -271,7 +299,7 @@ container, so everyone signs in, starting with the setup code from the log.
   `data` next to `main.py`.
 - **Container:** the `eaveluxos-data` volume.
 
-**Settings › Setup and about** shows the folder in use.
+**Setup › App › Setup and about** shows the folder in use.
 
 ## Home Assistant example
 

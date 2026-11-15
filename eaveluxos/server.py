@@ -37,11 +37,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from zoneinfo import available_timezones
 
-from . import alerts, autostart, catalog, community, gameday, restore, updates, winfirewall
+from . import alerts, autostart, catalog, community, gameday, holidays, restore, scores, sharecode, updates, winfirewall
 from .api import TrimlightAPI, TrimlightError, port_base
 from .controller import Controller
 from .safety import SafetyNet
-from .schedule import ConfigError, Effect, SetupNeeded, add_real, build_config, color_gamma, tz_info
+from .schedule import CELEBRATE_POINTS, ConfigError, Effect, SetupNeeded, add_real, build_config, color_gamma, tz_info
 from .store import Conflict, Store, check_password, hash_password, needs_rehash
 
 _DUMMY_HASH = hash_password("timing-equalizer-not-a-password")
@@ -162,23 +162,30 @@ class ApiError(Exception):
 # app password again (once per 5 minutes per sign-in), so a borrowed or lost
 # phone that's still signed in can't take over the account, webhooks or port.
 SENSITIVE = {"/api/credentials", "/api/webhook", "/api/port", "/api/autostart", "/api/local_login",
-             "/api/users", "/api/users/delete", "/api/session_policy"}
+             "/api/users", "/api/users/delete", "/api/session_policy",
+             "/api/ai/settings"}      # a paid key: swapping or removing it needs the password (3.18.2)
 REAUTH_SECONDS = 300
 
 # Roles (3.4). Administrators can do everything. Editors design patterns,
 # schedules and the house map and control the lights, but can't change the
 # household's location, controllers, weather or safety-net settings, accounts,
 # or anything on the admin list. Viewers can look but not change anything.
-EDITOR_POSTS = {"/api/action", "/api/settings", "/api/photo", "/api/photo/upload", "/api/photo/delete", "/api/device/save_effect", "/api/import"}
+EDITOR_POSTS = {"/api/action", "/api/settings", "/api/photo", "/api/photo/upload", "/api/photo/delete", "/api/device/save_effect", "/api/import",
+                "/api/textpattern", "/api/mood", "/api/holidays/refresh", "/api/share", "/api/share/open"}
+# Viewers may make a share code: it only reads patterns (3.19.1).
+VIEWER_POSTS = {"/api/share"}
+MOOD_LEVELS = ("calm", "lively", "party")
+MOOD_MINUTES = 3     # a mood pattern ends by itself this long after the last word from the listening page
+AI_PER_MINUTE, AI_PER_DAY = 6, 100   # AI pattern ideas cost money on the owner's key (3.18.2)
 ADMIN_GETS = {"/api/users", "/api/safety/backup", "/api/backups", "/api/backups/patterns", "/api/alerts"}
 # Household settings only an Administrator may change. "community" is the
 # address the app computer fetches the pattern library from: anyone who could
 # set it could make this computer request any address on the home network.
-HOUSEHOLD_KEYS = ("location", "safety", "weather", "setup_done", "color", "community")
+HOUSEHOLD_KEYS = ("location", "safety", "weather", "setup_done", "color", "community", "ai")   # ai: the AI model, which spends the owner's money (3.18.2)
 # This home's own, never in an export and never taken from someone's file:
 # away mode reveals when nobody's home, and usage is this home's equipment and
 # electric rate (3.15.1).
-PRIVATE_KEYS = ("away", "usage")
+PRIVATE_KEYS = ("away", "usage", "ai")   # ai (3.18.2): which paid model to call is this home's choice
 ROLE_NAMES = {"admin": "Administrator", "editor": "Editor", "viewer": "Viewer"}
 # A browser on the app computer itself (when it doesn't require a password).
 LOCAL_USER = {"id": None, "username": "this computer", "role": "admin", "disabled": False, "local": True}
@@ -266,7 +273,14 @@ class App:
         self.updates = updates.UpdateChecker(self.store.dir)   # "a new version is out"
         self.alerts = alerts.Alerts(self.store.dir, probe=self.alert_probe)   # phone alerts (ntfy)
         self.gameday = gameday.GameDays(self.store.dir, on_change=self.rebuild)  # game-day lights
+        self.country = holidays.CountryHolidays(self.store.dir, on_change=self.rebuild)  # public holidays (3.19)
+        self._country_checked = {}                                               # code -> last "Check now" (3.19.1)
+        self.scores = scores.ScoreWatch(self.celebrate)                          # score celebrations (3.16)
+        self.ai_fetch = None                                                     # tests replace the AI call (3.18)
+        self.ai_calls = []                                                       # times of AI calls, for the limits (3.18.2)
+        self.mood_state = None                                                   # mood follow: {"level", "key", "at"}
         self._port_base = {}         # controller id -> 0 or 1 (how it numbers its ports)
+        self._bulbs = None           # last bulb count read from the controller (zones without a House map total)
         self.lock = threading.RLock()
         self.ctrl: Controller | None = None
         self.cfg = None
@@ -300,7 +314,8 @@ class App:
     def rebuild(self, creds_changed=False):
         with self.lock:
             try:
-                cfg = build_config(self.store.settings, self.store.secrets, gamedates=self.gameday.dates())
+                cfg = build_config(self.store.settings, self.store.secrets, gamedates=self.gameday.dates(),
+                                   country_dates=self.country_dates())
             except SetupNeeded as e:
                 self.problem, self.problem_is_setup = str(e), True
                 return False
@@ -339,6 +354,9 @@ class App:
                 self.updates.start()
             self.alerts.start()
             self.gameday.start(self.game_teams, lambda: self.cfg.loc.tz if self.cfg else timezone.utc)
+            self.country.start(self.country_code)
+            self.scores.start(lambda: self.cfg.celebrate if self.cfg else {}, self.gameday.dates,
+                              lambda: self.cfg.loc.now() if self.cfg else datetime.now())
 
     def gamma(self) -> float | None:
         """Gamma correction in effect (None = off); bad values count as off
@@ -364,6 +382,23 @@ class App:
         patterns is allowed (setup isn't finished), but it must not hide errors
         elsewhere, so validate with a stand-in location in that case."""
         self._validate_map(data.get("map"))
+        self._validate_scenes(data.get("effects"))
+        for f in ("unused_ports", "ports_set"):
+            up = (data.get("service") or {}).get(f)
+            if up is not None and not (isinstance(up, dict) and all(
+                    isinstance(v, list) and len(v) <= 4 and all(isinstance(i, int) and not isinstance(i, bool) and 0 <= i <= 3 for i in v)
+                    for v in up.values())):
+                raise ApiError("The list of ports that aren't connected is malformed.")
+        md = data.get("mood")
+        if md is not None:
+            effs = data.get("effects") or {}
+            if not isinstance(md, dict) or set(md) - set(MOOD_LEVELS) or any(
+                    v is not None and v not in effs for v in md.values()):
+                raise ApiError("Mood follow: choose one of your patterns for calm, lively and party music.")
+        ai = data.get("ai")
+        if ai is not None and not (isinstance(ai, dict) and set(ai) <= {"model"} and (
+                ai.get("model") is None or (isinstance(ai["model"], str) and re.fullmatch(r"[a-z0-9][a-z0-9.\-]{2,63}", ai["model"])))):
+            raise ApiError("AI pattern ideas: a model name looks like claude-haiku-5-5.")
         try:
             color_gamma(data)
         except ConfigError as e:
@@ -384,6 +419,33 @@ class App:
             build_config(probe, self.store.secrets, need_secrets=False)
         except (ConfigError, ValueError, TypeError, KeyError, AttributeError) as e:
             raise ApiError(str(e) if not isinstance(e, (KeyError, AttributeError)) else "Settings are malformed.")
+
+    @staticmethod
+    def _validate_scenes(effects):
+        """A scene's groups (3.17) are kept so it can be edited on the House
+        map; a malformed one (from an imported file, say) would break that
+        screen, so it's refused here (3.17.1)."""
+        if not isinstance(effects, dict):
+            return
+        for k, e in effects.items():
+            sc = e.get("scene") if isinstance(e, dict) else None
+            if sc is None:
+                continue
+            groups = sc.get("groups") if isinstance(sc, dict) else None
+            ok = isinstance(groups, list) and 1 <= len(groups) <= 14 and set(sc) == {"groups"}
+            total = 0
+            for g in groups if ok else []:
+                b = g.get("bulbs") if isinstance(g, dict) else None
+                ok = (isinstance(g, dict) and set(g) <= {"color", "level", "bulbs"}
+                      and isinstance(g.get("color"), str) and re.fullmatch(r"#[0-9A-Fa-f]{6}", g["color"]) is not None
+                      and isinstance(g.get("level", 100), int) and not isinstance(g.get("level", 100), bool)
+                      and 1 <= g.get("level", 100) <= 100
+                      and isinstance(b, list) and all(isinstance(n, int) and not isinstance(n, bool) and 1 <= n <= 10000 for n in b))
+                if not ok:
+                    break
+                total += len(b)
+            if not ok or total > 10000:
+                raise ApiError(f"The scene \u201c{e.get('label', k)}\u201d is malformed. Rebuild it on the House tab.")
 
     @staticmethod
     def _validate_map(m):
@@ -428,7 +490,11 @@ class App:
                     if not (isinstance(wire, list) and len(set(wire)) == len(wire) and all(
                             isinstance(i, int) and not isinstance(i, bool) and 0 <= i < len(pts) - 1 for i in wire)):
                         raise ApiError("A roofline section has invalid wire-only segments.")
-                    extra = set(ln) - {"id", "kind", "points", "wire"}
+                    bl = ln.get("bulbs")
+                    if bl is not None and not (isinstance(bl, dict) and set(bl) == {"from", "to"} and all(
+                            isinstance(bl[k], int) and not isinstance(bl[k], bool) and 1 <= bl[k] <= 10000 for k in ("from", "to"))):
+                        raise ApiError("A roofline section's bulbs need a first and last bulb number (1-10000).")
+                    extra = set(ln) - {"id", "kind", "points", "wire", "bulbs"}
                     if extra:
                         raise ApiError("A roofline section has unknown fields.")
         names = set()
@@ -638,10 +704,157 @@ class App:
         self._gd_thread.start()
         return {**self.gameday_status(), "checking": True}
 
+    # ------------------------------------------------------------ holidays (3.19)
+    def country_code(self) -> str | None:
+        hc = self.store.settings.get("holidays") or {}
+        cc = hc.get("country") if hc.get("enabled") else None
+        return cc.get("code") if isinstance(cc, dict) and isinstance(cc.get("code"), str) else None
+
+    def country_dates(self) -> dict:
+        code = self.country_code()
+        return {code: self.country.dates(code)} if code else {}
+
+    def holidays_status(self) -> dict:
+        today = self.cfg.loc.now().date() if self.cfg else date.today()
+        hc = self.store.settings.get("holidays") or {}
+        picked = {e.get("key"): e for e in hc.get("list", []) if isinstance(e, dict)}
+        code = (hc.get("country") or {}).get("code") if isinstance(hc.get("country"), dict) else None
+        return {"holidays": holidays.summary(today, picked), "groups": holidays.GROUPS,
+                "country": self.country.state(code) if code else None, "table_last": holidays.TABLE_LAST,
+                "today": self.ctrl.holiday_today() if self.ctrl else None}
+
+    REFRESH_GAP = 60     # seconds between "Check now" fetches (3.19.1)
+
+    def coming_up(self) -> dict:
+        """The next picked holiday and the next game day, for the one-line
+        summaries of folded panels (4.0.1). Worked out on this computer."""
+        today = self.cfg.loc.now().date() if self.cfg else date.today()
+        out = {"holiday": None, "game": None}
+        hc = self.store.settings.get("holidays") or {}
+        if hc.get("enabled"):
+            picked = {e.get("key"): e for e in hc.get("list", []) if isinstance(e, dict)}
+            best = None
+            for h in holidays.summary(today, picked, years=1):
+                if h["key"] in picked and h["next"]:
+                    first = h["starts"][0] if h.get("starts") else h["next"][0]
+                    if best is None or first < best["date"]:
+                        best = {"name": h["name"], "date": first}
+            out["holiday"] = best
+        gd = self.store.settings.get("gameday") or {}
+        if gd.get("enabled"):
+            for t in self.gameday.summary(self.game_teams(), today):
+                if t["next"] and (out["game"] is None or t["next"][0] < out["game"]["date"]):
+                    out["game"] = {"name": t["name"], "date": t["next"][0]}
+        return out
+
+    def holidays_refresh(self, code) -> dict:
+        """Fetch the chosen country's public holidays now (Schedule ›
+        Holidays). Only the country in settings (3.19.1: another one used to
+        replace its dates), and at most once a minute."""
+        if not isinstance(code, str) or not re.fullmatch(r"[A-Z]{2}", code):
+            raise ApiError("Choose a country (a 2-letter code like CA).")
+        if code != self.country_code():
+            raise ApiError("Choose that country under Holidays first (and turn holiday lights on).", 409)
+        now = time.time()
+        if now - self._country_checked.get(code, 0) < self.REFRESH_GAP:
+            return {**self.country.state(code), "recent": True}
+        self._country_checked[code] = now
+        if self.country.refresh(code):
+            self.rebuild()
+        st = self.country.state(code)
+        if st["error"]:
+            raise ApiError(st["error"], 502)
+        return st
+
     def gameday_status(self) -> dict:
         today = self.cfg.loc.now().date() if self.cfg else date.today()
+        live = self.scores.summary()
+        teams = self.gameday.summary(self.game_teams(), today)
+        for t in teams:
+            t["live"] = live.get(t["key"])
         return {"presets": gameday.PRESETS, "leagues": {k: v[1] for k, v in gameday.LEAGUES.items()},
-                "teams": self.gameday.summary(self.game_teams(), today)}
+                "teams": teams, "points": dict(CELEBRATE_POINTS)}
+
+    def mood(self, level, tab=None) -> dict:
+        """Mood follow (3.18): the listening page (on the app computer, whose
+        microphone a browser allows) reports calm / lively / party every 10
+        seconds, or quiet / stop. The matching pattern is set like a pattern
+        chosen by hand that ends by itself MOOD_MINUTES after the last report,
+        so a closed page or a sleeping computer hands the lights back.
+
+        3.18.2: it ranks below what the user and the house decided (see
+        Controller.mood_set): a weather alert stays on top, and a pattern
+        chosen by hand wins until it ends. One page listens at a time (tab:
+        the page's own id), so two open pages can't flip the lights between
+        them; quiet or stop ends only mood follow's own pattern."""
+        c = self.ctrl
+        if c is None:
+            raise ApiError("Finish setup first.", 409)
+        if tab is not None and (not isinstance(tab, str) or not 1 <= len(tab) <= 40):
+            raise ApiError("Unknown listening page.")
+        st = self.mood_state
+        if st and st.get("tab") != tab and time.time() - st["at"] < MOOD_MINUTES * 60:
+            if level in ("quiet", "stop"):
+                return {"active": False}            # not this page's to end
+            raise ApiError("Mood follow is already listening on another page. Stop it there (or close that page "
+                           f"and wait {MOOD_MINUTES} minutes) first.", 409)
+        if level in ("quiet", "stop"):
+            self.mood_state = None
+            if st and c.mood_end():
+                c.note("Mood follow: " + ("the music stopped" if level == "quiet" else "stopped") + "; back on the schedule.")
+            return {"active": False}
+        if level not in MOOD_LEVELS:
+            raise ApiError("Unknown mood.")
+        key = (self.store.settings.get("mood") or {}).get(level)
+        if not key or key not in c.cfg.effects:
+            raise ApiError(f"Choose a pattern for {level} music on the Music tab first.")
+        try:
+            got = c.mood_set(key, MOOD_MINUTES)
+        except ValueError as e:
+            raise ApiError(str(e)) from None
+        self.mood_state = {"level": level, "key": key, "at": time.time(), "tab": tab}
+        if got == "manual":
+            return {"active": True, "level": level, "waiting": True,
+                    "pattern": "waiting: a pattern chosen by hand is on; mood follow takes over when it ends"}
+        if got == "set":
+            c.note(f"Mood follow: {level} music, {c.cfg.effects[key].label}")
+        return {"active": True, "level": level, "pattern": c.cfg.effects[key].label}
+
+    def ai_pattern(self, prompt) -> dict:
+        """An AI pattern idea (3.18), limited to AI_PER_MINUTE a minute and
+        AI_PER_DAY a day: every call costs money on the owner's key, and
+        editors can ask (3.18.2)."""
+        from . import textpattern
+        now = time.time()
+        with self.lock:
+            calls = [t for t in self.ai_calls if now - t < 86400]
+            if sum(1 for t in calls if now - t < 60) >= AI_PER_MINUTE:
+                raise ApiError("That's a lot of AI ideas in a minute. Wait a moment, or use Try another (free).", 429)
+            if len(calls) >= AI_PER_DAY:
+                raise ApiError(f"The daily limit of {AI_PER_DAY} AI ideas is reached. Try again tomorrow, or use Try another (free).", 429)
+            calls.append(now)
+            self.ai_calls = calls
+        model = (self.store.settings.get("ai") or {}).get("model") or textpattern.AI_MODEL
+        return textpattern.ai_generate(prompt, self.store.secrets.get("ai_key"), fetch=self.ai_fetch, model=model)
+
+    def celebrate(self, team: dict, points: int, game: dict) -> bool:
+        """A watched team scored (scores.py): flash its colors, moving fast,
+        for a few seconds; then everything returns to what was on."""
+        c = self.ctrl
+        cfg = c.cfg if c else None     # the scheduler's own settings, never a mix of old and new
+        if not (c and cfg) or team["key"] not in cfg.celebrate:
+            return False
+        eff = cfg.effects.get(team["effect"])
+        if eff is None:
+            return False
+        if eff.kind == "custom":
+            eff = Effect(eff.key, eff.label, "custom", payload={**eff.payload, "mode": 1, "speed": 230, "brightness": 255},
+                         colors=list(eff.colors))
+        started = c.start_flash(seconds=team["seconds"], effect=eff, label=f"{team['name']} scored!", kind="score",
+                                only_if_on=team.get("only_when_on", True))
+        if not started:
+            c.note(f"{team['name']} scored ({points} points); no celebration because the lights are off.")
+        return started
 
     def alert_probe(self) -> dict:
         """What phone alerts look at, once a minute (alerts.py)."""
@@ -714,7 +927,10 @@ class App:
                     log.info("%s numbers its ports 1-4; shown and saved that way.", item["name"] or item["id"])
                 self._port_base[item["id"]] = base
                 item.update({"name": det.get("name", item["name"]),
-                             "ports": [{**p, "id": p.get("id", 0) - base} for p in det.get("ports", []) or []],
+                             "ports": [{**p, "id": p.get("id", 0) - base,
+                                        "unused": p.get("id", 0) - base in self.unused_ports(item["id"]),
+                                        "set_here": p.get("id", 0) - base in self.unused_ports(item["id"], "ports_set")}
+                                       for p in det.get("ports", []) or []],
                              "ic": det.get("ic"), "colorOrder": det.get("colorOrder"),
                              "firmware": det.get("fwVersionName"), "switch": det.get("switchState"),
                              "effects": [{"id": e.get("id"), "name": e.get("name"), "category": e.get("category"),
@@ -726,7 +942,98 @@ class App:
             except TrimlightError as e:
                 item["error"] = str(e)
             out.append(item)
+        ends = [p.get("end", 0) for it in out if it.get("selected") for p in it.get("ports") or []
+                if isinstance(p.get("end"), int) and not p.get("unused")]
+        if ends and max(ends) > 0:
+            self._bulbs = max(ends)
         return out
+
+    def unused_ports(self, dev, field="unused_ports") -> set:
+        """Ports marked not connected on the Lights tab (app numbers 0-3), or
+        (field "ports_set") ports given bulbs on the Lights tab (3.18.2)."""
+        u = (self.store.settings.get("service") or {}).get(field) or {}
+        return {i for i in u.get(dev, []) if isinstance(i, int)}
+
+    def set_unused_ports(self, dev, ids, touched=None, given=None):
+        """Remember which of a controller's ports aren't connected. touched:
+        the ports this change was about (default all); a port it doesn't
+        mention keeps what was remembered, so a client sending only some
+        ports can't quietly count the others again (3.18.2). given: ports
+        given bulbs here (other than the controller's never-set-up 1-600);
+        they're remembered (ports_set), so the Lights tab doesn't take a real
+        run for a port that was never set up."""
+        s = copy.deepcopy(self.store.settings)
+        svc = s.setdefault("service", {})
+        old = copy.deepcopy(svc)
+        u = dict(svc.get("unused_ports") or {})
+        if touched is None:
+            touched = set(range(4))
+        ids = sorted(set(ids) | {i for i in u.get(dev, []) if i not in touched})
+        if ids:
+            u[dev] = ids
+        else:
+            u.pop(dev, None)
+        svc["unused_ports"] = u
+        ps = dict(svc.get("ports_set") or {})
+        have = sorted((set(ps.get(dev, [])) | set(given if given is not None else touched)) - set(ids))
+        if have:
+            ps[dev] = have
+        else:
+            ps.pop(dev, None)
+        svc["ports_set"] = ps
+        for k in ("unused_ports", "ports_set"):
+            if not svc[k] and k not in old:
+                del svc[k]
+        if svc == old:
+            return
+        self.store.save_settings(s)
+        self._bulbs = None                 # count again without them
+
+    def address_space(self) -> int | None:
+        """Bulbs in the pattern address space, as the House map counts them:
+        its own total when set there, else the controller's last port end."""
+        if self.cfg and self.cfg.total_bulbs:
+            return self.cfg.total_bulbs
+        if self._bulbs is None and self.cfg:
+            try:
+                self.devices()
+            except ApiError:
+                return None
+        return self._bulbs
+
+    def flash_from(self, b: dict) -> dict:
+        """Start a flash from an app or webhook request: {"effect" | "color",
+        "zone", "seconds" | "minutes", "label"}. Nothing named = the security
+        flash."""
+        from .triggers import flash_effect
+        ctrl, cfg = self.ctrl, self.cfg
+        eff = None
+        if b.get("effect") or b.get("color") or b.get("zone"):
+            try:
+                eff = flash_effect(cfg.effects, cfg.gamma, effect=b.get("effect"), color=b.get("color"),
+                                   zone=b.get("zone"), zones=cfg.zones,
+                                   total=self.address_space() if b.get("zone") else None)
+            except ValueError as e:
+                raise ApiError(str(e)) from None
+        secs = mins = None
+        try:
+            if b.get("seconds") not in (None, ""):
+                secs = int(b["seconds"])
+            elif b.get("minutes") not in (None, ""):
+                mins = int(b["minutes"])
+        except (TypeError, ValueError):
+            raise ApiError("Seconds and minutes must be whole numbers.") from None
+        if eff is not None and secs is None and mins is None:
+            secs = 30                      # alerts default to 30 seconds
+        label = str(b.get("label") or "").strip()[:60] or None
+        # What wins when two happen at once (controller.FLASH_RANK): the
+        # security flash and urgent alerts (alarm, or "urgent": true) beat a
+        # weather warning and other alerts; a package can't end an alarm.
+        urgent = b.get("urgent") is True or str(b.get("urgent")).lower() == "true" or \
+            str(b.get("effect") or "").strip().lower() in ("alarm", "security")
+        kind = "security" if eff is None else "urgent" if urgent else "alert"
+        started = ctrl.start_flash(mins, seconds=secs, effect=eff, label=label, kind=kind)
+        return {**ctrl.status(), "flash_started": started}
 
     def target_devices(self, ids=None) -> list[str]:
         if ids:
@@ -769,22 +1076,46 @@ class App:
                 ports.append({"id": pid, "start": st, "end": en})
             if ports and all(p["start"] == 0 and p["end"] == 0 for p in ports):
                 raise ApiError("At least one port needs bulbs. Turning every port off would leave the lights dark.")
+            off_ids = sorted(p["id"] for p in ports if p["start"] == 0 and p["end"] == 0)
             base = self._port_base.get(dev)
-            if base is None:   # not listed yet: ask how this controller numbers its ports
+            current = None
+            if base is None or off_ids:
+                # How this controller numbers its ports, and (for a port marked
+                # not connected) what it holds now.
                 try:
-                    base = port_base(self.client().get_device(dev, self.now()).get("ports"))
+                    current = self.client().get_device(dev, self.now()).get("ports") or []
                 except TrimlightError as e:
                     raise ApiError(f"Couldn't read the controller's ports first, so nothing was changed: {e}", 502)
+                base = port_base(current)
                 self._port_base[dev] = base
+            # Trimlight has no "off" for a port: start 0 is refused (code 12000,
+            # "Invalid parameter [port -> start]"). A port marked not connected
+            # keeps what the controller already holds (left out if that isn't
+            # valid either), and this app remembers to leave it out of the bulb
+            # count (3.18.1).
+            sent = []
             for p in ports:
-                p["id"] += base      # back to the controller's own numbers
-            payload["ports"] = ports
-        if not payload:
+                if p["id"] in off_ids:
+                    was = next((q for q in current or [] if q.get("id") == p["id"] + base), None)
+                    if not (was and isinstance(was.get("start"), int) and was["start"] >= 1
+                            and isinstance(was.get("end"), int) and was["end"] >= was["start"]):
+                        continue
+                    sent.append({"id": p["id"] + base, "start": was["start"], "end": was["end"]})
+                else:
+                    sent.append({**p, "id": p["id"] + base})     # back to the controller's own numbers
+            if sent:
+                payload["ports"] = sent
+            unused = off_ids
+        if not payload and "ports" not in body:
             raise ApiError("Nothing to change.")
-        try:
-            self.client().update_device(dev, payload)
-        except TrimlightError as e:
-            raise ApiError(str(e), 502)
+        if payload:
+            try:
+                self.client().update_device(dev, payload)
+            except TrimlightError as e:
+                raise ApiError(str(e), 502)
+        if "ports" in body:
+            self.set_unused_ports(dev, unused, touched={p["id"] for p in ports},
+                                  given={p["id"] for p in ports if (p["start"], p["end"]) not in ((0, 0), (1, 600))})
         if self.ctrl:
             # List the controllers again and send them the lights in full
             # (switch-on included), not just forget the list.
@@ -833,6 +1164,8 @@ class App:
         eff = Effect.from_config("_save", body.get("effect") or {}, self.gamma())
         if eff.kind == "saved":
             raise ApiError("That pattern is already on the controller.")
+        if eff.kind == "split":
+            raise ApiError("A pattern split across controllers can't be saved in the Trimlight app; save each part instead.")
         payload = {"id": -1, "name": name, **eff.payload}
         api = self.client()
         out = []
@@ -947,6 +1280,10 @@ class App:
                 e = r.get("effect")
                 e = [renamed.get(x, x) for x in e] if isinstance(e, list) else renamed.get(e, e)
                 return {**r, "effect": e}
+            if renamed:   # a split pattern (3.17) names other patterns: follow their new keys
+                for v in effs.values():
+                    if isinstance(v, dict) and isinstance(v.get("split"), dict):
+                        v["split"] = {d: renamed.get(x, x) for d, x in v["split"].items()}
             for key in ("rules", "weather_rules"):
                 names = {r.get("name") for r in new.get(key, []) if isinstance(r, dict)}
                 for r in incoming.get(key) or []:
@@ -1046,6 +1383,8 @@ def make_server(app: App, host: str, port: int):
             if u["role"] == "admin" or path == "/api/password":
                 return
             if u["role"] == "viewer":
+                if path in VIEWER_POSTS:
+                    return
                 raise ApiError("This account can only view. Ask an Administrator for Editor access.", 403)
             if path not in EDITOR_POSTS:
                 raise ApiError("Only an Administrator can do that.", 403)
@@ -1074,7 +1413,7 @@ def make_server(app: App, host: str, port: int):
                              "form-action 'self'; frame-ancestors 'none'")
             self.send_header("Cross-Origin-Opener-Policy", "same-origin")
             self.send_header("Cross-Origin-Resource-Policy", "same-origin")
-            self.send_header("Permissions-Policy", "geolocation=(self), camera=(), microphone=(), payment=(), usb=()")
+            self.send_header("Permissions-Policy", "geolocation=(self), camera=(), microphone=(self), payment=(), usb=()")
             for k, v in (extra or {}).items():
                 self.send_header(k, v)
             try:
@@ -1311,6 +1650,8 @@ def make_server(app: App, host: str, port: int):
                     return {"setup_only": True, "setup": app.setup_state()}
                 st = app.ctrl.status()
                 st["setup"] = app.setup_state()
+                st["slot_limit"] = TrimlightAPI.slot_limit     # bulbs per color slot this controller takes (90 or 60)
+                st["coming"] = app.coming_up()                  # next holiday and game, for the panel summaries (4.0.1)
                 return st
             if path == "/api/catalog":
                 return catalog.catalog()
@@ -1362,8 +1703,20 @@ def make_server(app: App, host: str, port: int):
                 return {"months": app.ctrl.runtime.summary(12) if app.ctrl else []}
             if path == "/api/alerts":
                 return app.alerts.settings()
+            if path == "/api/ai":
+                from .textpattern import AI_MODEL
+                return {"configured": bool(app.store.secrets.get("ai_key")),
+                        "model": (app.store.settings.get("ai") or {}).get("model") or AI_MODEL, "default_model": AI_MODEL}
+            if path == "/api/triggers":
+                from .triggers import ALERT_GROUPS, preset_list
+                return {"presets": preset_list(), "zones": app.cfg.zones if app.cfg else [],
+                        "alert_groups": [{"key": k, "label": v[0], "events": v[1]} for k, v in ALERT_GROUPS.items()],
+                        "alert": app.ctrl.status().get("alert") if app.ctrl else None,
+                        "bulbs": app.cfg.total_bulbs if app.cfg and app.cfg.total_bulbs else app._bulbs}
             if path == "/api/gameday":
                 return app.gameday_status()
+            if path == "/api/holidays":             # the holiday calendar (3.19)
+                return app.holidays_status()
             if path == "/api/backups":                 # controller backups to restore patterns from (3.15)
                 return restore.list_backups(app.safety.backup_dir)
             if path == "/api/backups/patterns":
@@ -1467,6 +1820,19 @@ def make_server(app: App, host: str, port: int):
             ctrl = app.ctrl
             if path == "/api/gameday/refresh":      # Administrators (not on the editor list)
                 return app.gameday_refresh_soon()
+            if path == "/api/holidays/refresh":     # Editors: a country's public holidays, now (3.19)
+                return app.holidays_refresh(b.get("code"))
+            if path == "/api/share":                # Editors: a share code for patterns (3.19)
+                try:
+                    return sharecode.encode_keys(app.store.settings.get("effects") or {}, b.get("keys"),
+                                                 b.get("rotate"))
+                except sharecode.ShareError as e:
+                    raise ApiError(str(e)) from None
+            if path == "/api/share/open":           # Editors: what a share code holds, checked (3.19)
+                try:
+                    return sharecode.decode(b.get("code"))
+                except sharecode.ShareError as e:
+                    raise ApiError(str(e)) from None
             if path == "/api/alerts/settings":      # Administrators (not on the editor list)
                 try:
                     return app.alerts.update(b)
@@ -1480,6 +1846,37 @@ def make_server(app: App, host: str, port: int):
                 return {"ok": True}
             if path == "/api/backups/restore":      # Administrators (not on the editor list)
                 return app.restore_patterns(b.get("file"), b.get("ids"))
+            if path == "/api/textpattern":         # Editors: describe a pattern in words (3.18)
+                from . import textpattern
+                try:
+                    v = int(b.get("variant") or 0)
+                except (TypeError, ValueError):
+                    v = 0
+                try:
+                    if b.get("ai"):
+                        return app.ai_pattern(b.get("prompt"))
+                    return textpattern.generate(b.get("prompt"), max(0, min(50, v)))
+                except ValueError as e:
+                    raise ApiError(str(e)) from None
+            if path == "/api/mood":                # Editors: mood follow, from the listening page (3.18)
+                return app.mood(b.get("level"), b.get("tab"))
+            if path == "/api/ai/settings":         # Administrators: the owner's own Anthropic API key
+                key = b.get("key")
+                if key is not None and (not isinstance(key, str) or len(key) > 300 or (key and not key.strip().startswith("sk-"))):
+                    raise ApiError("That doesn't look like an Anthropic API key (they start with sk-).")
+                model = b.get("model")
+                if model is not None and (not isinstance(model, str) or (model and not re.fullmatch(r"[a-z0-9][a-z0-9.\-]{2,63}", model))):
+                    raise ApiError("A model name looks like claude-haiku-5-5.")
+                if "key" in b:
+                    app.store.save_secrets(ai_key=key.strip() if key else None)
+                if model is not None:
+                    s = copy.deepcopy(app.store.settings)
+                    if model:
+                        s["ai"] = {**(s.get("ai") or {}), "model": model}
+                    else:
+                        s.pop("ai", None)
+                    app.store.save_settings(s)
+                return {"configured": bool(app.store.secrets.get("ai_key"))}
             if path == "/api/update/check":        # Administrators (not on the editor list)
                 return app.updates.check()
             if path == "/api/update/settings":
@@ -1516,7 +1913,9 @@ def make_server(app: App, host: str, port: int):
                             ctrl.manual(True, ctrl.default_on_effect())
                     ctrl.set_levels(b.get("brightness"), b.get("speed"))
                 elif a == "flash":
-                    ctrl.start_flash(b.get("minutes"))
+                    return app.flash_from(b)
+                elif a == "dismiss_alert":
+                    ctrl.dismiss_alert()
                 elif a == "stop_flash":
                     ctrl.stop_flash()
                 elif a == "music":
@@ -1772,11 +2171,15 @@ def make_server(app: App, host: str, port: int):
                 return self._json(200, self._hook_state())
             if self.command != "POST":
                 return self._json(405, {"error": "Only status can be read with GET; other actions need POST."})
-            if body["action"] not in ("flash", "stop_flash", "on", "off", "resume", "levels", "music", "stop_music"):
+            if body["action"] not in ("flash", "stop_flash", "on", "off", "resume", "levels", "music", "stop_music",
+                                      "dismiss_alert"):
                 return self._json(400, {"error": "unknown action"})
-            self._post("/api/action", body)
+            r = self._post("/api/action", body)
             app.ctrl.note(f"Webhook '{body['action']}' from {self.client_address[0]}")
-            return self._json(200, self._hook_state())
+            out = self._hook_state()
+            if isinstance(r, dict) and "flash_started" in r:
+                out["flash_started"] = r["flash_started"]   # false: something more important is showing
+            return self._json(200, out)
 
         def _hook_state(self) -> dict:
             """What webhooks reply: for Home Assistant's sensor, light and

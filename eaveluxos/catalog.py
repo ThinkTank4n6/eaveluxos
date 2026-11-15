@@ -121,4 +121,14 @@ def builtin_list() -> list[dict]:
 def catalog() -> dict:
     return {"builtin": builtin_list(), "groups": [g[0] for g in GROUPS], "custom_modes": CUSTOM_MODES,
             "palette": [{"name": n, "hex": h} for n, h in PALETTE], "ic_types": IC_TYPES,
-            "color_orders": COLOR_ORDERS}
+            "color_orders": COLOR_ORDERS, "names": _names(), "name_groups": _name_groups()}
+
+
+def _names():
+    from .colornames import NAMES          # the web's named colors with LED notes (3.20)
+    return NAMES
+
+
+def _name_groups():
+    from .colornames import GROUPS
+    return GROUPS

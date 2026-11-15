@@ -5,7 +5,10 @@ makes it so. It drives the controller directly in manual mode, so the
 controller's own clock and timers never matter.
 
 What wins, highest first:
-  1. Security flash        (timed; then everything below resumes)
+  1. Flash                 (security flash, a webhook alert or a score
+                            celebration; timed, then everything below resumes)
+  1b. Severe weather alert (NWS warning; only while the lights are on unless
+                            it's set to turn them on; never during a music show)
   2. Manual on/off         (holds until the next scheduled change)
   3. Weather rule          (only while a rule has the lights on, and only if
                             its priority beats that rule's priority)
@@ -26,16 +29,23 @@ import threading
 import time
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 from .api import TrimlightAPI, TrimlightError
 from .runtime import Runtime
 from .safety import _same_effect
 from .schedule import add_real, ts
+from .triggers import FLASH_MAX_S, FLASH_MIN_S, PRESETS, AlertWatch
 from .weather import WeatherService
 
 log = logging.getLogger("eaveluxos")
 VERIFY_EVERY = 300  # seconds between read-backs of the controllers
+# Which event wins when two happen at once (3.16.1). A severe weather warning
+# sits at 2: above webhook alerts and score celebrations, below the security
+# flash (and alerts marked urgent, like an alarm).
+FLASH_RANK = {"security": 3, "urgent": 3, "alert": 1, "score": 0}
+ALERT_RANK = 2
+MAX_HELD = 8
 
 
 def effect_fp(obj) -> str | None:
@@ -80,6 +90,7 @@ class Target:
     weather_match: str | None = None  # best-matching weather rule (shown even when it doesn't win)
     adjusted: bool = False       # slider levels set by hand apply to this target
     hands_off: bool = False      # a music show: the controller's music mode runs the lights
+    curve: tuple | None = None   # night curve now (3.18): (kelvin or None, level %)
 
 
 class Controller:
@@ -88,12 +99,19 @@ class Controller:
         self.api = api
         self.lock = threading.RLock()
         self.stop_event = threading.Event()
+        self.wake = threading.Event()         # wakes the loop early (stop, a flash starting)
         self.devices: list[dict] = []
         self.saved: dict[str, dict] = {}      # deviceId -> {name lower: effect dict}
         self.override = None                  # {"on": bool, "effect": key, "since": dt}
         self.adjust: dict = {}                # slider levels {"brightness": n, "speed": n}
-        self.flash = None                     # {"until": dt}
+        self.flash = None                     # the flash showing: {"until", "eff", "label", "kind", "rank", "since"}
+        self.flash_held: list = []            # longer flashes a shorter one interrupted; they resume after it
+        self.dismissed_path = os.path.join(str(data_dir), "alert-dismissed.json") if data_dir else None
+        # The day the holiday was announced, kept across restarts (3.19.1).
+        self.noted_path = os.path.join(str(data_dir), "holiday-noted.txt") if data_dir else None
+        self.alert_dismissed: dict = self._load_dismissed()   # warning name (lower) -> when dismissed (epoch)
         self.music = None                     # music show from the button: {"until": dt | None, "since": dt}
+        self.holiday_noted = None             # the day the morning holiday note was written (3.19)
         self.music_skipped = None             # key of a show night stopped early (don't restart it)
         self.last_on = None                   # last pattern turned on by hand (for the On button)
         self.sched_key = None
@@ -109,6 +127,7 @@ class Controller:
             w = cfg.weather
             weather = WeatherService(cfg.loc.lat, cfg.loc.lon, w["use"], w["check_minutes"], w["contact"])
         self.weather = weather
+        self.wx_alerts = self._make_alerts(cfg)
         self.safety = safety                  # SafetyNet or None
         self.weather_match = None             # name of the matching weather rule, for display
         self.known_on = False                 # True once we've switched the controller on
@@ -133,6 +152,63 @@ class Controller:
         self.reported = self._load_reported()
         self.runtime = Runtime(data_dir, tz=lambda: self.cfg.loc.tz)    # hours on per month; follows a changed time zone
         self.pattern_unverified = set()       # target keys the controller doesn't report back as sent
+
+    @staticmethod
+    def _make_alerts(cfg, old=None):
+        """The NWS warning checker; keeps what `old` already knows when the
+        location is the same, so changing a setting doesn't drop an alert
+        that's showing until the next check (3.16.1)."""
+        a = cfg.weather_alerts
+        if not a["enabled"]:
+            return None
+        w = AlertWatch(cfg.loc.lat, cfg.loc.lon, a["groups"], cfg.weather.get("contact", ""))
+        if old is not None:
+            w.adopt(old)
+        return w
+
+    def _load_dismissed(self) -> dict:
+        if not self.dismissed_path:
+            return {}
+        try:
+            with open(self.dismissed_path, encoding="utf-8") as f:
+                raw = json.load(f)
+        except (OSError, ValueError):
+            return {}
+        cut = time.time() - 7 * 86400          # a warning lasts days at most
+        return {str(k): float(v) for k, v in (raw.items() if isinstance(raw, dict) else [])
+                if isinstance(v, (int, float)) and v > cut}
+
+    def _save_dismissed(self):
+        if not self.dismissed_path:
+            return
+        try:
+            tmp = self.dismissed_path + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(self.alert_dismissed, f)
+            os.replace(tmp, self.dismissed_path)
+        except OSError as e:
+            log.warning("Couldn't save dismissed weather alerts: %s", e)
+
+    def _alert_effect(self):
+        from .schedule import Effect
+        key = self.cfg.weather_alerts["effect"]
+        if key in self.cfg.effects:
+            return self.cfg.effects[key]
+        eff = Effect.from_config("_alert", PRESETS.get(key) or PRESETS["severe"], self.cfg.gamma)
+        eff.label = (PRESETS.get(key) or PRESETS["severe"])["label"]
+        return eff
+
+    def active_alert(self, now=None):
+        """The weather warning to show now, if any. A dismissed warning stays
+        dismissed by name while the Weather Service keeps updating it (each
+        update has a new id); once it's gone, a new one shows again."""
+        if not (self.wx_alerts and self.cfg.weather_alerts["enabled"]):
+            return None
+        now = now or self.cfg.loc.now()
+        live = [a for a in self.wx_alerts.active(now) if a["event"].lower() not in self.alert_dismissed]
+        order = list(self.cfg.weather_alerts["groups"])
+        live.sort(key=lambda a: order.index(a["group"]) if a["group"] in order else 99)
+        return live[0] if live else None
 
     def _invalidate(self):
         """Send the target again on the next pass, in full. Lock held."""
@@ -210,6 +286,9 @@ class Controller:
         """The effect's own brightness/speed, if known without a network call."""
         if effect is None:
             return {}
+        if effect.kind == "split":
+            first = next((p for p in list(effect.parts.values()) + [effect.rest] if p is not None), None)
+            return self.base_levels(first)
         if effect.kind != "saved":
             return {"brightness": effect.payload["brightness"], "speed": effect.payload["speed"]}
         want = (effect.saved_name or "").strip().lower()
@@ -236,27 +315,40 @@ class Controller:
                 self.sent_effect.pop(d["deviceId"], None)   # the controller's timer picks the pattern
             self.status_cache["at"] = 0.0
             return False
+        some_off = False
         for d in self.devices:
             dev = d["deviceId"]
             self.sent_effect.pop(dev, None)
-            if not on:
+            part = effect.for_device(dev) if on and effect is not None else effect
+            if not on or (effect is not None and effect.kind == "split" and part is None):
+                # A split pattern can leave a controller off (3.17).
                 self.api.set_switch(dev, 2 if timer_off else 0)
+                some_off = True
                 continue
+            effect_d = part
+            # A split pattern's parts keep their own speed, and a brightness
+            # set by a rule or the slider scales each part by the same ratio,
+            # so upstairs stays dimmer than the garage (3.17.1).
+            lv = levels if effect.kind != "split" else {k: v for k, v in levels.items() if k == "brightness"}
             # (switch-on is skipped when we already turned it on; effect calls follow)
-            if not self.known_on:
+            if not self.known_on or (effect.kind == "split"):
                 self.api.set_switch(dev, 1)
-            if effect.kind == "saved" and not levels:
-                saved = self._saved_effect(dev, effect)
+            if effect_d.kind == "saved" and not lv:
+                saved = self._saved_effect(dev, effect_d)
                 self.api.run_saved_effect(dev, int(saved.get("id")))
                 self.sent_effect[dev] = {**self._payload_from_saved(saved), "id": int(saved.get("id"))}
             else:
-                payload = (self._payload_from_saved(self._saved_effect(dev, effect))
-                           if effect.kind == "saved" else dict(effect.payload))
-                payload.update(levels)
+                payload = (self._payload_from_saved(self._saved_effect(dev, effect_d))
+                           if effect_d.kind == "saved" else dict(effect_d.payload))
+                if effect.kind == "split" and lv:
+                    base = self.base_levels(effect).get("brightness") or 255
+                    payload["brightness"] = max(1, min(255, round(payload.get("brightness", 255) * lv["brightness"] / max(1, base))))
+                else:
+                    payload.update(lv)
                 self.api.preview_effect(dev, payload)
                 self.sent_effect[dev] = payload
         self.status_cache["at"] = 0.0
-        return on
+        return on and not some_off          # "all switched on": else the next pattern switches each one on
 
     def _safety_ready(self) -> bool:
         """Leave the controller in Timer mode between windows only when every
@@ -288,7 +380,7 @@ class Controller:
         now = self.cfg.loc.now()
         w = self.cfg.schedule.active_window(now)
         sched_key = w.key if w else "off"
-        override, adjust, flash, notes = self.override, self.adjust, self.flash, []
+        override, adjust, flash, held, notes = self.override, self.adjust, self.flash, self.flash_held, []
         if sched_key != self.sched_key:
             # The first check after startup isn't a scheduled *change*; don't
             # throw away something the user set in the app's first seconds.
@@ -297,28 +389,47 @@ class Controller:
                     notes.append("Scheduled change reached, so manual settings ended.")
                 override, adjust = None, {}
 
+        alert_on = False
+
         def done(t: Target) -> Target:
-            t.adjusted = bool(adjust) and t.reason != "flash" and t.on
+            if alert_on:
+                # A severe weather alert replaces whatever is on (or turns the
+                # lights on, if set to), but never interrupts a music show.
+                alert = self.active_alert(now)
+                if alert and not t.hands_off and (t.on or self.cfg.weather_alerts["turn_on"]):
+                    t = Target(f"alert|{alert['id']}", True, self._alert_effect(), {}, "alert", alert["event"],
+                               alert["ends"].astimezone(now.tzinfo) if alert["ends"] else None,
+                               weather_match=t.weather_match)
+            t.adjusted = bool(adjust) and t.reason not in ("flash", "alert") and t.on
             if commit:
                 self.sched_key = sched_key
-                self.override, self.adjust, self.flash = override, adjust, flash
+                self.override, self.adjust, self.flash, self.flash_held = override, adjust, flash, held
                 self.weather_match = t.weather_match
                 for n in notes:
                     self.note(n)
             return t
 
-        # 1. security flash
-        if flash:
-            # The flash pattern can be cleared or replaced in settings while a
+        # 1. flash (security flash, webhook alert, score celebration). When
+        # one ends, a longer one it interrupted carries on.
+        while flash:
+            # The security pattern can be cleared or replaced in settings while a
             # flash runs; with none left, end the flash instead of failing
             # every pass (and every status read) until it would have ended.
-            eff = self.cfg.effects.get(self.cfg.security["effect"] or "")
+            eff = flash.get("eff") or self.cfg.effects.get(self.cfg.security["effect"] or "")
+            label = flash.get("label") or "Security flash"
             if eff is not None and ts(now) < ts(flash["until"]):
-                return done(Target(f"flash|{flash['until'].isoformat()}", True, eff, {}, "flash", "Security flash",
+                return done(Target(f"flash|{flash['until'].isoformat()}|{label}", True, eff, {}, "flash", label,
                                    flash["until"]))
-            flash = None
-            notes.append("Security flash ended." if eff is not None
-                         else "Security flash ended: no flash pattern is set up any more.")
+            notes.append(f"{label} ended." if eff is not None
+                         else f"{label} ended: no flash pattern is set up any more.")
+            live = [f for f in held if ts(now) < ts(f["until"])]
+            flash = max(live, key=lambda f: (f.get("rank", 3), f.get("since", 0))) if live else None
+            held = [f for f in live if f is not flash]
+            if flash:
+                notes.append(f"Back to {flash.get('label') or 'Security flash'}.")
+        # 1b. severe weather alert: applied by done() over whatever comes
+        # below (music show excepted).
+        alert_on = True
 
         # 2. music show (button, then show nights): this app steps aside
         music, skipped = self.music, self.music_skipped
@@ -345,8 +456,9 @@ class Controller:
 
         # 3. manual
         if override and override.get("expires") and time.time() > override["expires"]:
+            notes.append("Mood follow ended (no word from the listening page); back on the schedule."
+                         if override.get("mood") else "Preview ended; back on the schedule.")
             override, adjust = None, {}
-            notes.append("Preview ended; back on the schedule.")
         if override:
             o = override
             eff = (o.get("obj") or self.cfg.effects.get(o.get("effect"))) if o["on"] else None
@@ -367,19 +479,35 @@ class Controller:
         # unless it sets its own.
         levels = {**w.rule.levels, **(wr.levels if wr else {}), **adjust}
         reason = "weather" if wr else "schedule"
+        cv = None
+        if w.rule.curve:
+            # Night curve (3.18): whites and brightness change through the
+            # night in 10-minute steps; a brightness set by hand still wins.
+            # Each step sends the pattern again, which restarts its motion,
+            # so a moving pattern steps every 30 minutes, not every 10. A
+            # weather pattern keeps its own whites (snow white stays snow
+            # white) and follows only the curve's brightness (3.18.2).
+            from .circadian import STEP_MIN, STEP_MOVING, curve_at, curve_levels, moves, with_white
+            k, lvl = curve_at(w.rule.curve, w, now, self.cfg.loc, STEP_MOVING if moves(eff) else STEP_MIN)
+            if wr:
+                k = None
+            eff = with_white(eff, k, self.cfg.gamma)
+            if "brightness" not in adjust:
+                levels = curve_levels(self.base_levels(eff).get("brightness"), levels, lvl)
+            cv = (k, lvl)
         # Hand plain scheduled nights to the controller's own timer (safety
         # net), so the lights still go OFF if this app dies mid-evening. Only
         # when entering the window from armed-off (or already handed over):
         # switching to Timer mode part-way through a night is avoided because
         # it isn't confirmed that the controller re-lights immediately.
-        if not wr and not adjust:
+        if not wr and not adjust and not w.rule.curve:      # a curve needs the app to change it
             entry_end = self._delegation_end(w, eff, now)
             prev = self.applied_key or ""
             if entry_end and ts(now) < ts(entry_end) - 120 and (prev == "off|timer" or prev.startswith(w.key + "|timer")):
                 return done(Target(f"{w.key}|timer|{step}", True, eff, levels, "schedule", rule.name, w.end,
                                    delegated=True, weather_match=match))
-        key = f"{w.key}|{reason}|{rule.name}|{step}|{json.dumps(levels, sort_keys=True)}"
-        return done(Target(key, True, eff, levels, reason, rule.name, w.end, weather_match=match))
+        key = f"{w.key}|{reason}|{rule.name}|{step}|{json.dumps(levels, sort_keys=True)}" + (f"|k{cv[0]}" if cv else "")
+        return done(Target(key, True, eff, levels, reason, rule.name, w.end, weather_match=match, curve=cv))
 
     def _delegation_end(self, w, eff, now):
         """When the controller holds a verified timer entry matching this
@@ -443,7 +571,7 @@ class Controller:
                         self.last_verify = time.time() - VERIFY_EVERY + 30  # confirm soon
                     lv = "".join(f", {k} {v}" for k, v in t.levels.items())
                     what = (f"on ({t.effect.label}{lv}), run by the controller's own timer" if t.delegated
-                            else f"on ({t.effect.label}{lv})" if t.on else ("off (safety net armed)" if t.key == "off|timer" else "off"))
+                            else f"on ({t.effect.label}{lv})" if t.on else ("off (backup timer armed)" if t.key == "off|timer" else "off"))
                     self.note(f"Lights {what} [{t.source or t.reason}]")
                 except TrimlightError as e:
                     with self.lock:
@@ -455,6 +583,43 @@ class Controller:
                     self.note(f"Couldn't reach the lights: {e}. Retrying in {wait}s.", logging.WARNING)
             if maintenance:
                 self._maintenance(t)
+                self._holiday_morning()
+
+    HOLIDAY_MORNING = 6      # o'clock: the holiday's playlist is announced (3.19)
+
+    def holiday_today(self, now=None) -> dict | None:
+        """Today's holiday whose lights run tonight (the schedule's own pick,
+        so a game day or a higher rule tonight wins): name, playlist, from."""
+        now = now or self.cfg.loc.now()
+        for p in self.cfg.schedule.day_plans(now.date()):
+            if getattr(p.rule, "holiday", None):
+                on = p.start.strftime("%I:%M %p").lstrip("0")
+                return {"name": p.rule.holiday, "playlist": p.effect_label(), "on": on,
+                        "patterns": [e.label for e in p.rule.effects]}
+        return None
+
+    def _holiday_morning(self):
+        """On a holiday's morning, load its playlist for tonight: say so in
+        the log and on Home (the schedule already has it; 3.19)."""
+        now = self.cfg.loc.now()
+        if self.holiday_noted is None and self.noted_path:
+            try:
+                with open(self.noted_path, encoding="utf-8") as f:
+                    self.holiday_noted = date.fromisoformat(f.read().strip())
+            except (OSError, ValueError):
+                self.holiday_noted = date.min
+        if now.hour < self.HOLIDAY_MORNING or self.holiday_noted == now.date():
+            return
+        self.holiday_noted = now.date()
+        if self.noted_path:
+            try:
+                with open(self.noted_path, "w", encoding="utf-8") as f:
+                    f.write(now.date().isoformat())
+            except OSError as e:
+                log.warning("Couldn't save the holiday note day: %s", e)
+        h = self.holiday_today(now)
+        if h:
+            self.note(f"Today is {h['name']}: tonight's lights are {h['playlist']}, from {h['on']}.")
 
     def _safety_step(self, now_ts: float):
         """Keep the controller's copy of the coming nights current (daily, and
@@ -527,7 +692,12 @@ class Controller:
             if t.key != self.applied_key:
                 return
             want = 2 if t.delegated else 1 if t.on else (2 if t.key == "off|timer" else 0)
-            wrong = [d for d in snap if d["online"] and d["switch_raw"] != want]
+
+            def want_for(d):            # a split pattern can leave a controller off (3.17)
+                if want == 1 and t.effect is not None and t.effect.kind == "split" and t.effect.for_device(d["id"]) is None:
+                    return 0
+                return want
+            wrong = [d for d in snap if d["online"] and d["switch_raw"] != want_for(d)]
             self.mismatches = self.mismatches + 1 if wrong else 0
             if self.mismatches >= 2:
                 self.mismatches = 0
@@ -652,7 +822,7 @@ class Controller:
             self.pattern_mismatches = 0
             return None
         verdicts = [(d, self._matches(d.get("effect_raw"), self.sent_effect.get(d["id"])))
-                    for d in snap if d["online"]]
+                    for d in snap if d["online"] and d["id"] in self.sent_effect]
         wrong = [d for d, ok in verdicts if ok is False]
         if any(ok for _, ok in verdicts) and not wrong:
             self.pattern_restored = None          # confirmed: a later change is a real one
@@ -693,6 +863,14 @@ class Controller:
             if on and obj is None and effect_key not in self.cfg.effects:
                 raise ValueError(f"Unknown pattern '{effect_key}'")
             self._end_music("a pattern was chosen")
+            # Choosing On, Off or a pattern by hand during a weather alert
+            # means "not now": dismiss it, so the choice actually shows (3.16.1).
+            if self._target(commit=False).reason == "alert":
+                a = self.active_alert()
+                if a:
+                    self.alert_dismissed[a["event"].lower()] = time.time()
+                    self._save_dismissed()
+                    self.note(f"Weather alert dismissed by a manual change: {a['event']}")
             if on and obj is None:
                 self.last_on = effect_key
             key = effect_key if obj is None else f"_try:{obj.label}:{hash(json.dumps(obj.payload, sort_keys=True))}"
@@ -701,6 +879,51 @@ class Controller:
             self.adjust = {}
             self._kick()
         self.tick(maintenance=False)
+
+    def mood_set(self, effect_key: str, expires_min: int) -> str:
+        """Mood follow's pattern (3.18.2). It shows like a pattern chosen by
+        hand that ends by itself, but it ranks below everything the user or
+        the house decided: it never dismisses a weather alert (the alert
+        stays on top), never ends a music show, and never replaces a pattern
+        chosen by hand (it waits until that one ends). Returns "set",
+        "same" (the pattern already on; its end pushed back) or "manual"
+        (a pattern chosen by hand is on; nothing changed)."""
+        with self.lock:
+            if effect_key not in self.cfg.effects:
+                raise ValueError(f"Unknown pattern '{effect_key}'")
+            o = self.override
+            if o and not o.get("mood") and not (o.get("expires") and time.time() > o["expires"]):
+                return "manual"
+            if o and o.get("mood") and o.get("effect") == effect_key:
+                o["expires"] = time.time() + expires_min * 60
+                return "same"
+            self.override = {"on": True, "effect": effect_key, "obj": None, "since": self.cfg.loc.now(),
+                             "expires": time.time() + expires_min * 60, "mood": True}
+            self.adjust = {}
+            self._kick()
+        self.tick(maintenance=False)
+        return "set"
+
+    def mood_end(self) -> bool:
+        """Mood follow stopped: end its pattern, and only its pattern. A
+        pattern chosen by hand since then stays (3.18.2)."""
+        with self.lock:
+            if not (self.override and self.override.get("mood")):
+                return False
+            self.override, self.adjust = None, {}
+            self._kick()
+        self.tick(maintenance=False)
+        return True
+
+    def touch_override(self, effect_key: str, expires_min: int) -> bool:
+        """Push back when a pattern set for a while ends, without sending it
+        again (mood follow keeps its pattern while the music's mood holds)."""
+        with self.lock:
+            o = self.override
+            if not (o and o["on"] and o.get("effect") == effect_key and o.get("expires")):
+                return False
+            o["expires"] = time.time() + expires_min * 60
+            return True
 
     def default_on_effect(self) -> str:
         """The pattern the On button uses: tonight's scheduled one (the window
@@ -739,8 +962,8 @@ class Controller:
         with self.lock:
             changed = False
             if force and self.flash:
-                self.flash = None
-                self.note("Security flash stopped.")
+                self.note(f"{self.flash.get('label') or 'Security flash'} stopped.")
+                self.flash, self.flash_held = None, []
             if self.music:
                 self.music = None
                 self.note("Music show stopped (back to the schedule).")
@@ -822,7 +1045,7 @@ class Controller:
         or for `minutes`. 0 or None with until_stopped means no end time."""
         with self.lock:
             if self.flash:
-                raise ValueError("A security flash is running. Stop it first.")
+                raise ValueError(f"{self.flash.get('label') or 'A security flash'} is running. Stop it first.")
             now = self.cfg.loc.now()
             until = None
             if minutes:
@@ -840,25 +1063,76 @@ class Controller:
             self._invalidate()                   # send the scheduled pattern in full
         self.tick(maintenance=False)
 
-    def start_flash(self, minutes: int | None = None):
-        if not self.cfg.security["effect"]:
+    def start_flash(self, minutes: int | None = None, seconds: int | None = None, effect=None,
+                    label: str | None = None, kind: str = "security", only_if_on: bool = False) -> bool:
+        """Flash a pattern for a while, then everything returns to normal.
+        effect: an Effect (a webhook's pattern, color or zone; a score
+        celebration), or None for the security flash pattern. only_if_on:
+        skip it when the lights are off (score celebrations in daylight) or a
+        music show runs. Returns whether it started."""
+        if effect is None and not self.cfg.security["effect"]:
             raise ValueError("No security flash is set up. Choose a pattern for it on the Schedule screen.")
-        minutes = max(1, min(240, int(minutes or self.cfg.security["minutes"])))
+        if seconds is not None:
+            secs = max(FLASH_MIN_S, min(FLASH_MAX_S, int(seconds)))
+        else:
+            secs = 60 * max(1, min(240, int(minutes or self.cfg.security["minutes"])))
+        label = (label or ("Security flash" if effect is None else f"Flash: {effect.label}"))[:80]
+        rank = FLASH_RANK.get(kind, 1)
         with self.lock:
-            until = add_real(self.cfg.loc.now(), timedelta(minutes=minutes))
-            extended = bool(self.flash)
-            self.flash = {"until": until}
+            t = self._target(commit=False)
+            cur = self.flash if t.reason == "flash" else None
+
+            def skip(why):
+                self.note(f"{label} skipped: {why}.")
+                return False
+            if t.hands_off:
+                # Any pattern sent now knocks the controller out of music mode,
+                # which this app can't switch back on (3.16.1). Only something
+                # urgent ends the show; the rest wait it out.
+                if rank < FLASH_RANK["security"]:
+                    return skip("a music show is on")
+                self._end_music(label.lower())
+            elif only_if_on and not t.on:
+                return skip("the lights are off")
+            if t.reason == "alert" and rank < ALERT_RANK:
+                return skip(f"the {t.source} alert is showing")
+            if cur is not None and cur.get("rank", 3) > rank:
+                return skip(f"{cur.get('label') or 'Security flash'} is on")
+            until = add_real(self.cfg.loc.now(), timedelta(seconds=secs))
+            extended = cur is not None and (cur.get("label") or "Security flash") == label
+            held = [f for f in self.flash_held if (f.get("label") or "Security flash") != label]
+            if cur is not None and not extended and ts(cur["until"]) > ts(until):
+                held.append(cur)            # resumes when this shorter one ends
+            self.flash_held = held[-MAX_HELD:]
+            self.flash = {"until": until, "eff": effect, "label": label, "kind": kind, "rank": rank, "since": time.time()}
             self._kick()
-            self.note(f"Security flash {'extended' if extended else 'started'} for {minutes} min.")
+            took = f"{secs // 60} min" if secs % 60 == 0 else f"{secs} s"
+            self.note(f"{label} {'extended' if extended else 'started'} for {took}.")
+        self.wake.set()
         self.tick(maintenance=False)
+        return True
 
     def stop_flash(self):
         with self.lock:
             if self.flash:
-                self.flash = None
-                self.note("Security flash stopped.")
+                self.note(f"{self.flash.get('label') or 'Security flash'} stopped.")
+            self.flash, self.flash_held = None, []
             self._kick()
         self.tick(maintenance=False)
+
+    def dismiss_alert(self) -> bool:
+        """Put the lights back for the weather alert showing now (it stays
+        dismissed; a new alert shows again)."""
+        with self.lock:
+            a = self.active_alert()
+            if not a:
+                return False
+            self.alert_dismissed[a["event"].lower()] = time.time()
+            self._save_dismissed()
+            self._kick()
+            self.note(f"Weather alert dismissed: {a['event']}")
+        self.tick(maintenance=False)
+        return True
 
     def reload(self, cfg, api=None):
         """Swap in new settings (and credentials) without restarting."""
@@ -871,6 +1145,10 @@ class Controller:
                 self.devices, self.saved = [], {}
             if cfg.devices != old.devices:
                 self.devices = []
+            wa, wb = cfg.weather_alerts, old.weather_alerts
+            if (cfg.loc.lat, cfg.loc.lon, wa["enabled"], wa["groups"], cfg.weather.get("contact")) != \
+                    (old.loc.lat, old.loc.lon, wb["enabled"], wb["groups"], old.weather.get("contact")):
+                self.wx_alerts = self._make_alerts(cfg, self.wx_alerts)
             if (cfg.loc.lat, cfg.loc.lon, cfg.weather) != (old.loc.lat, old.loc.lon, old.weather) or not cfg.weather["enabled"]:
                 w = cfg.weather
                 self.weather = (WeatherService(cfg.loc.lat, cfg.loc.lon, w["use"], w["check_minutes"], w["contact"])
@@ -896,7 +1174,21 @@ class Controller:
                 self.runtime.add(self.lights_on())
             except Exception:
                 log.exception("Runtime count failed")
-            self.stop_event.wait(self.cfg.interval)
+            # Wake when a flash ends (a 15-second celebration shouldn't last
+            # a whole check interval), or when something new starts.
+            wait = self.cfg.interval
+            with self.lock:
+                f = self.flash
+                if f:
+                    left = (f["until"] - self.cfg.loc.now()).total_seconds()
+                    wait = max(0.5, min(wait, left + 0.3))
+            end = time.monotonic() + wait
+            while not (self.stop_event.is_set() or self.wake.is_set()):
+                left = end - time.monotonic()
+                if left <= 0:
+                    break
+                self.stop_event.wait(min(0.5, left))
+            self.wake.clear()
         self.runtime.save()
 
     def lights_on(self) -> bool:
@@ -911,14 +1203,43 @@ class Controller:
         """Last controller readings from the background check (no network here)."""
         return [{k: v for k, v in d.items() if k not in ("switch_raw", "effect_raw")} for d in self.status_cache["data"]]
 
+    def _prune_dismissed(self, wa):
+        """Forget a dismissed warning once the Weather Service no longer lists
+        it, so the next one of its kind shows. Only after a good check."""
+        if not self.alert_dismissed or not wa.fresh():
+            return
+        names = {a["event"].lower() for a in wa.active(self.cfg.loc.now())}
+        with self.lock:
+            gone = [k for k in self.alert_dismissed if k not in names]
+            for k in gone:
+                del self.alert_dismissed[k]
+            if gone:
+                self._save_dismissed()
+
+    def _alert_status(self, now, fmt, t):
+        if not self.wx_alerts:
+            return None
+        a = self.active_alert(now)
+        st = self.wx_alerts.state()
+        return {"event": a["event"] if a else None, "headline": a["headline"] if a else None,
+                "until": (lambda e: fmt(e) + ("" if e.date() == now.date() else e.strftime(" %a %b %d").replace(" 0", " ")))(
+                    a["ends"].astimezone(now.tzinfo)) if a and a["ends"] else None,
+                "showing": t.reason == "alert", "error": st["error"], "checked": bool(st["checked"])}
+
     def _weather_loop(self):
         while not self.stop_event.is_set():
-            w = self.weather
+            w, wa = self.weather, self.wx_alerts
             if w:
                 try:
                     w.refresh()
                 except Exception:
                     log.exception("weather check failed")
+            if wa:
+                try:
+                    wa.refresh()
+                    self._prune_dismissed(wa)
+                except Exception:
+                    log.exception("weather alert check failed")
             self.stop_event.wait(30)
 
     def status(self) -> dict:
@@ -995,11 +1316,15 @@ class Controller:
             "target": {"on": t.on, "effect": t.effect.label if t.effect else None,
                        "effect_key": t.effect.key if t.effect else None,
                        "reason": t.reason, "source": t.source, "applied": synced, "delegated": t.delegated,
-                       "until": fmt(t.until)},
+                       "until": fmt(t.until),
+                       "curve": {"kelvin": t.curve[0], "level": t.curve[1]} if t.curve else None},
             "levels": {"brightness": levels.get("brightness"), "speed": levels.get("speed"), "adjusted": adjusted},
             "rotation": rot, "weather": wx,
             "flash": {"available": bool(self.cfg.security["effect"]), "minutes": self.cfg.security["minutes"],
-                      "active": t.reason == "flash", "until": fmt(t.until) if t.reason == "flash" else None},
+                      "active": t.reason == "flash", "until": fmt(t.until) if t.reason == "flash" else None,
+                      "label": t.source if t.reason == "flash" else None},
+            "alert": self._alert_status(now, fmt, t),
+            "holiday": self.holiday_today(now),
             "override": override,
             "music": self._music_status(t, now, fmt),
             "window": {"rule": w.rule.name, "start": fmt(w.start), "end": fmt(w.end)} if w else None,

@@ -61,6 +61,11 @@ class H(BaseHTTPRequestHandler):
                 for q in pl["ports"]:
                     i = next((n for n, x in enumerate(d["ports"]) if x["id"] == q["id"]), None)
                     if i is None: return self._err(12000, "Invalid parameter [ports]")
+                    # The real cloud refuses a port without bulbs: there is no
+                    # "off" for a port (seen in 3.18.0 with start 0, end 0).
+                    if STATE.get("port_off_ok") and q.get("start") == 0 and q.get("end") == 0: d["ports"][i] = dict(q); continue   # a cloud that has "off" (tests)
+                    if not (isinstance(q.get("start"), int) and q["start"] >= 1): return self._err(12000, "Invalid parameter [port -> start]")
+                    if not (isinstance(q.get("end"), int) and q["end"] >= q["start"]): return self._err(12000, "Invalid parameter [port -> end]")
                     d["ports"][i] = q
             for k in ("name", "ic", "colorOrder", "switchState"):
                 if k in pl: d[k] = pl[k]

@@ -44,10 +44,10 @@ def _is_auto(e) -> bool:
 
 
 def _stuck_message(stuck: dict) -> str:
-    return (f"Trimlight gave the safety net's new pattern \u201c{stuck.get('name')}\u201d number {stuck.get('id')}, which "
+    return (f"Trimlight gave the backup timer's new pattern \u201c{stuck.get('name')}\u201d number {stuck.get('id')}, which "
             "one of your own patterns already has, so Trimlight can't read the controller until one of them is "
             f"removed. In the Trimlight Edge app (on your home Wi-Fi), delete the pattern named \u201c{stuck.get('name')}\u201d. "
-            "Your own pattern isn't touched. The safety net carries on by itself once the controller reads normally.")
+            "Your own pattern isn't touched. The backup timer carries on by itself once the controller reads normally.")
 
 
 def _resync(api, dev, now):
@@ -77,6 +77,21 @@ def _cal_overlaps(c: dict, days: list) -> bool:
         if (s <= md <= e) if s <= e else (md >= s or md <= e):   # wraps New Year
             return True
     return False
+
+
+def for_device(entries, slots, dev: str):
+    """The plan as one controller runs it: a split pattern (3.17) becomes
+    that controller's own pattern, and its nights are left out where the
+    split has this controller off."""
+    out_slots, keep = {}, []
+    for k, (eff, levels) in slots.items():
+        part = eff.for_device(dev) if eff.kind == "split" else eff
+        if part is not None:
+            out_slots[k] = (part, levels)
+    for e in entries:
+        if e["slot"] in out_slots:
+            keep.append(dict(e, label=out_slots[e["slot"]][0].label))
+    return keep, out_slots
 
 
 def _same_effect(a: dict, b: dict) -> bool:
@@ -204,12 +219,21 @@ class SafetyNet:
                 w = p.window
                 eff, _ = w.rule.pick(w.start, w.start)
                 levels = dict(w.rule.levels)
+                k = None
+                if w.rule.curve:
+                    # A night curve (3.18) needs the app to change it; the
+                    # controller's own copy holds the curve's opening look.
+                    from .circadian import curve_at, curve_levels, with_white
+                    k, lvl = curve_at(w.rule.curve, w, w.start, loc)
+                    eff = with_white(eff, k, cfg.gamma)
+                    levels = curve_levels(eff.payload.get("brightness") if eff.kind in ("custom", "builtin") else None,
+                                          levels, lvl)
                 start = p.start + off
                 last = datetime.combine(start.date(), time(23, 59), tzinfo=start.tzinfo)
                 end = min(p.end + off, last)
                 if end <= start:
                     continue
-                slot = f"{eff.key}|{json.dumps(levels, sort_keys=True)}"
+                slot = f"{eff.key}|{json.dumps(levels, sort_keys=True)}" + (f"|k{k}" if k else "")
                 slots[slot] = (eff, levels)
                 entries.append({"month": start.month, "day": start.day, "start": [start.hour, start.minute],
                                 "end": [end.hour, end.minute], "slot": slot, "label": eff.label, "rule": w.rule.name})
@@ -276,7 +300,7 @@ class SafetyNet:
                              covers_until=(now.date() + timedelta(days=cfg.safety["days"] - 1)).isoformat(),
                              message=msg)
                     self._save()
-                note(f"Safety net updated: {len(entries)} night(s) copied to the controller."
+                note(f"Backup timer updated: {len(entries)} night(s) copied to the controller."
                      + (" It stays off until the Trimlight app's own timers are turned off." if d.get("conflicts") else ""),
                      logging.WARNING if d.get("conflicts") else logging.INFO)
             except CalendarConflict as e:
@@ -292,7 +316,7 @@ class SafetyNet:
                              last_sync_label=now.strftime("%b %d, %I:%M %p").replace(" 0", " "))
                     self._save()
                 if not same:
-                    note(f"Safety net not armed: {e}", logging.WARNING)
+                    note(f"Backup timer not armed: {e}", logging.WARNING)
             except (TrimlightError, ValueError) as e:
                 failed = True
                 with self.lock:
@@ -300,9 +324,9 @@ class SafetyNet:
                     d.update(ok=False, hash=None, message=str(e), last_sync=now.isoformat(timespec="minutes"),
                              last_sync_label=now.strftime("%b %d, %I:%M %p").replace(" 0", " "))
                     self._save()
-                note(f"Safety net not updated: {e}", logging.WARNING)
+                note(f"Backup timer not updated: {e}", logging.WARNING)
             if self.repaired:
-                note("Trimlight couldn't read the controller because two of the safety net's patterns had the same "
+                note("Trimlight couldn't read the controller because two of the backup timer's patterns had the same "
                      "number; they were removed and it reads normally again.", logging.WARNING)
         import time as _t
         self.retry_at = _t.time() + (1800 if failed else 0)
@@ -371,6 +395,7 @@ class SafetyNet:
         raise first
 
     def _sync_one(self, api, dev: str, entries, slots, now: datetime, days: int = 7):
+        entries, slots = for_device(entries, slots, dev)
         det = self._read(api, dev, now)
         with self.lock:
             st = self._dev(dev)
@@ -421,7 +446,7 @@ class SafetyNet:
         dropping = sum(1 for k in owned_eff if k not in slots)
         if len(lib) - dropping + new_needed > MAX_EFFECTS:
             raise ValueError(f"The controller's pattern library is too full ({len(lib)}/{MAX_EFFECTS}). "
-                             "Delete a few patterns in the Trimlight app or shorten the safety net.")
+                             "Delete a few patterns in the Trimlight app or shorten the backup timer.")
         def persist_effects():
             with self.lock:
                 st["effects"] = dict(owned_eff)
@@ -580,12 +605,12 @@ class SafetyNet:
                     if eid in lib and _is_auto(lib[eid]):     # never a pattern that took over its number
                         api.effect_delete(dev, eid)
                 with self.lock:
-                    self.state["devices"][dev] = {"ok": False, "message": "Safety net is off.", "effects": {}, "calendar": []}
+                    self.state["devices"][dev] = {"ok": False, "message": "Backup timer is off.", "effects": {}, "calendar": []}
                     self._save()
-                note("Safety net removed from the controller.")
+                note("Backup timer removed from the controller.")
             except (TrimlightError, ValueError) as e:
                 ok = False
-                note(f"Couldn't remove the safety net yet: {e}", logging.WARNING)
+                note(f"Couldn't remove the backup timer yet: {e}", logging.WARNING)
         return ok
 
     def disable_app_daily_timers(self, api, dev: str, now: datetime) -> int:

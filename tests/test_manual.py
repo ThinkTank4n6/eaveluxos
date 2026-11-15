@@ -69,7 +69,9 @@ class Docs(unittest.TestCase):
         self.assertLess(html.index("<main"), html.index('<footer class="legal"'))   # outside the views, so always shown
         js = (STATIC / "app.js").read_text(encoding="utf-8")
         self.assertIn("$('#legalver').textContent = `EaveLuxOS ${s.version}`", js)
-        self.assertIn("['manual','Manual']", js)
+        # 4.0: the Manual opens from the header's ? button on every screen.
+        self.assertIn("btn('help', 'help', 'Manual', 'Open the manual')", js)
+        self.assertIn("if (b.dataset.q === 'help') return go('manual');", js)
 
     def test_credentials_page_linked(self):
         url = "https://trimlight.ledhue.com/trimlight/v1/api-credentials/apply"

@@ -3,7 +3,7 @@
 """Guided hardware test: python3 main.py hwtest
 
 Answers the questions only a real controller can: does the cloud accept 90
-bulbs per color, does "Port off" (0/0) work, can patterns be saved to the
+bulbs per color, is a port without bulbs (0-0) still refused, can patterns be saved to the
 Trimlight library, does the controller's own timer turn the lights on and off
 (the safety net), is the clock set, and how fast can commands be sent.
 
@@ -152,27 +152,41 @@ def run(store, data_dir: Path, ask=input, say=print, sleep=time.sleep, now=lambd
         else:
             rep.add("Save pattern to library", "SKIP")
 
-        # 7. port off ------------------------------------------------------------
-        if ports and yes("Test turning a port OFF and back on? That section goes dark for a few seconds."):
-            unused = [p for p in ports if not (p.get("start") and p.get("end"))]
-            p = unused[0] if unused else ports[-1]
+        # 7. no "off" for a port -------------------------------------------------
+        # 3.18.1: the cloud refuses a port without bulbs (start 0, end 0) with
+        # code 12000 "Invalid parameter [port -> start]", which is why the app
+        # keeps a "not connected" port's numbers instead. This checks that is
+        # still so (nothing changes on the controller when it's refused).
+        if ports and yes("Check how the cloud treats a port set to bulbs 0-0? Nothing changes if it's refused."):
+            p = next((q for q in ports if not (q.get("start") and q.get("end"))), ports[-1])
             orig = {"id": p["id"], "start": p.get("start", 0), "end": p.get("end", 0)}
-            cleanup.append((f"restore port {p['id'] + 1 - base}", lambda orig=orig: api.update_device(dev_id, {"ports": [orig]})))
-            api.preview_effect(dev_id, _custom([(GREEN, 1)]))
             try:
                 api.update_device(dev_id, {"ports": [{"id": p["id"], "start": 0, "end": 0}]})
-                back = next((x for x in api.get_device(dev_id, now()).get("ports", []) if x["id"] == p["id"]), {})
-                ok = back.get("start") == 0 and back.get("end") == 0
-                dark = True if unused else yes(f"Did the section on port {p['id'] + 1} go dark (the rest stays green)?")
-                rep.add("Port off as 0/0", "PASS" if ok and dark else "FAIL", f"read back {back}")
+                # Accepted: a firmware or cloud that does have "off". Put it
+                # back, when what it held is something the cloud takes (3.18.2:
+                # say so when it isn't, instead of failing on the way back).
+                note = "this cloud accepted a port without bulbs; tell the developer"
+                if orig["start"] >= 1 and orig["end"] >= orig["start"]:
+                    try:
+                        api.update_device(dev_id, {"ports": [orig]})
+                    except TrimlightError as e:
+                        note += f". Putting port {p['id']} back to {orig['start']}-{orig['end']} failed ({e}); set it in the Trimlight app"
+                else:
+                    note += f". Port {p['id']} had no bulbs before, so it's left at 0-0"
+                rep.add("Port 0-0 refused", "NO", note)
             except TrimlightError as e:
-                rep.add("Port off as 0/0", "FAIL", f"refused: {e}")
-            api.update_device(dev_id, {"ports": [orig]})
+                try:
+                    back = next((x for x in api.get_device(dev_id, now()).get("ports", []) if x["id"] == p["id"]), {})
+                except TrimlightError as e2:
+                    back = {"error": str(e2)}
+                unchanged = (back.get("start"), back.get("end")) == (orig["start"], orig["end"])
+                rep.add("Port 0-0 refused", "PASS" if "port" in str(e).lower() and unchanged else "FAIL",
+                        f"{e}; port {'unchanged' if unchanged else 'CHANGED: ' + str(back)}")
         else:
-            rep.add("Port off as 0/0", "SKIP")
+            rep.add("Port 0-0 refused", "SKIP")
 
         # 8. controller's own timer (safety net) ---------------------------------
-        if yes("Test the controller's own timer (the safety net)? Takes about 5 minutes."):
+        if yes("Test the controller's own timer (the backup timer)? Takes about 5 minutes."):
             if any(x.get("enable") for x in det.get("daily", [])):
                 say("Note: the Trimlight app's daily timers are on; they may also run during this test.")
             r = api.save_effect(dev_id, {"id": -1, "name": "HW TIMER delete me", **_custom(_solid(GREEN, total))}) or {}
@@ -203,7 +217,7 @@ def run(store, data_dir: Path, ask=input, say=print, sleep=time.sleep, now=lambd
             rep.add("Controller timer turns lights off", "PASS" if off else "FAIL")
             rep.add("Timer entry reads back as written", "PASS" if readback else "FAIL", "" if readback else str(back))
         else:
-            rep.add("Controller timer (safety net)", "SKIP")
+            rep.add("Controller timer (backup timer)", "SKIP")
 
         # 9. command rate --------------------------------------------------------
         if yes("Test how fast commands can be sent? (10 quick color changes)"):

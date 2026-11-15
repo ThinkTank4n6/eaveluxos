@@ -211,11 +211,22 @@ def _hex_to_int(h: str) -> int:
 class Effect:
     key: str
     label: str
-    kind: str                    # "saved" | "builtin" | "custom"
+    kind: str                    # "saved" | "builtin" | "custom" | "split"
     saved_name: str | None = None
     saved_id: int | None = None
     payload: dict = field(default_factory=dict)
     colors: list = field(default_factory=list)   # as designed (before gamma)
+    # "split" (3.17): a different pattern on each controller. parts maps a
+    # controller id to its Effect, or None for "off on that controller";
+    # controllers not named get `rest` (by default the first pattern that's on).
+    parts: dict = field(default_factory=dict)
+    rest: object = None
+
+    def for_device(self, dev_id: str):
+        """The pattern this controller shows (None = this controller off)."""
+        if self.kind != "split":
+            return self
+        return self.parts.get(dev_id, self.rest)
 
     @classmethod
     def from_config(cls, key: str, c: dict, gamma: float | None = None) -> "Effect":
@@ -230,6 +241,16 @@ class Effect:
         for name, v, lo, hi in (("speed", speed, 0, 255), ("brightness", bright, 0, 255)):
             if not lo <= v <= hi:
                 raise ConfigError(f"effects.{key}: {name} must be {lo}-{hi}")
+        if "split" in c:
+            sp = c["split"]
+            if not isinstance(sp, dict) or not 1 <= len(sp) <= 20 or not all(
+                    isinstance(k, str) and 1 <= len(k) <= 80 and isinstance(v, str) for k, v in sp.items()):
+                raise ConfigError(f"effects.{key}: split needs a pattern (or \"off\") for each controller")
+            # Parts are linked to the other patterns by build_config (link_splits).
+            rest = c.get("rest")
+            if rest is not None and not isinstance(rest, str):
+                raise ConfigError(f"effects.{key}: rest must be a pattern name or \"off\"")
+            return cls(key, label, "split", payload={"split": dict(sp), "rest": rest})
         if "saved" in c or "saved_id" in c:
             return cls(key, label, "saved", saved_name=c.get("saved"),
                        saved_id=int(c["saved_id"]) if "saved_id" in c else None)
@@ -272,9 +293,48 @@ class Effect:
 
     def swatches(self) -> list[str]:
         """Colors as designed (what the screen shows), not as sent."""
+        if self.kind == "split":
+            out = []
+            for e in list(self.parts.values()) + [self.rest]:
+                for c in (e.swatches() if e is not None else []):
+                    if c not in out:
+                        out.append(c)
+            return out[:30]
         if self.kind == "custom":
             return list(self.colors) or ["off" if p["disable"] else f"#{p['color']:06X}" for p in self.payload["pixels"]]
         return []
+
+
+def link_splits(effects: dict):
+    """Point each "split" pattern's parts at the patterns they name, and give
+    it a payload that changes when any part does (the safety net's change
+    check and the "already showing" key read it)."""
+    for e in effects.values():
+        if e.kind != "split":
+            continue
+        sp, rest = e.payload["split"], e.payload["rest"]
+
+        def part(name, where):
+            if name == "off":
+                return None
+            p = effects.get(name)
+            if p is None:
+                raise ConfigError(f"effects.{e.key}: {where} uses pattern '{name}', which doesn't exist")
+            if p.kind == "split":
+                raise ConfigError(f"effects.{e.key}: a split pattern can't contain another split pattern")
+            return p
+        e.parts = {dev: part(k, f"controller {dev}") for dev, k in sp.items()}
+        # A controller the split doesn't name (one added later, or a file
+        # from another home) shows the first pattern that's on, unless the
+        # split says otherwise; never the whole house dark by surprise.
+        e.rest = part(rest, "the other controllers") if rest is not None else \
+            next((p for p in e.parts.values() if p is not None), None)
+        if all(p is None for p in list(e.parts.values()) + [e.rest]):
+            raise ConfigError(f"effects.{e.key}: a split pattern needs at least one controller on")
+        e.payload = {"split": dict(sp), "rest": rest,
+                     "parts": {d: (p.kind, p.payload, p.saved_name, p.saved_id) if p else None
+                               for d, p in sorted(e.parts.items())},
+                     "rest_part": (e.rest.kind, e.rest.payload, e.rest.saved_name, e.rest.saved_id) if e.rest else None}
 
 
 # ---------------------------------------------------------------- rules
@@ -419,7 +479,9 @@ class Rule:
     date_start: tuple[int, int] | None = None
     date_end: tuple[int, int] | None = None
     weekdays: frozenset = frozenset(range(7))
-    only_dates: frozenset | None = None      # game-day rules: just these dates (3.15)
+    only_dates: frozenset | None = None      # game-day rules: just these dates (3.15); holidays (3.19): any `in`-able set
+    holiday: str | None = None               # holiday rules (3.19): the holiday's name
+    curve: list | None = None                # night curve (3.18): [(TimeExpr, kelvin|None, level %)]
 
     @property
     def effect(self):
@@ -494,6 +556,8 @@ class Rule:
                    _rotate(c, len(effs), where), _levels(c, where), ds, de, frozenset(wd))
         rule.nightly = len(effs) > 1 and str(c.get("rotate", "")).lower() == "nightly"
         rule.rotate_each = _rotate_each(c, len(effs), where)
+        from .circadian import parse_curve
+        rule.curve = parse_curve(c, where)
         return rule
 
     def applies_on(self, d: date) -> bool:
@@ -737,6 +801,11 @@ class Config:
     ui_password: str | None
     webhook_token: str | None
     music: dict = field(default_factory=lambda: {"minutes": 60, "schedule": None, "shows": []})
+    weather_alerts: dict = field(default_factory=lambda: {"enabled": False, "groups": [], "effect": "severe", "turn_on": False})
+    zones: list = field(default_factory=list)          # House map zones: [{"name", "start", "end"}]
+    total_bulbs: int | None = None                     # House map address space, when set there
+    celebrate: dict = field(default_factory=dict)      # team key -> score celebration settings (3.16)
+    gamma: float | None = None
 
 
 class _MusicShow:
@@ -796,6 +865,40 @@ class SetupNeeded(ConfigError):
     """Settings are valid so far but something essential isn't filled in."""
 
 
+CELEBRATE_POINTS = {"nfl": 3, "mlb": 1, "nhl": 1, "nba": 3}
+
+
+def _celebrations(gd, effects: dict) -> dict:
+    """Score celebrations (3.16): team key -> {"name", "league", "team",
+    "effect", "seconds", "min_points"} for teams with celebrations on."""
+    from .gameday import GameDayError, check_team, team_key
+    if not isinstance(gd, dict) or not gd.get("enabled") or not isinstance(gd.get("teams"), list):
+        return {}
+    try:
+        seconds = int(gd.get("celebrate_seconds", 15))
+    except (TypeError, ValueError):
+        raise ConfigError("Celebration length must be a whole number of seconds.") from None
+    if not 5 <= seconds <= 120:
+        raise ConfigError("Celebrations last 5 to 120 seconds.")
+    out = {}
+    for t in gd["teams"]:
+        if not isinstance(t, dict) or not t.get("celebrate"):
+            continue
+        try:
+            c = check_team(t)
+        except GameDayError as e:
+            raise ConfigError(str(e)) from None
+        eff = t.get("effect")
+        if eff not in effects:
+            continue                     # _game_rules reports it
+        mp = t.get("min_points", CELEBRATE_POINTS[c["league"]])
+        if not isinstance(mp, int) or isinstance(mp, bool) or not 1 <= mp <= 10:
+            raise ConfigError(f"{c['name']}: celebrate scores of 1 to 10 points or more.")
+        out[team_key(c["league"], c["team"])] = {**c, "effect": eff, "seconds": seconds, "min_points": mp,
+                                                 "only_when_on": bool(gd.get("celebrate_only_when_on", True))}
+    return out
+
+
 def _game_rules(gd, effects: dict, order0: int, gamedates: dict, taken_names=()) -> list:
     """Game-day lights (gameday.py): one rule per team, running only on its
     game dates, above seasonal rules."""
@@ -832,7 +935,63 @@ def _game_rules(gd, effects: dict, order0: int, gamedates: dict, taken_names=())
     return out
 
 
-def build_config(raw: dict, secrets: dict, need_secrets: bool = True, gamedates: dict | None = None) -> Config:
+def _holiday_rules(hc, effects: dict, order0: int, country_dates, taken_names=()) -> list:
+    """Holiday lights (holidays.py, 3.19): a rule per picked holiday that
+    runs only on its nights, whatever the year, above seasonal rules; and
+    one for another country's public holidays, just below them."""
+    from .holidays import COUNTRY_PRIORITY, HOLIDAY_PRIORITY, DateSet, HolidayError, HolidayNights, check_entry
+    if hc is None:
+        return []
+    if not isinstance(hc, dict) or not isinstance(hc.get("list", []), list):
+        raise ConfigError("Holiday settings must be an object with a list of holidays.")
+    if not hc.get("enabled"):
+        return []
+    if len(hc.get("list", [])) > 40:
+        raise ConfigError("Up to 40 holidays.")
+    out, used, keys = [], set(taken_names), set()
+
+    def make(name, e, nights, priority, label):
+        n, k = name, 2
+        if n in used:
+            n = f"{name} (holiday)"
+        while n in used:                       # a rule of yours named that too (3.19.1)
+            n, k = f"{name} (holiday {k})", k + 1
+        used.add(n)
+        c = {"name": n, "on": e["on"], "off": e["off"], "effect": e["effects"], "priority": priority}
+        if len(e["effects"]) > 1:
+            c["rotate_minutes"] = e["rotate"]
+        try:
+            r = Rule.from_config(order0 + len(out), c, effects)
+        except ConfigError as err:
+            raise ConfigError(f"{name}: {err}") from None
+        r.only_dates, r.holiday = nights, label
+        out.append(r)
+
+    for i, raw_e in enumerate(hc.get("list", [])):
+        try:
+            e = check_entry(raw_e, effects, f"Holiday {i + 1}")
+        except HolidayError as err:
+            raise ConfigError(str(err)) from None
+        if e["key"] in keys:
+            raise ConfigError(f"{e['name']} is on the holiday list twice.")
+        keys.add(e["key"])
+        make(e["name"], e, HolidayNights(e["key"], e["before"], e["after"], e["moved"]), HOLIDAY_PRIORITY, e["name"])
+    cc = hc.get("country")
+    if cc:
+        if not isinstance(cc, dict) or not re.fullmatch(r"[A-Z]{2}", str(cc.get("code", ""))):
+            raise ConfigError("Public holidays: choose a country (a 2-letter code like CA).")
+        effs = cc.get("effects")
+        if not isinstance(effs, list) or not 1 <= len(effs) <= 6 or not all(k in effects for k in effs):
+            raise ConfigError("Public holidays: choose 1 to 6 of your patterns.")
+        e = {"effects": effs, "on": str(cc.get("on") or "sunset"), "off": str(cc.get("off") or "23:00"),
+             "rotate": int(cc.get("rotate") or 15)}
+        make(f"Public holidays ({cc['code']})", e, DateSet((country_dates or {}).get(cc["code"], ())),
+             COUNTRY_PRIORITY, f"Public holiday ({cc['code']})")
+    return out
+
+
+def build_config(raw: dict, secrets: dict, need_secrets: bool = True, gamedates: dict | None = None,
+                 country_dates: dict | None = None) -> Config:
     """raw: the settings document (same shape as config.toml).
     secrets: client_id, client_secret, ui_password, webhook_token."""
     loc_c = raw.get("location", {})
@@ -841,7 +1000,7 @@ def build_config(raw: dict, secrets: dict, need_secrets: bool = True, gamedates:
     except (TypeError, ValueError):
         raise ConfigError("Latitude and longitude must be numbers.") from None
     if lat == 0 and lon == 0:
-        raise SetupNeeded("Set your location on the Date & Time screen.")
+        raise SetupNeeded("Set your location in Setup › Location & time.")
     if not (-90 <= lat <= 90 and -180 <= lon <= 180):
         raise ConfigError("Latitude must be -90..90 and longitude -180..180.")
     tzname = loc_c.get("timezone", "America/New_York")
@@ -859,12 +1018,14 @@ def build_config(raw: dict, secrets: dict, need_secrets: bool = True, gamedates:
         raise SetupNeeded("Create at least one pattern.")
     gamma = color_gamma(raw)
     effects = {k: Effect.from_config(k, v, gamma) for k, v in eff_c.items()}
+    link_splits(effects)
 
     favs = raw.get("favorites", [])
     if not isinstance(favs, list) or len(favs) > 6 or not all(isinstance(k, str) for k in favs):
         raise ConfigError("Favorites must be a list of up to 6 pattern names.")
     rules = [Rule.from_config(i, r, effects) for i, r in enumerate(raw.get("rules", []))]
     rules += _game_rules(raw.get("gameday"), effects, len(rules), gamedates or {}, [r.name for r in rules])
+    rules += _holiday_rules(raw.get("holidays"), effects, len(rules), country_dates, [r.name for r in rules])
     names = [r.name for r in rules]
     if len(names) != len(set(names)):
         raise ConfigError("Two schedule rules have the same name. Give each one its own name.")
@@ -915,6 +1076,14 @@ def build_config(raw: dict, secrets: dict, need_secrets: bool = True, gamedates:
     if hook and len(hook) < 16:
         raise ConfigError("The webhook token should be at least 16 characters.")
 
+    from .triggers import build_alert_settings
+    wx_alerts = build_alert_settings(raw, effects)
+    mp = raw.get("map") or {}
+    zones = [{"name": str(z.get("name", "")).strip(), "start": int(z["start"]), "end": int(z["end"])}
+             for z in (mp.get("zones") or []) if isinstance(z, dict) and isinstance(z.get("start"), int) and isinstance(z.get("end"), int)]
+    tb = mp.get("total_bulbs")
+    total_bulbs = tb if isinstance(tb, int) and not isinstance(tb, bool) and 1 <= tb <= 10000 else None
+
     return Config(
         loc=loc, effects=effects, schedule=Schedule(rules, loc, away), weather_rules=wrules,
         weather=weather, security=security, safety=safety,
@@ -926,6 +1095,8 @@ def build_config(raw: dict, secrets: dict, need_secrets: bool = True, gamedates:
         ui_password=os.environ.get("TRIMLIGHT_UI_PASSWORD") or None,
         webhook_token=hook,
         music=build_music(raw, loc),
+        weather_alerts=wx_alerts, zones=zones, total_bulbs=total_bulbs,
+        celebrate=_celebrations(raw.get("gameday"), effects), gamma=gamma,
     )
 
 

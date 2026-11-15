@@ -1,7 +1,7 @@
 # EaveLuxOS: User Manual
 ### The Intelligent Lighting Control Platform
 
-Version 3.15.1 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
+Version 4.0.1 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
 
 > **Downloaded the ready-made app? You can skip most of the setup.**
 > The downloads on the project's GitHub **Releases** page
@@ -35,8 +35,8 @@ keeps all your settings.
 
 This manual takes you from nothing installed to a working schedule, then
 explains every screen. You never need to type commands.
-Inside the app, the **Manual** button in the top ribbon opens it, with a
-search box. The bottom of every screen shows the app's version, the
+Inside the app, the **Manual** button (**?** on a phone) at the top of every
+screen opens it, with a search box. The bottom of every screen shows the app's version, the
 copyright notice and a link to the MIT License.
 
 It complements Trimlight's own **Trimlight Select EDGE Wi-Fi V2 User's Guide**.
@@ -59,22 +59,50 @@ manual refers to "Trimlight's guide", that's the document it means.
 9. [Home](#9-home)
 10. [Patterns](#10-patterns)
 11. [Create a pattern](#11-create-a-pattern)
-12. [House map](#12-house-map)
+12. [House](#12-house)
 13. [Schedule](#13-schedule)
-14. [Weather rules](#14-weather-rules)
-15. [Security flash](#15-security-flash)
+14. [Alerts: weather rules](#14-alerts-weather-rules)
+15. [Alerts: security flash](#15-alerts-security-flash)
 16. [Music shows](#16-music-shows)
-17. [Safety net](#17-safety-net)
-18. [Lights: ports, bulbs and LED settings](#18-lights-ports-bulbs-and-led-settings)
-19. [Date and time](#19-date-and-time)
-20. [Settings](#20-settings)
-21. [Home Assistant and webhooks](#21-home-assistant-and-webhooks)
+17. [Backup timer (safety net)](#17-backup-timer-safety-net)
+18. [Setup › Lights & controller](#18-setup--lights--controller)
+19. [Setup › Location & time](#19-setup--location--time)
+20. [Setup › Accounts & access, and App](#20-setup--accounts--access-and-app)
+21. [Alerts: webhooks and Home Assistant](#21-alerts-webhooks-and-home-assistant)
 22. [Share patterns with other owners](#22-share-patterns-with-other-owners)
 23. [Update, move or uninstall](#23-update-move-or-uninstall)
 24. [Test with your controller](#24-test-with-your-controller)
 25. [Troubleshooting](#25-troubleshooting)
 26. [Questions and answers](#26-questions-and-answers)
 27. [License](#27-license)
+
+
+### Where things are (version 4.0)
+
+Version 4.0 reorganized the app into seven tabs. Nothing was removed; some
+things moved:
+
+| Tab | What's there |
+|---|---|
+| **Home** | What the lights are doing, turn on and off, favorites, brightness and speed, the week ahead. |
+| **Patterns** | Your patterns, Community, built-in effects and patterns in the Trimlight app. **New pattern** opens the designer (it used to be the **Create** tab). |
+| **Schedule** | **Every night:** rules and Coming up. **Special days:** holidays, game-day lights and away mode. |
+| **Alerts** | Everything that reacts: weather rules, severe weather alerts, the security flash, webhooks and phone alerts (they were on Schedule and Settings). |
+| **Music** | Music shows (the controller's music mode) and mood follow. |
+| **House** | The house map: photos, rooflines, landmarks, zones, the bulb finder and bulb numbering. |
+| **Setup** | **Lights & controller** (ports, controller, the backup timer, color correction, pattern backups), **Location & time** (was Date & Time), **Accounts & access** and **App** (were Settings). |
+
+- On a phone, the tabs are along the **bottom** of the screen. They step
+  aside while you type in a field, so they don't sit on top of the keyboard.
+- The browser's **Back** button returns to the tab you were on before.
+- Panels that fold show a one-line summary, such as "Holidays · next:
+  Thanksgiving, Thu, Nov 26".
+  Tap one to open it; the app remembers which ones you keep open.
+- The **Manual** is the **?** button at the top.
+- Renamed: the **backup timer** is now the **backup timer**, and **Address space**
+  is now **Bulb numbering**.
+- Old bookmarks still work: `#settings`, `#lights`, `#time` and `#create`
+  open the right place.
 
 ---
 
@@ -121,7 +149,7 @@ page, using the same account you sign in to the Trimlight Edge app with.
    Client Secret like a password: anyone who has it can control your lights.
 
 You'll paste them into the setup assistant (section 5), or later under
-**Settings › Trimlight account**.
+**Setup › Accounts & access › Trimlight account**.
 
 If the page doesn't accept your account or doesn't give you credentials,
 contact Trimlight support and ask for **API access (Client ID and Client
@@ -194,7 +222,7 @@ install it with your system's software installer (the package is `python3`).
 > whichever version you run, so you never copy it between versions. On a Mac,
 > the app uses `~/Library/Application Support/EaveLuxOS`; on Linux, the
 > `data` folder next to `main.py` (or `~/.local/share/eaveluxos` if that
-> can't be written). **Settings › Setup and about** shows the folder in use.
+> can't be written). **Setup › App › Setup and about** shows the folder in use.
 
 ## 5. The setup assistant
 
@@ -258,7 +286,7 @@ can use them (see section 10).
 
 ## 7. Make it start automatically
 
-1. Go to the **Settings** tab.
+1. Go to **Setup › App**.
 2. Under **Start automatically**, tick **Start this app when the computer
    starts**.
 
@@ -270,7 +298,7 @@ goes to sleep.
 
 ## 8. Use it from your phone
 
-1. On the app computer, open **Settings** and look under **Phones and other
+1. On the app computer, open **Setup › Accounts & access** and look under **Phones and other
    computers** for an address such as `http://192.168.1.20:8787`.
 2. On your phone, connect to your home Wi-Fi and open that address in Safari
    or Chrome.
@@ -280,7 +308,7 @@ goes to sleep.
 
 A phone stays signed in until it goes **8 hours without being used**, and
 never longer than **7 days** (an Administrator can change the first number
-under **Settings › Accounts**). The sign-in is stored for this
+under **Setup › Accounts & access**). The sign-in is stored for this
 app's exact address, including the port, so other web apps on the same
 computer never see it. If you change the app's port (section 20), or update
 from a version before 2.3.2, each phone signs in once more.
@@ -312,7 +340,7 @@ from a version before 2.3.2, each phone signs in once more.
 > `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;` in its
 > `location` block. Anything that forwards without adding that header (`ssh -L`,
 > `socat`, a TCP-only tunnel) can't be told apart from a browser on this
-> computer, so first turn on **Settings › Require signing in on this computer
+> computer, so first turn on **Setup › Accounts & access › Require signing in on this computer
 > too**.
 
 ## 9. Home
@@ -320,8 +348,9 @@ from a version before 2.3.2, each phone signs in once more.
 Home shows what the lights are doing now and lets you take over quickly.
 
 **On every screen,** the top right shows what the lights are doing (*Lights
-on*, *Lights off* or *Music show*) next to four buttons. On a phone they show
-as icons only: a light bulb, a power symbol, the theme and a door.
+on*, *Lights off* or *Music show*) next to these buttons. On a phone they show
+as icons only: a light bulb, a power symbol, the theme, a question mark and a
+door, and the tabs are along the bottom of the screen.
 
 - **On** turns the lights on with tonight's scheduled pattern: the one
   showing now, or the next one on the schedule. With nothing scheduled in the
@@ -330,9 +359,11 @@ as icons only: a light bulb, a power symbol, the theme and a door.
 - Both last until the next scheduled change, like **Turn on** and **Turn off**
   below. The one that matches what the lights are already doing is grayed out.
   Viewers don't see them.
-- **Theme (Auto, Light or Dark):** tap to switch. **Auto** follows the
+- **Theme (auto, light or dark):** the look of the app's screens, not the
+  lights. Tap to switch. **Auto** follows the
   phone's or computer's own setting; **Light** and **Dark** stay that way. The
   choice is kept on each phone or computer separately.
+- **Manual** (**?**) opens this manual.
 - **Quit** stops the app, after asking first. It's shown only on the computer
   the app runs on (see **Quit the app** in section 20).
 
@@ -396,9 +427,38 @@ on).
 
 ## 11. Create a pattern
 
+### Describe it in words
+
+At the top of **Create** (Patterns › New pattern), type what you'd like, for example "cyberpunk rainy
+night", "1980s retro arcade" or "slow candy cane twinkle", and tap **Make it**
+(or press Enter). The colors, motion, speed and brightness are filled in for
+you to adjust, preview and save. **Try another** gives a different take on
+the same words.
+
+- **Built in (the standard way):** a dictionary of holidays, seasons, moods,
+  places and eras, color words ("purple and gold", and all 141 web color
+  names such as "crimson and forest green"), motion words ("twinkle",
+  "chase", "breathe", "comet", "wave", "strobe", "fade") and speed words
+  ("slow", "fast"). It runs on this computer, free, and sends nothing
+  anywhere. Words it doesn't know still give a pattern, the same one every
+  time.
+- **With AI (optional):** add an Anthropic API key in **Setup › App › AI pattern
+  ideas**, and **Use AI** appears. The description you type (nothing else) is
+  sent to Anthropic's Claude, which answers with colors and a motion. Each idea
+  costs a fraction of a cent on your Anthropic account. The answer is checked
+  like any pattern (up to 8 colors, the controller's own motions) before you
+  see it. Saving or removing the key asks for the app password again. To
+  keep the cost in check, Use AI allows 6 ideas a minute and 100 a day (Try
+  another, built in, has no limit). If Use AI says the model wasn't found
+  (Anthropic retires older models), enter a newer model name under the key
+  in **Setup › App › AI pattern ideas**; leave it empty for the default.
+
+### Design it yourself
+
 This works like the color circles in the Trimlight app.
 
-1. Open the **Create** tab, or tap **New pattern** on the Patterns tab.
+1. On the **Patterns** tab, tap **New pattern** (or **Edit** on one of your
+   patterns). This opens **Create**; **‹ Patterns** at the top goes back.
 2. Type a **Name**, for example "Candy cane".
 3. Under **Colors in order**, each circle is one color, and its number is how
    many bulbs that color covers, from 1 to 90. There can be up to 30 circles,
@@ -407,6 +467,16 @@ This works like the color circles in the Trimlight app.
    - Tap a circle to select it.
    - Tap a color in the palette to change it, or use the rainbow circle to pick
      any color.
+   - **By name or code:** type a color's name (**crimson**, **forest green**,
+     **deep sky blue**; suggestions appear as you type) or its code from an
+     RGB chart: **FF1493**, **#FF1493**, **255 20 147** or **FF 14 93**. Tap
+     **Set** (or press Enter).
+   - **Paste a list** in the same box, such as "crimson, forest green, gold" or
+     rows copied from a chart, and choose **Use them as the pattern** or **Add
+     after** the selected color. A chart row that gives one color three ways
+     (name, hex and decimal) counts once.
+   - **Named colors…** lists the 141 standard web color names (the RGB chart
+     shared in Trimlight groups), grouped by color, with a search box.
    - **Whites** sets a white by color temperature, like light bulbs on a box:
      **Candlelight** (2200 K), **Warm white** (2700 K), **Soft white** (3000 K),
      **Neutral white** (4000 K), **Cool white** (5000 K) and **Daylight**
@@ -414,7 +484,7 @@ This works like the color circles in the Trimlight app.
      same white on every circle for an even architectural look. Trimlight
      bulbs have no separate white chip, so these whites are mixed from red,
      green and blue; if whites look too blue or too pink on your house, adjust
-     **Lights › Color correction**. Whites are in **Paint bulbs** too.
+     **Setup › Lights & controller › Color correction**. Whites are in **Paint bulbs** too.
    - Use **−** and **+** to change how many bulbs the color covers (1 to 90).
    - Use **Move left** and **Move right** to reorder, and **Remove** to delete
      the selected color.
@@ -435,12 +505,33 @@ This works like the color circles in the Trimlight app.
    first if you want it in the Trimlight Edge app too.
 
 When **color correction** is on (see
-[Lights](#18-lights-ports-bulbs-and-led-settings)), the lights get adjusted
+[Setup › Lights & controller](#18-setup--lights--controller)), the lights get adjusted
 colors so they look like the preview. Tick **Exact colors** to send this
 pattern's colors unchanged, for example colors you already tuned by eye on the
 house.
 
 To change a pattern later, open **Patterns › My patterns** and tap **Edit**.
+
+### Named colors on LED lights
+
+The RGB charts shared online show colors as a **screen** shows them. LED
+lights mix colored light, so many named colors look different on a house.
+**Named colors…** notes how each one looks on lights, and **Only colors that
+show well on lights** hides the rest:
+
+| Note | Colors like | What you'll see |
+|---|---|---|
+| Great on lights | Red, Crimson, Orange Red, Gold, Lime, Deep Sky Blue, Blue, Dark Violet, Magenta, Deep Pink | Close to the chart |
+| Softer on lights | Salmon, Light Coral, Sky Blue, Orchid, Khaki | A light, whitish version of the color |
+| Pale: looks almost white | Pink, Lavender blush, Peach Puff, Tan, Plum, Pale Green | Nearly white |
+| Looks white | The whole White group (Snow, Ivory, Linen, Beige…), Lavender | White; you can't tell them apart on a roofline |
+| Looks like dim white | The Gray group (Silver, Gray, Slate Gray…) | A dimmer white |
+| Looks like dim … | Navy, Maroon, Dark Green, Teal, Indigo | A dimmer version of the color (the brightness slider does the same) |
+| Looks orange / red / yellow | Chocolate, Sienna, Peru, Goldenrod, Brown | Lights can't make brown: brown is dark orange next to brighter colors |
+
+The selected color shows its name in Create (or the nearest name, like
+"#E0A060 · near Sandy Brown"), with a note when it won't look like the chart.
+Hold the pointer over any color strip in the app to see its colors' names.
 
 ### Paint single bulbs, ranges or every Nth bulb
 
@@ -450,8 +541,8 @@ The circles become a strip with one dot per bulb (numbers every 10).
 1. Choose what you're painting:
    - **One repeat:** one copy of your sequence, which then repeats along the
      roofline. Set **Bulbs in one repeat** to make it longer or shorter.
-   - **Whole house:** every bulb from 1 to your total (House map › Address
-     space), painted once with no repeat. Landmarks from the House map show
+   - **Whole house:** every bulb from 1 to your total (House › Bulb
+     numbering), painted once with no repeat. Landmarks from the House tab show
      as small orange marks under their bulbs.
 2. Pick a **paint color**, ✕ (zone off: dark, skipped by movement) or any
    color with the rainbow button.
@@ -472,15 +563,26 @@ The circles become a strip with one dot per bulb (numbers every 10).
 
 ### Paint by zone
 
-If you've saved zones on the House map (section 12), you can color whole
+If you've saved zones on the House tab (section 12), you can color whole
 sections at once:
 
 1. In **Create**, tap **Paint by zone**.
 2. Choose a color for each zone, such as Garage roof = Red and Main roof =
-   White. Leave a zone as "Leave as the rest" to skip it.
+   White. Leave a zone as "Leave as the rest" to skip it. The percentage next
+   to it sets that zone's **brightness** against the others, for example the
+   second story at 35% and the garage at 100%.
 3. Choose **Everything else**: ✕ Zone off (dark, never moves), Black, or a
    color.
 4. Tap **Paint**, check the preview, name the pattern and tap **Save pattern**.
+
+A controller has one brightness for the whole pattern, so a dimmer zone is
+made by darkening its color. That works best for still patterns: a moving
+pattern carries the dimmer color along with it. The percentages look right
+with **Color correction** on (section 18). With it off, a dimmed zone looks
+brighter than its number: 50% looks closer to 75%.
+
+**Preview on house** (next to Paint bulbs) shows the design animating on your
+house photo (section 12, House view).
 
 The counter above the circles shows how many of the controller's **30 color
 slots** the pattern uses. Each slot holds up to 90 bulbs, so a long zone may
@@ -500,7 +602,7 @@ This is the "Isolated Front Peak" example from Trimlight's guide:
 | 4 | Blue | 25 | Bulbs 67–91 blue |
 
 The sequence then repeats for the rest of the lights. Bulb numbers follow the
-port setup on the Lights tab (section 18), so get that right first.
+port setup on Setup › Lights & controller (section 18), so get that right first.
 
 ### Tips from Trimlight's guide
 
@@ -512,14 +614,14 @@ port setup on the Lights tab (section 18), so get that right first.
 - **For a pulse**, fill several circles with a large count (up to 90) of one
   color, and add one circle of a second color that will travel through it.
 
-## 12. House map
+## 12. House
 
-The House map tab helps you find where each bulb is, label your house, and
+The House tab helps you find where each bulb is, label your house, and
 name sections of roofline.
 
 ### Find a bulb
 
-1. Open **House map**. The **Bulb finder** shows bulb **1** of your address
+1. Open the **House** tab. The **Bulb finder** shows bulb **1** of your address
    space. That's the total number of bulbs, taken from the controller's ports
    (section 18).
 2. Tap **Show on house**. That one bulb lights up and everything else goes
@@ -570,7 +672,7 @@ the bulb finder's current selection. Tap **Save zone**. **Show** lights a zone
 and ✕ deletes it. Patterns you already painted with a zone keep their colors;
 paint them again to use the new bulbs.
 
-### Address space
+### Bulb numbering
 
 The app normally uses the controller's port layout. Under **Use a different
 total**, you can set your own number instead, for example if the controller
@@ -600,6 +702,64 @@ detection can't see. A side can have up to 40 sections of up to 100 points.
 Tap a saved line (or **Adjust**) to change it; ✕ deletes it. Replacing a
 photo removes that side's sections, since they were drawn on the old photo.
 
+### Bulbs on each line
+
+To preview patterns on a photo or build scenes (below), each traced roof edge
+needs to know its bulbs:
+
+1. Under the photo, tap **Bulbs** next to a section.
+2. Enter the bulb at its **first point** and at its **last point**. Use the
+   bulb finder to check the two ends. If they count down (for example 84 to
+   40), enter them that way.
+
+The bulbs are spread evenly along the line, skipping wire-only stretches.
+Adjusting the line keeps its bulb numbers; **Clear** removes them.
+
+### House view: preview a pattern on your house
+
+**House view**, under the photo, shows the side with each bulb where it sits.
+
+- **Preview a pattern** animates any pattern made of colors on the photo.
+  **Night** darkens the photo so the lights glow. **Preview on house** in
+  Create brings a design there before you save it.
+- The animation is the app's approximation of the controller's motions, the
+  same one Create's preview uses, so speed and smoothness are close, not exact.
+  Built-in effects and patterns saved only in the Trimlight app can't be
+  previewed, because their colors aren't known here.
+
+### Scenes: light just the bulbs you choose
+
+A scene is architectural lighting, for example 3 warm-white bulbs above each
+window and at each peak with the rest of the roofline dark.
+
+1. In **House view**, tap **Build a scene**.
+2. Choose **Tap lights** (1 to 9 bulbs) and tap a bulb on the photo: that bulb
+   and the ones around it light. Tap again to turn them off.
+3. **Landmarks named…** lights every landmark whose name contains the words,
+   for example "window", with the same number of bulbs around each. Or type
+   **bulb numbers**, such as `10-12, 40`, and tap **Light these** (the way to
+   build a scene with a keyboard).
+4. **Add a group** for a different color or brightness, such as a dimmer white
+   over the garage. Groups can use up to 14 colors.
+5. Name it, tap **Show on lights** to check, and **Save as a pattern**.
+
+Every other bulb is set to ✕ (dark). A scene is an ordinary pattern, so rules,
+Home and Turn on use it like any other. **Edit a saved scene** (or Edit on the
+Patterns tab) opens it here again.
+
+Each lit spot and each dark gap uses one of the controller's 30 color slots
+(two for a dark stretch over 90 bulbs, or over 60 on a controller that only
+takes 60 per slot), so a scene has room for about 12 to 14 separate lit
+spots. The counter shows how many it uses on your controller; spots that touch
+share a slot. The group buttons count the bulbs each group really lights (a
+later group wins a bulb two groups share). Dimmed groups follow the same rule
+as dimmed zones above.
+
+A scene covers exactly the bulbs your lights had when it was saved. If the
+number changes (ports or the House tab total), the scene and the Patterns tab
+say so: open it and save it again. Bulbs numbered past the last bulb are
+flagged under the photo and left out of House view.
+
 **Show flat diagram** unfolds every side into one picture: roof edges in
 green, ridges in purple, wire-only stretches in gray, and your landmarks with
 their bulb numbers. **Download SVG** saves it as a file you can print or open
@@ -609,6 +769,12 @@ to scale.
 ## 13. Schedule
 
 A **rule** says when the lights turn on and off, and which pattern shows.
+
+The Schedule tab has two parts: **Every night** (your rules, and **Coming up**,
+what runs each night) and **Special days** (holidays, game-day lights and away
+mode, each folded to one line until you open it). Weather, severe weather
+alerts and the security flash are on the **Alerts** tab; the backup timer is
+in **Setup › Lights & controller**.
 
 ### Run the schedule
 
@@ -681,6 +847,40 @@ one of its nights, usually one with the same priority that is listed first.
 The note names that rule and how to fix it, usually by raising this rule's
 priority.
 
+### Night curve: warmer and dimmer as the night goes on
+
+A rule can change its whites and brightness through the night, for example
+crisp 5000 K white at dusk, warm 2700 K from 9 PM, and a 15% glow after
+midnight.
+
+1. In the rule, tick **Night curve**.
+2. Each row is a point: a time (21:00, 00:00, sunset or sunset + 30), a white
+   (or the pattern's own colors) and a brightness. **Dusk to midnight glow**
+   fills in the example above. Use 2 to 6 points.
+3. Save.
+
+Between points the lights change a little at every 10-minute mark (9:00,
+9:10, ...), so a point at 9:00 PM is reached at 9:00 PM. Each change sends
+the pattern again, which starts its motion over, so a **moving** pattern
+changes every 30 minutes instead (9:00, 9:30, ...); a still one every 10. Times earlier than
+the rule's start count as the next morning ("00:00" is midnight that night);
+a point a little before the start (such as "sunset" for a rule starting at
+sunset + 30) counts as the start.
+
+- **Whites** (colors with little color in them) take the curve's white;
+  other colors keep their color and only dim. Brightness works for every
+  kind of pattern.
+- A brightness you set by hand (Home's slider) wins until the next scheduled
+  change.
+- When a **weather** pattern takes over (snow, for example), it dims with the
+  curve but keeps its own whites, so snow white stays snow white.
+- A curve needs this app to change the lights, so those nights aren't handed
+  to the controller's own timer. The **backup timer** copies the curve's
+  opening look, so the lights still come on and go off on time if this
+  computer is off.
+- Home says where the curve is, for example "Night curve: 2700 K, 43%
+  brightness".
+
 ### Several schedules a day
 
 Like the Trimlight Edge app's timers, a day can have more than one rule, as
@@ -693,7 +893,7 @@ example:
 **Add a morning schedule** on the Schedule tab fills in the second one for
 you (6:00 AM → Sunrise, with your everyday pattern); change anything before
 tapping **Save**. Both show in **Coming up** and in **This week** on Home,
-and the safety net copies both to the controller.
+and the backup timer copies both to the controller.
 
 In winter the morning rule runs from 6:00 AM until it gets light. Around
 the summer, when the sun is up before 6:00 AM, it doesn't run at all.
@@ -738,6 +938,59 @@ lived in rather than on a timer.
   net copies them to the controller too.
 - It ends by itself after the day you're back, or tap **Turn off (I'm back)**.
 
+### Holidays that find their own dates
+
+Instead of a dated rule for every holiday (and changing Thanksgiving's date
+every year), pick holidays on the **Schedule** tab under **Holidays**. The app
+works out each one's date every year, loads its playlist that morning and runs
+it from the time you choose.
+
+1. Tick **Use holiday lights**.
+2. Choose a holiday in **Add a holiday…** and tap **Add**. It comes with one
+   or two themed patterns (Harvest for Thanksgiving, Easter pastels, Diwali
+   lamps and so on), added to your patterns for you to change.
+3. Choose up to three patterns. With more than one, they take turns, each for
+   **Each shows** minutes.
+4. Change **On** and **Off** if you like (sunset to 11:00 PM to start;
+   New Year's Eve runs to 12:30 AM).
+5. **Days before** and **Days after** make it a season: Halloween with 6 days
+   before is Halloween week; Christmas Day with 20 before and 12 after is a
+   Christmas season.
+
+| Kind | Holidays | How the date is found |
+|---|---|---|
+| Fixed | New Year's Day and Eve, Valentine's, St. Patrick's, Juneteenth, July 4, Halloween, Veterans Day, Christmas Eve and Day, Kwanzaa (7 nights) | The same date every year |
+| By rule | MLK Day, Presidents' Day, Mother's Day, Memorial Day, Father's Day, Labor Day, Columbus / Indigenous Peoples' Day, Thanksgiving | "Fourth Thursday of November", "last Monday of May"… |
+| From Easter | Mardi Gras, Good Friday, Easter | Calculated for any year |
+| Hebrew calendar | Rosh Hashanah (2 nights), Hanukkah (8 nights) | Calculated exactly for any year; they begin at sundown, so the lights start the evening before |
+| By the moon | Lunar New Year, Holi, Diwali, Eid al-Fitr, Eid al-Adha | Published dates built in through 2035 |
+
+- **Moved dates.** Diwali and Holi are sometimes kept a day apart from India's
+  date, and the two Eids depend on the new moon being seen, so they can be a
+  day off where you live. **Move …’s date to** fixes it for that year.
+- After 2035, the moon-set holidays need a newer EaveLuxOS (the panel says so
+  ahead of time); the others never run out.
+- **That morning** (from 6 AM), the event log and Home say "Today is
+  Thanksgiving: tonight's lights are Harvest / Harvest glow, from 4:38 PM".
+- **Priority.** Holidays (210) beat seasonal rules (a Christmas season at
+  200) and the everyday schedule; a game night (250) beats a holiday. If a
+  holiday turns off before the season rule does, the season runs the rest of
+  the night.
+- The Month calendar shows holiday nights, and the **backup timer** copies them
+  to the controller like any rule.
+- Turn **Use holiday lights** off to pause them without losing your picks.
+
+#### Another country's public holidays
+
+Under **Another country's public holidays**, choose a country (or **Other**
+and its two-letter code) and a pattern. The official public holidays (for
+example Canada Day and Boxing Day for Canada) come from the free
+**Nager.Date** service, fetched from the app computer once a week and kept,
+so the lights still run if it can't be reached. Only the country code is
+sent. These share one pattern and rank just below the holidays you picked
+(205). A newly chosen country is checked right away (and again within hours
+if the service can't be reached); **Check now** works once a minute. Holidays kept only in one state or province aren't included.
+
 ### Game-day lights
 
 Your team's colors on the nights they play, instead of the usual pattern.
@@ -759,26 +1012,58 @@ are kept, and with none your normal schedule simply runs. A game night wins
 over seasonal rules (priority 250), so an Eagles game in December shows Eagles
 colors. Turn **Use game-day lights** off to pause it without losing the teams.
 
+#### Score celebrations
+
+Tick **Celebrate scores** under a team, and when that team scores during a
+game, the lights flash its colors (moving fast) for a few seconds, then go
+back to whatever was on.
+
+- **Celebrate for** sets the length (10 to 60 seconds; 15 to start).
+- **Only while the lights are on** (on to start) skips daytime games, so the
+  lights don't come on at 1 PM for a touchdown. A celebration never
+  interrupts a music show or a security flash.
+- If the team can't be found on ESPN's scoreboard on a game day, the panel
+  says so: check the team code. For an MLB doubleheader, the game being played
+  is followed. A game that runs past midnight is followed until it ends (until
+  4 AM at the latest), and a score ESPN takes back after a review and then
+  restores isn't celebrated twice.
+- What counts as a score: NFL field goals and touchdowns (not the extra
+  point), every MLB run and NHL goal, and NBA 3-pointers (ordinary baskets are
+  too frequent).
+- The panel shows the live score during the game.
+
+Live scores come from ESPN's public scoreboard, asked only on your team's game
+days: every 20 seconds during the game, less often before it, and not at all
+afterward. ESPN's feed runs some seconds behind live TV, and each change
+passes through Trimlight's cloud, so **the lights celebrate shortly after you
+see the score on TV**, not at the same moment. Starting the app in the middle
+of a game doesn't celebrate the score so far, and a final score is never
+celebrated.
+
 ### How overlapping rules are decided
 
 From highest to lowest:
 
-1. **Security flash.**
-2. **Something you turned on or off by hand** (until the next scheduled change).
-3. **A weather rule** (section 14).
-4. **The scheduled rule with the highest priority.** Game days are 250,
+1. **A flash**: the security flash, an alert from a webhook, or a score
+   celebration.
+2. **A severe weather alert** (section 14), while the lights are on, or at
+   any time if it's set to turn them on. Never during a music show.
+3. **A music show** (section 16).
+4. **Something you turned on or off by hand** (until the next scheduled change).
+5. **A weather rule** (section 14).
+6. **The scheduled rule with the highest priority.** Game days are 250,
    dated rules 200 and everyday rules 100 unless you change them. If two have
    the same priority, the one listed first wins. This only decides
    overlapping time: rules at different times of day (morning and evening)
    each run.
 
-## 14. Weather rules
+## 14. Alerts: weather rules
 
 Weather rules change the pattern based on current conditions, using the US
 National Weather Service. They work in the United States only, and no
 account is needed.
 
-1. On the **Schedule** tab, tick **On** in the **Weather** box.
+1. On the **Alerts** tab, open **Weather** and tick **On**.
 2. Tap **Add a weather rule**.
 3. Tick conditions:
    - **Snow** (also flurries, sleet and freezing rain)
@@ -804,20 +1089,60 @@ Important points:
 - If the weather service can't be reached for 2 hours, weather rules pause
   and your normal schedule continues.
 
-## 15. Security flash
+### Severe weather alerts
+
+When the National Weather Service issues a **warning** for your location
+(a tornado or winter storm warning, for example), the lights change to an
+alert pattern until the warning ends. No account is needed; US only.
+
+1. On the **Alerts** tab, open **Severe weather alerts** and tick **On**.
+2. Tick the kinds of warnings: Tornado, Severe thunderstorm, Winter storm
+   (blizzard or ice), Flash flood, Hurricane or tropical storm, Extreme heat or
+   cold, High wind. Tornado and severe thunderstorm are ticked to start.
+3. Choose the **Pattern**: **Severe weather (amber)** is ready-made, or use
+   one of your own.
+4. Tick **Turn the lights on for a warning** if the alert should also show in
+   daytime or when the schedule has the lights off. Otherwise it only changes
+   the pattern while the lights are on.
+
+Points to know:
+
+- Only warnings count, not watches or advisories, which are far more
+  frequent.
+- Warnings are checked every 5 minutes. When a warning ends (or is
+  canceled), the lights go back to normal by themselves.
+- **Home › Dismiss weather alert** puts the lights back for that warning, and
+  it stays dismissed while the Weather Service updates or extends it (even
+  after a restart). Turning the lights on or off by hand does the same. Once
+  the warning is over, the next one shows again.
+- If the weather service can't be reached for 2 hours, alerts stop applying,
+  so a lost connection can't leave the amber lights on.
+- An alert never interrupts a music show. A security flash or a webhook alert
+  still wins over it while it runs.
+
+## 15. Alerts: security flash
 
 The security flash is bright lights on demand for a few minutes. After that,
 everything returns to normal, including turning the lights back off in
 daylight.
 
-1. On the **Schedule** tab, under **Security flash**, choose a pattern
-   (Security white is included) and the minutes, then tap **Save**.
+1. On the **Alerts** tab, open **Security flash** and choose a pattern
+   (Security white is included) and the minutes. Changes save as you make
+   them.
 2. Start it from **Home › Security flash**, or from a motion sensor through
    Home Assistant (section 21).
 
 Starting it again while it's running restarts the timer. **Stop flash** ends it.
 
+Webhooks can also flash **other patterns, for a set number of seconds, on
+part of the house** (section 21), for example green over the front porch when
+a package is detected. **Stop flash** ends those too.
+
 ## 16. Music shows
+
+The Music tab has two parts: **Music show** (the controller's own music mode,
+below) and **Mood follow** (this app listens and switches patterns; see Mood
+follow at the end of this section).
 
 The Trimlight controller can make the lights dance to music on its own: it
 listens to sound and moves the pattern with the beat. That **music mode** is
@@ -893,21 +1218,56 @@ stopped, and with no body it uses the usual length set on the Music tab.
 
 - This app can't switch music mode on or off; that still takes the Trimlight
   app on your home Wi-Fi.
-- During a show, the safety net isn't updated and the controllers aren't
+- During a show, the backup timer isn't updated and the controllers aren't
   checked. Both resume when the show ends.
 - The beat-matching is the controller's own. Trimlight's cloud is far too slow
   (a quarter to a full second per command) to drive the lights in time with
   music from here.
 
-## 17. Safety net
+### Mood follow (beta)
+
+Mood follow listens to the music through the **app computer's microphone**
+and switches between three of your patterns as it gets calmer or livelier,
+about every 10 seconds. It follows the mood, not the beat (for the beat, use
+the controller's own music mode above).
+
+1. On the **Music** tab, choose a pattern for **Calm**, **Lively** and
+   **Party** music.
+2. On the app computer itself, open EaveLuxOS at **http://localhost:8787**.
+   A browser only lets a web page use the microphone on the computer it runs
+   on, so a phone can't do this over your Wi-Fi.
+3. Tap **Start listening** and allow the microphone. Play music near that
+   computer.
+4. Tap **Stop** to go back to the schedule.
+
+Keep that page open while it runs; it keeps working when the page is in a
+background tab or behind another window. After 30 seconds of quiet the
+lights return to the schedule; when the page closes, right away (or within
+3 minutes if the computer went to sleep). Only one page listens at a time:
+a second one says mood follow is already listening elsewhere. The sound is measured in the browser and never recorded or sent
+anywhere; only "calm", "lively" or "party" is sent to the app.
+
+Mood follow ranks below everything you or the house decided:
+
+- A **weather alert** stays on top while music plays, and isn't dismissed.
+- A **music show** (the controller's music mode) keeps running.
+- A pattern you **choose by hand** wins: mood follow waits ("waiting: a
+  pattern chosen by hand is on") and takes over again when yours ends, for
+  example when you tap **Run the schedule**. Stopping mood follow, or 30
+  seconds of quiet, ends only mood follow's own pattern, never yours.
+- A flash still wins over everything, as always.
+
+## 17. Backup timer (safety net)
+
+(Called the **safety net** before version 4.0.)
 
 Normally, the app computer runs your lights. If it's off, unplugged or offline,
-nothing turns the lights on or off. The **safety net** fixes that by also
+nothing turns the lights on or off. The **backup timer** fixes that by also
 copying the next few nights into the controller's **own timers**.
 
 ### Turn it on
 
-1. Open **Schedule** and find **Safety net**.
+1. Open **Setup › Lights & controller** and open **Backup timer**.
 2. Tick **On** and choose how many nights to copy (3 to 14; 7 is a good
    choice).
 3. Within a few seconds it says **Armed: 7 nights copied to the controller**.
@@ -953,16 +1313,16 @@ copying the next few nights into the controller's **own timers**.
   coming nights":** the controller won't accept a second set of timers on the
   same nights, and in Timer mode both would run. So nothing is written, and
   any "Auto" items from earlier are taken back. Those Trimlight timers already
-  run the lights without this computer. To use the safety net instead, delete
+  run the lights without this computer. To use the backup timer instead, delete
   them in the Trimlight Edge app (if you imported them, your schedule here
   keeps them), then tap **Update now**. Timers on other dates don't matter.
   It checks again the next day or when you change the schedule, not every
   few minutes.
-- **"Trimlight gave the safety net's new pattern "Auto …" number …, which
+- **"Trimlight gave the backup timer's new pattern "Auto …" number …, which
   one of your own patterns already has":** Trimlight's cloud numbered a new
   pattern like one of yours, so it can't read the controller. The app can't
   safely fix that itself (deleting by number might remove yours). In the
-  Trimlight Edge app, delete the pattern named in the message. The safety net
+  Trimlight Edge app, delete the pattern named in the message. The backup timer
   carries on by itself afterward.
 - **"Trimlight can't read its copy of this controller" (code 12006):** see
   Troubleshooting (section 25).
@@ -987,7 +1347,7 @@ copying the next few nights into the controller's **own timers**.
   controller is in Timer mode. To clean up later, delete the entries in the
   Trimlight app's calendar, or start this app again and untick **On**.
 
-## 18. Lights: ports, bulbs and LED settings
+## 18. Setup › Lights & controller
 
 These settings are stored **on the controller itself**. They match the
 controller's Settings screen in the Trimlight Edge app.
@@ -995,7 +1355,7 @@ controller's Settings screen in the Trimlight Edge app.
 ### More than one controller
 
 If your Trimlight account has several controllers (for example *House* and
-*Deck*), the top of the Lights tab shows a card for each one, like the
+*Deck*), the top of Setup › Lights & controller shows a card for each one, like the
 Devices list in the Trimlight Edge app. Each card shows:
 
 - the controller's name, and whether it's **Online** (green dot) or **Offline**;
@@ -1014,13 +1374,48 @@ Trimlight Edge app finds those itself on your home network.
 the schedule, Home's buttons and music shows run. Ticking a controller off
 leaves it to the Trimlight Edge app; you can still change its settings here.
 
+#### A different pattern on each controller
+
+A controller runs **one pattern at a time**: one motion, one speed and one
+brightness for all of its bulbs. That's the controller, not this app. So parts
+of the house can only move independently, for example a slow warm twinkle on
+the second story while the garage stays solid white, when they're on
+**different controllers**.
+
+With two or more controllers, open **Patterns › My patterns › Split by
+controller**, name it, and choose a pattern (or ✕ Off) for each controller. A
+split pattern works anywhere a pattern does: Turn on, rules, rotations, game
+days and the backup timer (each controller gets its own part on its own timer).
+A controller the split doesn't name, such as one added later, shows the first
+pattern that's on. A rule's (or the slider's) **brightness** dims or brightens
+every part by the same ratio, so the second story stays dimmer than the
+garage; a rule's **speed** is ignored, because each part keeps its own.
+Editing a split keeps the parts of controllers the app isn't running right
+now. Split patterns can't be saved in the Trimlight app; save
+each part instead.
+
 ### Ports and bulbs
 
 - **Simple mode:** enter how many bulbs are on each port, in order along the
-  roofline. Use **0** for an unused port. The app numbers the bulbs end to end.
+  roofline. Use **0** for a port with nothing plugged in. The app numbers the
+  bulbs end to end.
 - **Advanced mode:** enter the first and last bulb number for each port, or
-  tick **Off**. Ports may **overlap**, which makes them show the same part of
-  the pattern (mirroring). For example, Port 2 = 84–138 and Port 3 = 100–138.
+  tick **Not connected**. Ports may **overlap**, which makes them show the
+  same part of the pattern (mirroring). For example, Port 2 = 84–138 and
+  Port 3 = 100–138.
+
+**Not connected ports.** Trimlight has no setting that turns a port off: the
+cloud refuses a port without bulb numbers (code 12000, "Invalid parameter
+[port -> start]"). So a port marked Not connected keeps the numbers the
+controller already holds, and this app simply leaves it out of the bulb
+count, the bulb finder and the house tools. A controller reports a port that
+was never set up as **bulbs 1–600**; if yours shows that on ports with nothing
+plugged in, Setup › Lights & controller suggests marking them Not connected, so the app
+counts your real bulbs (for example 138) instead of 600. If a port really
+does run bulbs 1–600, tap **It's really connected** in that note and it
+won't ask again; a port you give other numbers on Setup › Lights & controller never gets
+the note. To keep a port that
+*is* connected dark, use ✕ (zone off) in the pattern instead.
 
 The bar diagram shows the layout. Tap **Save to controller**, then confirm.
 The lights may flicker briefly.
@@ -1044,7 +1439,7 @@ end to end.
 
 ### Pattern backups
 
-Before every change it makes, the safety net (section 17) saves a backup of
+Before every change it makes, the backup timer (section 17) saves a backup of
 the controller, including every pattern saved in the Trimlight app. The first
 one, from before EaveLuxOS ever changed the controller, is kept forever. After
 a factory reset, or after deleting a pattern by mistake, you can put patterns
@@ -1071,7 +1466,7 @@ values look much brighter on the house than on the screen. Gamma correction
 Corrector for iPhone and iPad) adjusts each color before it's sent, so the
 house looks closer to what you picked.
 
-1. On **Lights**, find **Color correction**.
+1. In **Setup › Lights & controller**, open **Color correction**.
 2. Tick **Correct colors for the lights (gamma)**.
 3. Set **Gamma**. **2.2** is a good start. If colors still look pale, try up to
    **2.8**. **1.0** means no change.
@@ -1084,7 +1479,7 @@ house looks closer to what you picked.
 What it applies to:
 
 - Patterns you make in this app, everywhere they're used: the schedule,
-  **Try on my lights**, the safety net, and patterns you add to the Trimlight
+  **Try on my lights**, the backup timer, and patterns you add to the Trimlight
   app's library.
 - **Not** built-in effects, patterns that point to a pattern saved in the
   Trimlight app, or patterns imported from the Trimlight app. Those colors
@@ -1099,7 +1494,7 @@ richer and less pale. To keep one pattern exactly as it is, open it in
 **Create** and tick **Exact colors**. Only an Administrator can change color
 correction.
 
-## 19. Date and time
+## 19. Setup › Location & time
 
 - **The clock** shows the app computer's time, which your schedule uses. The
   computer keeps it correct over the internet. If your phone and the computer
@@ -1123,7 +1518,13 @@ correction.
     set. **Use the real time** undoes it. This only affects the controllers'
     own clocks, not this app's schedule. Most people never need it.
 
-## 20. Settings
+## 20. Setup › Accounts & access, and App
+
+These were the **Settings** tab before 4.0. **Accounts & access** has the
+Trimlight account, your account, accounts for other people and phones;
+**App** has sharing and backup, updates, lights usage, the app address, start
+automatically, AI pattern ideas, version history and Setup and about.
+**Webhooks** and **Phone alerts** are on the **Alerts** tab.
 
 - **Trimlight account:** change your Client ID or Client Secret. Leave the
   secret box empty to keep the saved one. **Test and save** checks them with
@@ -1162,13 +1563,13 @@ correction.
   and Home Screen icons on your phones. On a computer without a screen, run
   `python3 main.py port 8790` in the app folder and restart the app.
 - **Start automatically:** see section 7.
-- **Webhooks:** see section 21.
+- **Webhooks:** on the **Alerts** tab now; see section 21.
 - **Lights usage:** hours the lights were on each month, for the last 12
   months. Under **Estimate the cost**, enter your system's watts (on the power
   supply's label; that's its maximum, so the estimate errs high) and your
   price per kWh from your electric bill. Only time the app was running counts.
 - **Updates:** see section 23.
-- **Phone alerts** (Administrators): a message on your phone when the lights
+- **Phone alerts** (Administrators; on the **Alerts** tab now): a message on your phone when the lights
   can't be reached to turn on or off (after 10 minutes), a controller is
   offline (after 15 minutes), Trimlight can't read a controller (code 12006),
   or a new version is out. To set it up:
@@ -1197,12 +1598,12 @@ correction.
   restarted right away. In Docker, stop the container with
   `docker compose stop` instead.
 
-## 21. Home Assistant and webhooks
+## 21. Alerts: webhooks and Home Assistant
 
 Webhooks let other systems control the lights. For example, a motion sensor
 can start the security flash at night.
 
-1. In **Settings › Webhooks**, tick **Allow webhooks**.
+1. In **Alerts › Webhooks**, tick **Allow webhooks**.
 2. Tap **Copy token** and keep it private.
 3. Have the other system send a **POST** request to
    `http://APP-COMPUTER-ADDRESS:8787/api/hook/ACTION` with the header
@@ -1213,7 +1614,7 @@ can start the security flash at night.
 
 | Action | What it does | Optional body |
 |---|---|---|
-| `flash` | Start the security flash | `{"minutes": 10}` |
+| `flash` | Start the security flash, or an alert flash (below) | `{"minutes": 10}`, or `{"effect": "package", "zone": "Front porch", "seconds": 30}` |
 | `stop_flash` | End the flash | |
 | `on` | Show a pattern | `{"effect": "christmas"}` (the pattern's internal name) |
 | `off` | Turn off | |
@@ -1221,13 +1622,77 @@ can start the security flash at night.
 | `levels` | Brightness or speed | `{"brightness": 120}` (0–255) |
 | `music` | Start a music show (section 16) | `{"minutes": 60}`; `0` until stopped |
 | `stop_music` | End the music show | |
+| `dismiss_alert` | Put the lights back for the severe weather alert showing now (section 14) | |
 | `status` | Change nothing; report what the lights are doing (also with **GET**) | |
 
 Every action replies with what the lights are doing then: on or off, the
-pattern and its internal name, why (`schedule`, `manual`, `weather`, `flash`,
-`music`), brightness, speed, and the list of your patterns. `status` changes
+pattern and its internal name, why (`schedule`, `manual`, `weather`, `alert`,
+`flash`, `music`), brightness, speed, and the list of your patterns. `status` changes
 nothing, so another system can ask as often as it likes (it isn't written to
 the activity list).
+
+### Alerts: a pattern, a length and a zone
+
+`flash` with a body shows any pattern for a while, then everything goes back
+to normal (including off in daylight):
+
+| Field | What it means |
+|---|---|
+| `effect` | One of your patterns (its name or internal name), or a ready-made **alert pattern**: `package` (green), `alarm` (red strobe), `doorbell` (blue and white), `delivery` (cyan), `severe` (amber), `security` (bright white) |
+| `color` | Instead of `effect`: one plain color, like `"#00FF00"` |
+| `zone` | Optional: a zone from the House tab, like `"Front porch"`. Only those bulbs light; the rest stay dark |
+| `seconds` | 5 to 14400. Leave it out for 30 seconds (or use `minutes`) |
+| `label` | Optional: what Home and the activity list call it, like `"Package at the door"` |
+
+A flash started while another runs replaces it. **Alerts › Webhooks › Try
+an alert** lets you test a pattern and zone from the app.
+
+**Zones** are made on the House tab: select a range of bulbs with the bulb
+finder and save it as a zone (section 12). Trimlight's cloud has no command
+for lighting only part of the house, so a zone flash is a pattern with every
+bulb outside the zone switched off (the Trimlight app's "X"), and the alert's
+colors spread over the zone. That works for patterns made of colors (custom
+patterns and the alert patterns), not built-in effects or patterns saved only
+in the Trimlight app. A pattern has 30 color slots, and dark stretches of
+more than 90 bulbs use extra slots, so a pattern with many colors may not fit a
+small zone in a long run; the reply says so. With **more than one controller**,
+every controller gets the same zone pattern, counted against the longest
+controller's bulbs, so a zone is most reliable on a single controller.
+
+**When two things happen at once**, the more important one wins: the security
+flash and urgent alerts (`alarm`, `security`, or `"urgent": true`) first, then
+a severe weather warning, then other alerts, then score celebrations. A less
+important flash is skipped (the reply says `"flash_started": false`), and a
+shorter one that interrupts a longer one (a package during a doorbell) hands
+back to it when it ends. During a music show, only urgent alerts show, and
+they end the show, because a pattern knocks the controller out of music mode
+and this app can't switch it back on.
+
+Examples for Home Assistant (`configuration.yaml`):
+
+```yaml
+rest_command:
+  lights_package:
+    url: "http://192.168.1.20:8787/api/hook/flash"
+    method: POST
+    headers:
+      X-Token: !secret trimlight_webhook_token
+    content_type: "application/json"
+    payload: '{"effect": "package", "zone": "Front porch", "seconds": 30, "label": "Package at the door"}'
+  lights_alarm:
+    url: "http://192.168.1.20:8787/api/hook/flash"
+    method: POST
+    headers:
+      X-Token: !secret trimlight_webhook_token
+    content_type: "application/json"
+    payload: '{"effect": "alarm", "minutes": 10, "label": "Alarm"}'
+```
+
+For **Frigate**, trigger `rest_command.lights_package` from an automation on
+Frigate's package (or person) detection in a front-door camera zone. For
+**Blue Iris**, add an alert action of type **Web request or MQTT**: POST to the
+same address, with the `X-Token` header and the JSON body above. Each alert
+reaches the lights in about a second (through Trimlight's cloud).
 
 ### Home Assistant: the ready-made package
 
@@ -1268,9 +1733,41 @@ app computer, not from the app's screens.
 
 ## 22. Share patterns with other owners
 
+### A share code or QR code (one pattern, or a few)
+
+1. On **Patterns › My patterns**, tap **Share** on a pattern, or **Share
+   patterns** to pick up to 8 (as a playlist, each showing a few minutes).
+2. A code starting with `ELX1:` appears, with a **QR code**. Tap **Copy the
+   code** (or **Send…** on a phone) and paste it into a text, email or post,
+   or let someone scan the QR code.
+
+**To use a code someone sent you:** **Patterns › Open a share code**, paste it
+(the rest of their message can come along) and tap **Show the patterns**. Try
+each on your lights, then **Add to my patterns**.
+
+- **QR codes:** a phone's camera app reads the QR code and shows the code as
+  text; copy it and paste it. In browsers that can read QR codes themselves
+  (Chrome on Android, and on a Mac), **Open a share code** also has **Scan a
+  QR code** (on the app computer, or a secure https address, where browsers
+  allow the camera) and **QR code from a picture**.
+- Anyone with an account can make a code, Viewers included; adding a code's
+  patterns needs an Editor or Administrator.
+- A code can be pasted with the rest of the message around it, even when a
+  messaging app wrapped it onto several lines.
+- A code holds only colors, motion, speed and brightness. Never your
+  schedule, location, controllers or credentials.
+- A code from someone else is checked on the app computer before you see it,
+  exactly like a Community pattern: anything else in it is dropped, and a
+  damaged or oversized code is refused.
+- Patterns saved on your controller, patterns split by controller and
+  patterns drawn bulb by bulb for your house can't go in a code (they only
+  make sense on your lights); export a file instead.
+
+### A file (everything)
+
 **To share:**
 
-1. Go to **Settings › Share and back up › Export patterns and schedule**.
+1. Go to **Setup › App › Share and back up › Export patterns and schedule**.
 2. A file named like `eaveluxos-patterns-2026-11-11.json` downloads. It
    contains your patterns, rules, weather rules and security flash settings.
    It **never** contains your Trimlight credentials, password, location,
@@ -1279,7 +1776,7 @@ app computer, not from the app's screens.
 
 **To use someone else's file:**
 
-1. Go to **Settings › Import a file** and choose the file.
+1. Go to **Setup › App › Share and back up › Import a file** and choose the file.
 2. Choose one of:
    - **Add to mine:** adds patterns and rules whose names you don't already
      have.
@@ -1323,7 +1820,7 @@ it has a **Download** button for your computer's file. Either way there's a
 **What's new** button for the release page. **Not now** hides the bar until
 the next version comes out.
 
-**Settings › Updates** shows the version you have, when it last checked and
+**Setup › App › Updates** shows the version you have, when it last checked and
 the release notes, and has **Check now**. Administrators can turn the daily
 check off there. Only the question "which version is newest?" goes to GitHub;
 nothing about your home is sent, and nothing is downloaded or installed by
@@ -1331,7 +1828,7 @@ itself. You still update yourself, as below.
 
 **Update to a new version**
 
-1. Quit the app (**Settings › Quit the app**).
+1. Quit the app (**Quit** at the top, or **Setup › App › Quit the app**).
 2. Unzip the new version.
 3. **Windows:** nothing to copy. Your data stays in `%LOCALAPPDATA%\EaveLuxOS`
    for every version.
@@ -1361,7 +1858,7 @@ database on first start and keeps the old files, renamed
 **Move to a new computer:** install Python on the new computer, copy the
 eaveluxos folder and your data folder (on Windows `%LOCALAPPDATA%\EaveLuxOS`;
 put it in the same place on the new computer), and start it there. The
-safety net picks up where it left off, because its records are in the data
+backup timer picks up where it left off, because its records are in the data
 folder. Turn off
 **Start automatically** on the old computer and quit the app there first.
 Two computers running it at once would both control the lights.
@@ -1403,7 +1900,7 @@ Some things can only be checked on real hardware. The guided hardware test
 checks them one by one and saves a report. It takes about 10 minutes, and you
 need to be able to see the lights.
 
-1. Quit the app (**Settings › Quit the app**), so it doesn't change the lights
+1. Quit the app (**Quit** at the top, or **Setup › App › Quit the app**), so it doesn't change the lights
    during the test.
 2. In the app folder, run `python3 main.py hwtest`.
 3. Answer each question by looking at the house or the Trimlight Edge app.
@@ -1416,8 +1913,8 @@ What it checks:
 | First 10 bulbs | That bulb numbering starts where you expect |
 | 90 bulbs per color | Whether the cloud accepts 90 or only 60 (the app adapts either way) |
 | Save to library | Whether designs can be added to the Trimlight app's library (asks first; deleted afterward) |
-| Port off | Whether a port can be switched off from the Lights tab (asks first; put back afterward) |
-| Controller timer | Whether the safety net works: the lights should turn green by themselves 2 minutes later and off 2 minutes after that (asks first) |
+| Port 0-0 refused | That Trimlight still refuses a port without bulbs, which is why Setup › Lights & controller keeps a Not connected port's numbers (asks first; nothing changes when refused) |
+| Controller timer | Whether the backup timer works: the lights should turn green by themselves 2 minutes later and off 2 minutes after that (asks first) |
 | Command rate | Whether quick changes, like the bulb finder's, are accepted |
 
 Before changing anything, the test saves the controller's full state as
@@ -1429,31 +1926,31 @@ Sharing it helps other Trimlight owners know what works on their firmware.
 
 | Problem | What to do |
 |---|---|
-| Another program uses port 8787 | The app moves to the next free port by itself and remembers it. To pick one, use **Settings › App address** (section 20). |
+| Another program uses port 8787 | The app moves to the next free port by itself and remembers it. To pick one, use **Setup › App › App address** (section 20). |
 | The browser says it can't connect | The app isn't running. Double-click the launcher. On Mac or Linux, keep its window open. |
 | "Couldn't check these with Trimlight" during setup | The app couldn't reach Trimlight, so your keys weren't checked yet. Check the internet connection and try again. If the message also says the **certificate check failed**: on a Mac, update to version 3.11.1 or later, which fixes this. Otherwise check the computer's date and time, and whether antivirus or network filtering software checks secure (HTTPS) connections. |
 | "Trimlight didn't accept these" | Re-enter the Client ID and Secret. They're case-sensitive, so check for spaces. Also check the computer's clock is correct, because Trimlight's sign-in uses the time. |
-| "Trimlight's cloud can't read its copy of this controller" (code 12006, "Device data could not be parsed … declared 21 and scanned 20 effect records") | Trimlight's cloud copy of the controller is out of step, for example because two saved patterns got the same number. The lights keep running. The app first asks the controller to resend its data and tries again. If the cause is the safety net's own "Auto" patterns (versions before 3.13.1 could cause this), the safety net deletes them and reads again; your own patterns are never deleted. While it lasts, the Lights tab shows the error and turns saving off, so the port layout can't be overwritten. If it doesn't clear: open the **Trimlight Edge app** on your home Wi-Fi (connection shows **LOCAL**), open the controller so it syncs, and delete any patterns whose names start with **Auto**. Still stuck: unplug the controller for 30 seconds. |
+| "Trimlight's cloud can't read its copy of this controller" (code 12006, "Device data could not be parsed … declared 21 and scanned 20 effect records") | Trimlight's cloud copy of the controller is out of step, for example because two saved patterns got the same number. The lights keep running. The app first asks the controller to resend its data and tries again. If the cause is the backup timer's own "Auto" patterns (versions before 3.13.1 could cause this), the backup timer deletes them and reads again; your own patterns are never deleted. While it lasts, Setup › Lights & controller shows the error and turns saving off, so the port layout can't be overwritten. If it doesn't clear: open the **Trimlight Edge app** on your home Wi-Fi (connection shows **LOCAL**), open the controller so it syncs, and delete any patterns whose names start with **Auto**. Still stuck: unplug the controller for 30 seconds. |
 | "Can't reach lights" on Home | Check the controller is online in the Trimlight Edge app and the computer has internet. The app retries automatically. |
-| Lights are on or off at the wrong time | **Date & Time:** check the location, time zone and Daylight saving (Automatic). Check the computer's own clock. Check **Schedule › Coming up**. |
+| Lights are on or off at the wrong time | **Setup › Location & time:** check the location, time zone and Daylight saving (Automatic). Check the computer's own clock. Check **Schedule › Coming up**. |
 | A different pattern than expected is showing | Look at the Home headline. It names the rule, weather rule or manual change in charge. Check priorities on the Schedule tab. |
 | The lights turned back on after I switched them off in the Trimlight app | That's by design (section 6). Use **Turn off** in this app instead. |
-| Colors are wrong (red shows as green) | **Lights › Color order** (section 18). |
-| My phone can't open the address (nothing happens, or it times out) | On the app computer, open **Settings › Phones and other computers › A phone can't open it?** and tap **Check this computer**. On Windows it finds the usual causes: the network set to **Public** (Windows blocks phones; switch it to Private in Windows Settings › Network & internet), or Windows Firewall blocking the app (often from pressing **Cancel** when Windows first asked). **Let phones in** fixes the firewall after one Windows permission prompt. Also check: the phone is on home Wi-Fi (not mobile data or a guest network), the address starts with `http://` and ends with the port, and try any other address listed there. The computer's address can change, so consider a reserved IP in your router. When it works, the phone shows the sign-in page. |
-| The phone says "create an account" | On the app computer, go to **Settings › Accounts** and add one. |
+| Colors are wrong (red shows as green) | **Setup › Lights & controller › Color order** (section 18). |
+| My phone can't open the address (nothing happens, or it times out) | On the app computer, open **Setup › Accounts & access › Phones and other computers › A phone can't open it?** and tap **Check this computer**. On Windows it finds the usual causes: the network set to **Public** (Windows blocks phones; switch it to Private in Windows Settings › Network & internet), or Windows Firewall blocking the app (often from pressing **Cancel** when Windows first asked). **Let phones in** fixes the firewall after one Windows permission prompt. Also check: the phone is on home Wi-Fi (not mobile data or a guest network), the address starts with `http://` and ends with the port, and try any other address listed there. The computer's address can change, so consider a reserved IP in your router. When it works, the phone shows the sign-in page. |
+| The phone says "create an account" | On the app computer, go to **Setup › Accounts & access** and add one. |
 | "These settings were changed on another device" | Someone saved changes from another phone or computer at the same time. The latest settings have been loaded; make your change again. |
 | "Unknown host name" | You used a name the app doesn't know. Use the IP address, or run `python3 main.py allow-host NAME` on the app computer (section 21). |
-| Weather isn't working | Weather rules are US only. Check **Weather: On** on the Schedule tab. Home shows the current reading or the error. |
+| Weather isn't working | Weather rules are US only. Check **Weather: On** on the Alerts tab. Home shows the current reading or the error. |
 | On Linux, it doesn't start at power-on until someone logs in | Run `loginctl enable-linger` once in a terminal. That's the only command in this manual. |
 | The controller shows offline, or nothing responds | Use the controller steps in Trimlight's guide ("Basic Troubleshooting"). **1)** Unplug the controller for 30 seconds, then let it boot for a few minutes. **2)** If the **Network Connected** light isn't green, press the **STA/AP** button briefly until it is (blue-light mode can't be reached by this app). **3)** A factory reset is a last resort; see the question below. |
 | A rule never seems to run | Check for a **"Never runs"** note on the Schedule tab (section 13) and raise that rule's priority. |
-| Safety net says "Not armed" | Read the reason shown. Most often the controller's library is full, or it was offline. Tap **Update now** to retry; the app also retries on its own every 30 minutes. |
+| Backup timer says "Not armed" | Read the reason shown. Most often the controller's library is full, or it was offline. Tap **Update now** to retry; the app also retries on its own every 30 minutes. |
 | "That image is too large" when uploading a photo | The image is over 40 megapixels and not a JPEG (for example a huge PNG). Save it as a JPEG, or smaller, and upload it again. Photos straight from a phone are fine. |
 | A house photo shows as solid green, stripes, or one flat color | Some graphics drivers garble photos when the browser processes them. Since version 3.11.5 the app computer processes photos itself, so this shouldn't happen; upload the photo again. If you still see a message about a flat color (the browser is used for iPhone HEIC photos, or when the app runs from source without Pillow), try another browser, or turn off **Use graphics acceleration when available** in the browser's settings (System section). |
-| The finder lights the wrong spot | Check the port layout on the Lights tab (section 18). Bulb numbers follow it. |
+| The finder lights the wrong spot | Check the port layout on Setup › Lights & controller (section 18). Bulb numbers follow it. |
 | "The settings database couldn't be read" | Rare, usually after a disk problem. The app kept the damaged file, restored your patterns and schedule from its plain-text copy (`settings.last-good.json`), and asks you to enter your Trimlight account and app password again. |
-| I changed something and want it back | **Settings › Version history**: tap **Restore** next to an earlier save (section 20). |
-| Forgot a password | Ask an Administrator to set a new one under **Settings › Accounts**, or on the app computer run `python3 main.py reset-password NAME`. |
+| I changed something and want it back | **Setup › App › Version history**: tap **Restore** next to an earlier save (section 20). |
+| Forgot a password | Ask an Administrator to set a new one under **Setup › Accounts & access**, or on the app computer run `python3 main.py reset-password NAME`. |
 | "This account can only view" | You're signed in as a Viewer. An Administrator can make you an Editor. |
 | Something else | The log is **eaveluxos.log** in your data folder (on Windows `%LOCALAPPDATA%\EaveLuxOS`). |
 
@@ -1493,7 +1990,7 @@ can control this app directly (section 21).
 **Does it work without internet?** The schedule and sun times are calculated
 on your computer. However, every command goes through Trimlight's cloud,
 exactly as the Trimlight app's commands do. If the internet is down, the app
-waits and catches up as soon as it's back. With the **safety net** on (section
+waits and catches up as soon as it's back. With the **backup timer** on (section
 17), the controller also runs the coming nights from its own timers while the
 app or internet is down.
 
@@ -1506,7 +2003,7 @@ standard SQLite file. Photos, controller backups and the log are in the same
 folder.
 
 Nothing has to be stored on the controller. The app writes to it only when
-you ask: the safety net's copy of the coming nights, and patterns you choose
+you ask: the backup timer's copy of the coming nights, and patterns you choose
 to also add to the Trimlight app's library.
 
 To back everything up while the app runs, use
@@ -1533,8 +2030,8 @@ devices. If two people edit settings at the same moment, the second save is
 refused rather than silently overwriting the first.
 
 **Can it control more than one controller?** Yes. Everything you turn on is
-sent to all the controllers ticked under **Lights › Controlled by this app**.
-The Lights tab shows a card for each controller; tap one to manage its
+sent to all the controllers ticked under **Setup › Lights & controller › Controlled by this app**.
+Setup › Lights & controller shows a card for each controller; tap one to manage its
 settings (section 18).
 
 ## 27. License
