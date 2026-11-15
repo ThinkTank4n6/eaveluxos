@@ -119,10 +119,26 @@ class QrCodes(unittest.TestCase):
 
 class ReleaseContents(unittest.TestCase):
     def test_no_stray_folders_in_the_project(self):
-        """3.19: a test screenshot folder (ui3182) slipped into 3.18.2."""
+        """3.19: a test screenshot folder (ui3182) slipped into 3.18.2.
+        4.0.2: what counts is what's in the repository (git ls-files), so a
+        folder of your own kept next to the code, and left out by
+        .gitignore, doesn't fail the tests; without git (a zip), the folders
+        on disk."""
+        import subprocess
         known = {".git", ".github", "__pycache__", "eaveluxos", "packaging", "tests", "tools", "data", "build", "dist"}
-        extra = {p.name for p in HERE.parent.iterdir() if p.is_dir()} - known
-        self.assertEqual(extra, set(), "folders that don't belong in the project")
+        root = HERE.parent
+        try:
+            r = subprocess.run(["git", "ls-files", "-z"], cwd=root, capture_output=True, timeout=30)
+            tracked = r.stdout.decode("utf-8", "replace").split("\0") if r.returncode == 0 and (root / ".git").exists() else None
+        except (OSError, subprocess.SubprocessError):
+            tracked = None
+        if tracked is not None:
+            folders = {f.split("/")[0] for f in tracked if "/" in f}
+        else:
+            folders = {p.name for p in root.iterdir() if p.is_dir()}
+        extra = folders - known
+        self.assertEqual(extra, set(), "folders that don't belong in the project (in the repository: "
+                                       "git rm -r --cached \"NAME\" and add it to .gitignore)")
 
 
 if __name__ == "__main__":

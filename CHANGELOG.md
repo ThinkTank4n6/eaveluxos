@@ -1,5 +1,13 @@
 # Changelog
 
+## 4.0.2: the tidiness test checks the repository
+
+- The test that keeps stray folders out of the project (3.19) now checks
+  what's in the repository, not every folder on disk, so a folder of your
+  own next to the code doesn't fail it. A folder that is committed by
+  mistake still does, with how to fix it.
+- `.gitignore` leaves out `Claude outputs/`, so `git add -A` never commits it.
+
 ## 4.0.1: review fixes (saving, New pattern, phones)
 
 - **Fixed (most important):** changes made quickly one after another (a few

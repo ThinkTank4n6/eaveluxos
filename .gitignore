@@ -21,3 +21,7 @@ build/
 dist/
 *.spec
 .venv/
+
+# Your own files kept next to the code (downloads from Claude, notes): never
+# part of the project, so tests and releases don't pick them up (4.0.2).
+Claude outputs/
