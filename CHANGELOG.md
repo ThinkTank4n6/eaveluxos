@@ -1,5 +1,13 @@
 # Changelog
 
+## 4.1.1: the capture tool on a Windows screen
+
+- **Fixed:** `summarize_capture.py` without `--out` stopped with
+  "UnicodeEncodeError: 'charmap' codec can't encode character" on Windows,
+  where Command Prompt isn't UTF-8 and the report has characters like "↔".
+  It now prints the report as UTF-8 everywhere. (Found by the GitHub tests on
+  Windows; the test now runs the tool with a Windows-style console.)
+
 ## 4.1.0: music from this computer (experimental)
 
 - **New: Music from this computer** (Music tab). The lights dance to music

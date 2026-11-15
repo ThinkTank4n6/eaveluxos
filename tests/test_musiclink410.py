@@ -374,11 +374,15 @@ class CaptureTool(unittest.TestCase):
         self.addCleanup(shutil.rmtree, d, True)
         cap = d / "c.pcap"
         cap.write_bytes(struct.pack("<IHHiIII", 0xA1B2C3D4, 2, 4, 0, 0, 65535, 101) + body)
-        r = subprocess.run([sys.executable, "-I", str(ROOT / "tools" / "music-capture" / "summarize_capture.py"),
-                            str(cap), "--controller", "10.168.168.35"], capture_output=True, text=True, timeout=60)
+        # Not -I: that would ignore PYTHONIOENCODING, which stands in for a Windows console here.
+        r = subprocess.run([sys.executable, "-s", str(ROOT / "tools" / "music-capture" / "summarize_capture.py"),
+                            str(cap), "--controller", "10.168.168.35"], capture_output=True, text=True,
+                           encoding="utf-8", timeout=60,
+                           env={**os.environ, "PYTHONIOENCODING": "cp1252"})   # as on a Windows console
         self.assertEqual(r.returncode, 0, r.stderr)
         out = r.stdout
         self.assertIn("### Decoded Trimlight messages", out)
+        self.assertIn("↔", out, "printed as UTF-8 even where the console isn't (Windows, 4.1.0)")
         self.assertIn("set the controller's clock | 2026-11-15 12:50:15 (Sun)", out)
         self.assertIn("music settings | input: the controller's own input (Auxiliary IN); music pattern 1; sensitivity 8", out)
         self.assertIn("sound levels (and 4 more", out)

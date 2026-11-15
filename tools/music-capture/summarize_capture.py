@@ -506,6 +506,12 @@ def main(argv=None):
             fh.write(text)
         print(f"Report written to {a.out}")
     else:
+        # 4.1.0: a Windows console isn't UTF-8 (cp1252 can't print "↔" or
+        # "…"), and the report is; print it as UTF-8 either way.
+        try:
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
         sys.stdout.write(text)
     return 0
 
