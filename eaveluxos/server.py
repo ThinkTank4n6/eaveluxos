@@ -280,6 +280,7 @@ class App:
         self.ai_calls = []                                                       # times of AI calls, for the limits (3.18.2)
         self.mood_state = None                                                   # mood follow: {"level", "key", "at"}
         self._port_base = {}         # controller id -> 0 or 1 (how it numbers its ports)
+        self._port_write_base = {}   # controller id -> 0 or 1 when the cloud takes other numbers than it shows (4.0.3)
         self._bulbs = None           # last bulb count read from the controller (zones without a House map total)
         self.lock = threading.RLock()
         self.ctrl: Controller | None = None
@@ -1093,26 +1094,24 @@ class App:
             # keeps what the controller already holds (left out if that isn't
             # valid either), and this app remembers to leave it out of the bulb
             # count (3.18.1).
-            sent = []
+            local = []                   # ports 0-3 as the screen numbers them
             for p in ports:
                 if p["id"] in off_ids:
                     was = next((q for q in current or [] if q.get("id") == p["id"] + base), None)
                     if not (was and isinstance(was.get("start"), int) and was["start"] >= 1
                             and isinstance(was.get("end"), int) and was["end"] >= was["start"]):
                         continue
-                    sent.append({"id": p["id"] + base, "start": was["start"], "end": was["end"]})
+                    local.append({"id": p["id"], "start": was["start"], "end": was["end"]})
                 else:
-                    sent.append({**p, "id": p["id"] + base})     # back to the controller's own numbers
-            if sent:
-                payload["ports"] = sent
+                    local.append(dict(p))
+            if local:
+                payload["ports"] = local
             unused = off_ids
         if not payload and "ports" not in body:
             raise ApiError("Nothing to change.")
+        note = None
         if payload:
-            try:
-                self.client().update_device(dev, payload)
-            except TrimlightError as e:
-                raise ApiError(str(e), 502)
+            note = self._send_device_update(dev, payload, base if "ports" in payload else None)
         if "ports" in body:
             self.set_unused_ports(dev, unused, touched={p["id"] for p in ports},
                                   given={p["id"] for p in ports if (p["start"], p["end"]) not in ((0, 0), (1, 600))})
@@ -1120,7 +1119,66 @@ class App:
             # List the controllers again and send them the lights in full
             # (switch-on included), not just forget the list.
             self.ctrl.refresh_devices()
-        return {"ok": True}
+        return {"ok": True, **({"note": note} if note else {})}
+
+    def _send_device_update(self, dev: str, payload: dict, base: int | None):
+        """Send a device update; ports go in the controller's own numbers.
+
+        4.0.3: Trimlight Edge firmware 1.17.77 reports its ports as 1-4, but
+        the cloud refused a save in those numbers with code 12000 "Invalid
+        parameter [port -> id]". A refused request changes nothing, so when
+        the cloud names the port id, the save is tried once more with the
+        other numbering (0-3 instead of 1-4, or the other way round). What
+        worked is remembered for this controller, and the controller is read
+        back to check the ports landed where they were meant to."""
+        api = self.client()
+        if base is None:
+            try:
+                api.update_device(dev, payload)
+            except TrimlightError as e:
+                raise ApiError(str(e), 502)
+            return None
+        local = payload["ports"]
+
+        def with_ids(wb):
+            return {**payload, "ports": [{**p, "id": p["id"] + wb} for p in local]}
+
+        wb = self._port_write_base.get(dev, base)
+        try:
+            api.update_device(dev, with_ids(wb))
+            self._port_write_base[dev] = wb
+            return None
+        except TrimlightError as e:
+            if not (e.refused and "port -> id" in str(e).lower()):
+                raise ApiError(str(e), 502)
+            first = e
+        other = 1 - wb
+        try:
+            api.update_device(dev, with_ids(other))
+        except TrimlightError as e:
+            if e.refused and "port -> id" in str(e).lower():
+                raise ApiError(f"Trimlight refused the port numbers both ways (1-4 and 0-3): {first}. "
+                               "Nothing was changed. Set the ports in the Trimlight app for now, and "
+                               "please report this with the app's log.", 502)
+            raise ApiError(str(e), 502)
+        self._port_write_base[dev] = other
+        log.warning("Trimlight refused ports numbered %s (%s); they were saved numbered %s, and will be from now on.",
+                    "1-4" if wb else "0-3", first, "1-4" if other else "0-3")
+        # Check where they landed (reads can lag a little behind a save).
+        try:
+            back = api.get_device(dev, self.now()).get("ports") or []
+        except TrimlightError:
+            return None
+        rb = port_base(back)
+        wrong = [p["id"] + 1 for p in local
+                 if not any(q.get("id") == p["id"] + rb and q.get("start") == p["start"] and q.get("end") == p["end"]
+                            for q in back)]
+        if wrong:
+            log.warning("After saving ports %s, the controller reads back %s.", local, back)
+            return (f"Saved, but the controller doesn't show port {', '.join(map(str, wrong))} as set yet. "
+                    "Wait a minute and open Setup › Lights & controller again; if a port is still off by one, "
+                    "fix it in the Trimlight app and send the developer the app's log.")
+        return None
 
     def set_clock(self, body: dict):
         """Send the time to the controllers. With a chosen date/time, remember

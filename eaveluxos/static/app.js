@@ -2488,7 +2488,7 @@ VIEWS.lights = async (opts = {}) => {
       if (bad) return toast(`Port ${bad.id + 1}: the first bulb must be 1 or more and not after the last bulb (max 2048).`, true);
       if (!await confirmBox('Save ports to the controller?', 'The lights may flicker while the controller applies the new layout.', 'Save')) return;
       return busy(b, () => api('device/update', { body: { deviceId: d.id, ports: P.map(p => ({ id: p.id, start: p.off ? 0 : p.start, end: p.off ? 0 : p.end })) } }))
-        .then(async () => { toast('Ports saved'); S.portMode = null; await loadSettings().catch(() => {}); VIEWS.lights(); }).catch(() => {});
+        .then(async r => { toast(r && r.note ? r.note : 'Ports saved', !!(r && r.note)); S.portMode = null; await loadSettings().catch(() => {}); VIEWS.lights(); }).catch(() => {});
     }
     if (ds.savedev !== undefined) {
       const body = { deviceId: d.id };

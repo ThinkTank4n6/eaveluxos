@@ -1,7 +1,7 @@
 # EaveLuxOS
 ### The Intelligent Lighting Control Platform
 
-By **Christopher A. Tankelewicz (ThinkTank4n6)** · MIT License · version 4.0.2
+By **Christopher A. Tankelewicz (ThinkTank4n6)** · MIT License · version 4.0.3
 
 EaveLuxOS currently works with **Trimlight Edge** permanent-lighting controllers.
 Its scheduling, mapping and design tools are built to grow to other brands.
@@ -56,8 +56,8 @@ owner and are used here only to say which hardware EaveLuxOS works with.*
 - **A bulb painter:** paint single bulbs, ranges, zones or every Nth bulb,
   in one repeat of the pattern or across the whole house, with a live count
   of the controller's 30 color slots.
-- **Includes a pattern designer with a live animated preview.** You can also
-  save designs into the Trimlight app's own library.
+- **Designs patterns with a live animated preview,** from colors you pick,
+  141 named colors, or a few words describing it. You can also save designs into the Trimlight app's own library.
 - **Lets you share patterns with other owners.** Export and import pattern
   files; your credentials are never included.
 - **House map:**
@@ -94,7 +94,7 @@ owner and are used here only to say which hardware EaveLuxOS works with.*
 - **Music shows that don't get cut off.** Start a show (or plan show nights)
   and this app leaves the lights to the controller's music mode instead of
   switching them back to the schedule mid-song.
-- **Optional safety net:** copies the next nights into the controller's own
+- **Optional backup timer:** copies the next nights into the controller's own
   timers, so the lights still run if the computer is off. It backs up the
   controller first, verifies every write, and never touches your own timers.
 - **Stores everything in a local SQLite database,** with version history and

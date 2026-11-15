@@ -1,5 +1,22 @@
 # Changelog
 
+## 4.0.3: saving ports ("Invalid parameter [port -> id]")
+
+- **Fixed:** **Save to controller** on Setup › Lights & controller failed
+  with "code 12000 (Invalid parameter [port -> id].)" on controllers that
+  report their ports as 1–4 (Trimlight Edge firmware 1.17.77). The cloud
+  shows those ports as 1–4 but wants them numbered 0–3 when saving. A
+  refused save changes nothing, so the app now tries the other numbering
+  once, remembers what worked for that controller, logs it, and reads the
+  controller back to check every port landed where it was meant to; if one
+  doesn't show yet, it says so instead of "Ports saved". Any other refusal
+  is reported as before, without a second try. (Reproduced in
+  `tests/repro_port_ids.py`.)
+- The test cloud now checks a whole save before changing anything, like
+  the real one, and can number ports the way firmware 1.17.77 does.
+- README: "safety net" is now "backup timer", as in the app, and the
+  pattern designer line mentions named colors and describing a pattern.
+
 ## 4.0.2: the tidiness test checks the repository
 
 - The test that keeps stray folders out of the project (3.19) now checks

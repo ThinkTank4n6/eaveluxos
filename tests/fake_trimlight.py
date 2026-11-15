@@ -58,14 +58,21 @@ class H(BaseHTTPRequestHandler):
         if p == "/device/update":
             pl = body["payload"]
             if "ports" in pl:
+                todo = []                # checked in full first: a refused save changes nothing
                 for q in pl["ports"]:
-                    i = next((n for n, x in enumerate(d["ports"]) if x["id"] == q["id"]), None)
-                    if i is None: return self._err(12000, "Invalid parameter [ports]")
+                    # "write_from_zero": like the real cloud with firmware 1.17.77 (4.0.3),
+                    # it reports ports 1-4 but takes them numbered 0-3 when saving.
+                    want = q["id"] + 1 if STATE.get("write_from_zero") else q["id"]
+                    i = next((n for n, x in enumerate(d["ports"]) if x["id"] == want), None)
+                    if i is None or (STATE.get("write_from_zero") and q["id"] not in range(4)):
+                        return self._err(12000, "Invalid parameter [port -> id]")
                     # The real cloud refuses a port without bulbs: there is no
                     # "off" for a port (seen in 3.18.0 with start 0, end 0).
-                    if STATE.get("port_off_ok") and q.get("start") == 0 and q.get("end") == 0: d["ports"][i] = dict(q); continue   # a cloud that has "off" (tests)
-                    if not (isinstance(q.get("start"), int) and q["start"] >= 1): return self._err(12000, "Invalid parameter [port -> start]")
-                    if not (isinstance(q.get("end"), int) and q["end"] >= q["start"]): return self._err(12000, "Invalid parameter [port -> end]")
+                    if not (STATE.get("port_off_ok") and q.get("start") == 0 and q.get("end") == 0):   # a cloud that has "off" (tests)
+                        if not (isinstance(q.get("start"), int) and q["start"] >= 1): return self._err(12000, "Invalid parameter [port -> start]")
+                        if not (isinstance(q.get("end"), int) and q["end"] >= q["start"]): return self._err(12000, "Invalid parameter [port -> end]")
+                    todo.append((i, {**q, "id": want}))
+                for i, q in todo:
                     d["ports"][i] = q
             for k in ("name", "ic", "colorOrder", "switchState"):
                 if k in pl: d[k] = pl[k]

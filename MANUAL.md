@@ -1,7 +1,7 @@
 # EaveLuxOS: User Manual
 ### The Intelligent Lighting Control Platform
 
-Version 4.0.2 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
+Version 4.0.3 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
 
 > **Downloaded the ready-made app? You can skip most of the setup.**
 > The downloads on the project's GitHub **Releases** page
@@ -1416,6 +1416,14 @@ does run bulbs 1–600, tap **It's really connected** in that note and it
 won't ask again; a port you give other numbers on Setup › Lights & controller never gets
 the note. To keep a port that
 *is* connected dark, use ✕ (zone off) in the pattern instead.
+
+**Port numbers (version 4.0.3).** Some controllers (Trimlight Edge firmware
+1.17.77) report their ports as 1–4 but the cloud takes them numbered 0–3
+when saving, and refused the save with code 12000, "Invalid parameter
+[port -> id]". A refused save changes nothing, so the app now tries the
+other numbering once, remembers what worked, and reads the controller back
+to check each port landed where it should. If it says a port isn't showing
+as set yet, wait a minute and open Setup › Lights & controller again.
 
 The bar diagram shows the layout. Tap **Save to controller**, then confirm.
 The lights may flicker briefly.
