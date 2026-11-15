@@ -1,14 +1,14 @@
-# Capturing how the Trimlight app switches on music mode
+# Capturing how the Trimlight app talks to the controller
 
-Trimlight's cloud API has no music controls. The Trimlight Edge app switches
-music mode on over the home network, with messages that aren't documented.
-If a capture shows what those messages are, a later EaveLuxOS version could
-switch the controller to Auxiliary IN by itself, and "Start a music show"
-would be one tap.
+Trimlight's cloud API has no music controls. The Trimlight Edge app runs
+music mode over the home network, with messages that aren't documented. A
+capture in November 2026 (firmware 1.17.77) showed what they are, and
+EaveLuxOS 4.1 uses them for **Music from this computer** (see
+`eaveluxos/lanlink.py` and the Manual).
 
-This is research. It may turn out the messages can't be replayed (for
-example, if they're encrypted or signed), and a firmware update could change
-them later.
+A second capture the same day showed the lights on and off and leaving
+Music. A new capture is still useful to learn how many music patterns there
+are, or to see what changed if a firmware update breaks **Test connection**.
 
 ## What you need
 
@@ -58,8 +58,31 @@ Python 3.10 or newer, no other software:
 The report lists only home-network traffic: discovery broadcasts, every
 conversation with the controller, message shapes with the bytes that change
 between them, and a timeline lined up with your notes. Live streams (many
-messages a second, as Microphone mode may send) are summarized instead of
+messages a second, as Microphone mode sends) are summarized instead of
 listed in full.
+
+Since 4.1 it also puts Trimlight's own messages back together and decodes
+them under **Decoded Trimlight messages**: the greeting, keep-alives, "set
+the controller's clock", "everything the controller holds" (with the names
+in it), "music settings" (input, music pattern, sensitivity), "sound
+levels", "lights off" / "lights on" and "back to normal (out of music
+mode)", with anything not yet understood shown as "request 0x…" or "mode
+0x… (not known yet)" and its bytes. Those unknown requests are what a new capture is for.
+
+**Tip for the marks:** use the clock of the device that records (the phone,
+with PCAPdroid). The November capture's notes were about 30 seconds behind
+the phone, which made the steps harder to match.
+
+### A short capture for what's still unknown
+
+Leave about 20 seconds between steps and write each one down:
+
+1. Open the Trimlight Edge app and your controller.
+2. Open **Music**, then scroll to the **last** music pattern and choose it.
+3. Leave Music.
+
+The report's "music pattern" number for step 2 is the last one (counting
+from 0).
 
 Read the report before sharing it. It can include the controller's ID or
 name. Share `report.md` (and the capture, if you're comfortable) to work out

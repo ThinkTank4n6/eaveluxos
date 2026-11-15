@@ -1,7 +1,7 @@
 # EaveLuxOS
 ### The Intelligent Lighting Control Platform
 
-By **Christopher A. Tankelewicz (ThinkTank4n6)** · MIT License · version 4.0.3
+By **Christopher A. Tankelewicz (ThinkTank4n6)** · MIT License · version 4.1.0
 
 EaveLuxOS currently works with **Trimlight Edge** permanent-lighting controllers.
 Its scheduling, mapping and design tools are built to grow to other brands.
@@ -89,6 +89,10 @@ owner and are used here only to say which hardware EaveLuxOS works with.*
   free, or with Claude using your own Anthropic API key.
 - **Night curves:** whites warm up and the lights dim through the night
   (crisp at dusk, warm at 9 PM, a 15% glow after midnight).
+- **Music from this computer (experimental):** the lights dance to music the
+  app computer hears or plays, beat by beat, with no phone. The app talks to
+  the controller directly on your home network, the way the Trimlight app
+  does in music mode.
 - **Mood follow (beta):** the app computer's microphone switches between
   calm, lively and party patterns as the music changes.
 - **Music shows that don't get cut off.** Start a show (or plan show nights)
@@ -196,7 +200,7 @@ get an app icon.
 | **Patterns** | Your patterns, Community, the patterns saved in the Trimlight app, and all 180 built-in effects; try any of them on your lights. **New pattern** opens the designer: colors (by name or code too), bulbs per color, painting single bulbs, ranges and zones, animation, preview. |
 | **Schedule** | **Every night:** rules (sun-based or set times, date ranges, days, rotation, brightness, night curves, priority) and what's coming up. **Special days:** holidays that find their own dates, game-day lights and away mode. |
 | **Alerts** | What reacts: weather rules, severe weather alerts, the security flash, webhooks (Home Assistant, cameras, alarms) and phone alerts. |
-| **Music** | Music shows (the controller's own music mode, for a set time or on show nights) and mood follow. |
+| **Music** | Music shows (the controller's own music mode, for a set time or on show nights), music from this computer, and mood follow. |
 | **House** | Bulb finder, photos of each side, automatic roofline detection, landmarks, zones, bulb numbering and the flat diagram. |
 | **Setup** | **Lights & controller** (a card per controller, ports, LED chip and color order, the backup timer, color correction, pattern backups), **Location & time**, **Accounts & access** and **App** (sharing and backup, updates, start automatically, AI pattern ideas, version history). |
 

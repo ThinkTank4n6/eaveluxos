@@ -1,7 +1,7 @@
 # EaveLuxOS: User Manual
 ### The Intelligent Lighting Control Platform
 
-Version 4.0.3 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
+Version 4.1.0 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
 
 > **Downloaded the ready-made app? You can skip most of the setup.**
 > The downloads on the project's GitHub **Releases** page
@@ -1140,9 +1140,11 @@ a package is detected. **Stop flash** ends those too.
 
 ## 16. Music shows
 
-The Music tab has two parts: **Music show** (the controller's own music mode,
-below) and **Mood follow** (this app listens and switches patterns; see Mood
-follow at the end of this section).
+The Music tab has three parts: **Music show** (the controller's own music
+mode, below), **Music from this computer** (this app runs music mode itself,
+no phone needed; version 4.1, experimental) and **Mood follow** (this app
+listens and switches patterns). Both are described at the end of this
+section.
 
 The Trimlight controller can make the lights dance to music on its own: it
 listens to sound and moves the pattern with the beat. That **music mode** is
@@ -1216,13 +1218,81 @@ stopped, and with no body it uses the usual length set on the Music tab.
 
 ### Limits
 
-- This app can't switch music mode on or off; that still takes the Trimlight
-  app on your home Wi-Fi.
+- **Music show** doesn't switch music mode on or off; that takes the Trimlight
+  app on your home Wi-Fi, or **Music from this computer** below.
 - During a show, the backup timer isn't updated and the controllers aren't
   checked. Both resume when the show ends.
 - The beat-matching is the controller's own. Trimlight's cloud is far too slow
   (a quarter to a full second per command) to drive the lights in time with
   music from here.
+
+### Music from this computer (experimental)
+
+New in version 4.1. This app runs the controller's music mode itself, the way
+the Trimlight app does from a phone: the app computer listens, works out how
+loud the music is in 16 bands from bass to treble, and sends that to the
+controller about 9 times a second over your **home network**. The controller
+moves its music pattern to the beat. No phone, and nothing goes through
+Trimlight's cloud.
+
+**Set it up once (Administrator).**
+
+1. Find the controller's address on your home network. The Trimlight Edge
+   app shows it when it opens (for example `192.168.1.50`), and your
+   router's device list shows it too. In the router, reserve that address
+   for the controller so it doesn't change.
+2. On the **Music** tab, under **Music from this computer**, enter it and tap
+   **Save**. **Find** asks the network for controllers; if one answers, its
+   address is filled in.
+3. Tap **Test connection**. "The controller answered" means it works.
+   **Test connection** only says hello. **Read the controller** also sets the
+   controller's clock and lists the patterns and timers it holds, as the
+   Trimlight app does every time it opens.
+
+The app computer and the controller must be on the same home network (the
+same router, or devices the router can reach directly).
+
+**Run a show.**
+
+1. On the app computer itself, open EaveLuxOS at **http://localhost:8787**.
+   As with mood follow, a browser only lets a page listen on the computer it
+   runs on.
+2. Choose **Listen to**:
+   - **Default microphone or line-in**, or a particular one from the list.
+     A microphone near the speakers works; a cable from a player into the
+     computer's line-in is better (only the music, no room noise).
+   - **This computer's sound**: music playing on the computer itself
+     (Spotify, YouTube, a playlist). The browser asks what to share: choose
+     **Entire screen** and tick **Also share system audio** (Chrome or Edge on
+     Windows). Only the sound is used; the picture is dropped right away.
+     This is the most accurate choice: no delay and no room noise.
+3. Choose a **Music pattern** (1 is the first in the Trimlight app's music
+   list), **How long**, and **Sensitivity** (1 to 14, as in the Trimlight
+   app). **Input level** makes quiet or loud sound fit better; the bars show
+   what's sent, and a good level keeps most of them moving without all of
+   them hitting the top.
+4. Tap **Start the show**. The bars move with the music and so do the lights.
+   Music pattern and Sensitivity can be changed while it runs.
+5. Tap **Stop**. The controller leaves music mode, as when you leave Music
+   in the Trimlight app, and the scheduled pattern comes back.
+
+While it runs, this app steps aside like any music show (no patterns, checks
+or timer copies). Keep the page open; a background tab is fine. The show ends
+by itself, and the schedule comes back, when you stop it, when you choose a
+pattern or **Stop the show** above, when **How long** is up, when the page
+closes or stops sending sound for 20 seconds, or when the connection to the
+controller is lost (it tries again first). Only one page runs it at a time,
+and mood follow can't run at the same time.
+
+**What's sent.** Only the 16 loudness numbers, the music pattern and the
+sensitivity; the sound itself never leaves the browser and isn't recorded.
+
+**Why "experimental".** Trimlight doesn't publish these local messages. They
+were worked out from a capture of the Trimlight app (firmware 1.17.77) with
+the kit in `tools/music-capture`. A firmware update could change them; if
+**Test connection** stops working after one, a new capture shows what
+changed. How many music patterns there are isn't known yet, so the list goes
+to 20; a number past the last one does whatever the controller does with it.
 
 ### Mood follow (beta)
 
@@ -1957,6 +2027,9 @@ Sharing it helps other Trimlight owners know what works on their firmware.
 | A house photo shows as solid green, stripes, or one flat color | Some graphics drivers garble photos when the browser processes them. Since version 3.11.5 the app computer processes photos itself, so this shouldn't happen; upload the photo again. If you still see a message about a flat color (the browser is used for iPhone HEIC photos, or when the app runs from source without Pillow), try another browser, or turn off **Use graphics acceleration when available** in the browser's settings (System section). |
 | The finder lights the wrong spot | Check the port layout on Setup › Lights & controller (section 18). Bulb numbers follow it. |
 | "The settings database couldn't be read" | Rare, usually after a disk problem. The app kept the damaged file, restored your patterns and schedule from its plain-text copy (`settings.last-good.json`), and asks you to enter your Trimlight account and app password again. |
+| Music from this computer: "Couldn't reach the controller" or "didn't answer" | Check the address the Trimlight Edge app shows when it opens, and that the app computer is on the same home network (not a guest network). Unplugging the controller for 30 seconds clears a stuck connection. Close the Trimlight app on your phone while testing; it may hold the controller's attention. After a firmware update, a new capture (`tools/music-capture`) shows whether the messages changed. |
+| Music from this computer: the bars move but the lights don't follow the beat | Raise **Sensitivity** or **Input level**; try another music pattern. With a microphone, move it closer to the speakers, or use **This computer's sound**. |
+| Music from this computer: "No sound was shared" | When the browser asks what to share, choose **Entire screen** and tick **Also share system audio**. Window or tab sharing may leave the sound out. |
 | I changed something and want it back | **Setup › App › Version history**: tap **Restore** next to an earlier save (section 20). |
 | Forgot a password | Ask an Administrator to set a new one under **Setup › Accounts & access**, or on the app computer run `python3 main.py reset-password NAME`. |
 | "This account can only view" | You're signed in as a Viewer. An Administrator can make you an Editor. |

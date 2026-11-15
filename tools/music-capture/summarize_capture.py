@@ -8,8 +8,10 @@ controller on the home network, to learn how music mode is switched on.
         --marks marks.txt --out report.md
 
 Reads classic pcap and pcapng (Ethernet, raw IP, Linux cooked, BSD loopback,
-Apple PKTAP). Standard library only. TCP segments are listed as captured, not
-reassembled. Nothing is sent anywhere; the report is a local file.
+Apple PKTAP). Standard library only. TCP segments are listed as captured;
+Trimlight's own messages ("SPTECH", 4.1) are also put back together and
+decoded into plain words. Nothing is sent anywhere; the report is a local
+file.
 
 marks.txt: one line per thing you did, the time as shown on the capture
 computer's clock, then a label:
@@ -38,6 +40,7 @@ class Packet:
     dport: int
     payload: bytes
     flags: str = ""     # TCP flags, e.g. "S", "SA", "PA"
+    seq: int = -1       # TCP sequence number (for putting messages back together)
 
 
 def _ip(data: bytes):
@@ -71,11 +74,11 @@ def _l4(ts, ipinfo):
         sp, dp, ln = struct.unpack("!HHH", d[:6])
         return Packet(ts, src, dst, "UDP", sp, dp, d[8:ln] if ln >= 8 else d[8:])
     if proto == 6 and len(d) >= 20:
-        sp, dp = struct.unpack("!HH", d[:4])
+        sp, dp, seq = struct.unpack("!HHI", d[:8])
         off = (d[12] >> 4) * 4
         fl = d[13]
         flags = "".join(c for c, bit in (("F", 1), ("S", 2), ("R", 4), ("P", 8), ("A", 16)) if fl & bit)
-        return Packet(ts, src, dst, "TCP", sp, dp, d[off:], flags)
+        return Packet(ts, src, dst, "TCP", sp, dp, d[off:], flags, seq)
     return None
 
 
@@ -267,6 +270,128 @@ def mark_for(ts: float, marks):
     return label
 
 
+# ------------------------------------------------------------------ Trimlight's messages (4.1)
+# The same layout as eaveluxos/lanlink.py (kept here too so this script runs
+# on its own): "SPTECH" | command | 0 | length (2) | MD5 of the payload (16)
+# | key (1) | payload XOR key. The controller's keep-alive answer is the short
+# form, without MD5 and key. A greeting is "S 01 00 00 L L <L bytes>".
+import hashlib  # noqa: E402
+
+SOURCES = {1: "levels sent by the app (phone microphone)", 2: "the controller's own input (Auxiliary IN)"}
+
+
+def sptech_messages(data: bytes):
+    """[(offset, kind, cmd, payload)] for a reassembled one-way stream; stops
+    at anything that doesn't fit."""
+    out, i, n = [], 0, len(data)
+    while i < n:
+        if data[i:i + 2] == b"S\x01" and n - i >= 6 and n - i >= 6 + data[i + 4]:
+            ln = data[i + 4]
+            out.append((i, "hello", None, data[i + 6:i + 6 + ln]))
+            i += 6 + ln
+            continue
+        if data[i:i + 6] != b"SPTECH" or n - i < 10:
+            break
+        cmd, ln = data[i + 6], int.from_bytes(data[i + 8:i + 10], "big")
+        if n - i >= 27 + ln:
+            k = data[i + 26]
+            body = bytes(b ^ k for b in data[i + 27:i + 27 + ln])
+            if hashlib.md5(body).digest() == data[i + 10:i + 26]:
+                out.append((i, "frame", cmd, body))
+                i += 27 + ln
+                continue
+        if n - i >= 10 + ln:
+            out.append((i, "short", cmd, data[i + 10:i + 10 + ln]))
+            i += 10 + ln
+            continue
+        break
+    return out
+
+
+def reassemble(items):
+    """A one-way TCP stream's bytes, in sequence order, without repeats;
+    [(offset, time)] says when each part arrived."""
+    segs = {}
+    for p in items:
+        if p.seq >= 0 and p.payload:
+            segs.setdefault(p.seq, p)
+    data, times = b"", []
+    for seq in sorted(segs):
+        times.append((len(data), segs[seq].ts))
+        data += segs[seq].payload
+    return data, times
+
+
+def describe(kind, cmd, body, from_controller: bool):
+    """(what, details) in plain words."""
+    if kind == "hello":
+        return ("greeting", f"{len(body)} bytes")
+    if cmd == 0x0B:
+        return ("keep-alive answer" if from_controller else "keep-alive", "")
+    if cmd == 0x06:
+        return ("finding controllers", "")
+    if cmd in (0x04, 0x0A) and len(body) >= 3:
+        sub, ln = body[0], int.from_bytes(body[1:3], "big")
+        d = body[3:3 + ln]
+        if sub == 0x15 and not from_controller and len(d) == 7:
+            days = ["", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+            wd = days[d[3]] if 1 <= d[3] <= 7 else f"day {d[3]}"
+            return ("set the controller's clock",
+                    f"20{d[0]:02d}-{d[1]:02d}-{d[2]:02d} {d[4]:02d}:{d[5]:02d}:{d[6]:02d} ({wd})")
+        if sub == 0x15 and from_controller:
+            names = []
+            for m in re.finditer(rb"[A-Za-z0-9][ -~]{2,31}", d):
+                t = m.group().decode("ascii").strip()
+                if sum(c.isalpha() for c in t) >= 3 and t not in names:
+                    names.append(t)
+            return ("everything the controller holds", f"{len(d)} bytes; names: {', '.join(names[:12]) or 'none'}")
+        if sub == 0x02 and len(d) == 1 and d[0] in (0, 1):
+            return ("lights " + ("on" if d[0] else "off"), "")
+        if sub == 0x04 and len(d) == 1:
+            return ("back to normal (out of music mode)" if d[0] == 0x0E else f"mode 0x{d[0]:02x} (not known yet)", "")
+        if sub == 0x0C and len(d) >= 7:
+            src = SOURCES.get(d[0], f"input {d[0]}")
+            if cmd == 0x0A:
+                return ("sound levels", " ".join(str(v) for v in d[7:23]))
+            return ("music settings", f"input: {src}; music pattern {d[1]}; sensitivity {d[6]}")
+        return (f"request 0x{sub:02x}", f"{len(d)} bytes: {d[:24].hex(' ')}{' …' if len(d) > 24 else ''}")
+    return (f"command 0x{cmd:02x}", f"{len(body)} bytes: {body[:24].hex(' ')}")
+
+
+def decoded_section(f, controller, marks) -> list[str]:
+    """Trimlight's messages in one TCP conversation, decoded."""
+    rows = []
+    for end in (f.a, f.b):
+        items = [p for p in f.items if (p.src, p.sport) == end]
+        data, times = reassemble(items)
+        if b"SPTECH" not in data[:64] and not data.startswith(b"S\x01"):
+            continue
+        from_ctrl = end[0] == controller if controller else end[1] == 8586
+        dst = f.b if end == f.a else f.a
+        for off, kind, cmd, body in sptech_messages(data):
+            ts = max((t for o, t in times if o <= off), default=f.first)
+            rows.append((ts, f"{end[0]} → {dst[0]}", *describe(kind, cmd, body, from_ctrl)))
+    if not rows:
+        return []
+    rows.sort(key=lambda r: r[0])
+    L = ["\n### Decoded Trimlight messages\n",
+         "Put back together from the TCP stream and unscrambled. Sound levels are 16 bands, low to high "
+         "(0-255); runs of them are shown once with how many followed.\n",
+         "| Time | Mark | Direction | Message | Details |", "|---|---|---|---|---|"]
+    i = 0
+    while i < len(rows):
+        ts, way, what, det = rows[i]
+        j = i
+        if what in ("sound levels", "keep-alive", "keep-alive answer"):
+            while j + 1 < len(rows) and rows[j + 1][2] == what and rows[j + 1][1] == way:
+                j += 1
+        more = f" (and {j - i} more until {datetime.fromtimestamp(rows[j][0]):%H:%M:%S})" if j > i else ""
+        L.append(f"| {datetime.fromtimestamp(ts):%H:%M:%S.%f}"[:-3] + f" | {mark_for(ts, marks) or ''} | {way} | "
+                 f"{what}{more} | {det.replace('|', '¦')} |")
+        i = j + 1
+    return L
+
+
 def report(path: str, packets, links, controller, marks) -> str:
     flows, lan, focus = analyze(packets, controller, marks)
     L = []
@@ -310,6 +435,9 @@ def report(path: str, packets, links, controller, marks) -> str:
         if not f.items:
             continue
         w(f"\n## {f.proto} {f.a[0]}:{f.a[1]} ↔ {f.b[0]}:{f.b[1]}\n")
+        if f.proto == "TCP":
+            for line in decoded_section(f, controller, marks):
+                w(line)
         shapes = defaultdict(list)
         for p in f.items:
             shapes[(len(p.payload), p.payload[:2])].append(p.payload)

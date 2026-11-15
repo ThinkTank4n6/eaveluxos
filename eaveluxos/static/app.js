@@ -1787,7 +1787,7 @@ function moodPanel(box) {
   const sel = lv => `<select data-mood="${lv}" ${ro || MOOD.on ? 'disabled' : ''}><option value="">Choose…</option>${effs.map(([k, e]) => `<option value="${esc(k)}" ${md[lv] === k ? 'selected' : ''}>${esc(e.label || k)}</option>`).join('')}</select>`;
   const ready = MOOD_LEVELS_UI.every(([lv]) => md[lv]);
   box.innerHTML = `<div class="panel-head"><h2>Mood follow <span class="pill">Beta</span></h2>
-      ${MOOD.on ? '<button class="small danger" data-moodstop>Stop</button>' : `<button class="small primary" data-moodgo ${!ready || ro || !moodAvailable() ? 'disabled' : ''}>Start listening</button>`}</div>
+      ${MOOD.on ? '<button class="small danger" data-moodstop>Stop</button>' : `<button class="small primary" data-moodgo ${!ready || ro || !moodAvailable() || LINK.on ? 'disabled' : ''}>Start listening</button>`}</div>
     <p class="note">The app computer's microphone listens to the music and switches between three of your patterns as it gets calmer or livelier, every 10 seconds or so. It follows the <b>mood</b>, not the beat: Trimlight's cloud is far too slow for the beat (that's what the controller's own music mode is for).</p>
     <div class="cols" style="gap:10px">${MOOD_LEVELS_UI.map(([lv, l]) => `<label class="field">${l}${sel(lv)}</label>`).join('')}</div>
     ${!moodAvailable() ? `<p class="callout small">A browser only lets a page use the microphone on the computer itself. Open EaveLuxOS on the app computer (<b>http://localhost:${location.port || 8787}</b>) and start it there, with the music playing near that computer.</p>` : ''}
@@ -1800,8 +1800,8 @@ function moodPanel(box) {
   };
   box.onclick = e => {
     const b = e.target.closest('button'); if (!b) return; e.stopPropagation();
-    if (b.dataset.moodstop !== undefined) { moodStop(); toast('Mood follow stopped; back on the schedule'); return moodPanel(box); }
-    if (b.dataset.moodgo !== undefined) busy(b, moodStart).then(() => moodPanel(box))
+    if (b.dataset.moodstop !== undefined) { moodStop(); toast('Mood follow stopped; back on the schedule'); linkPanel($('#linkbox')); return moodPanel(box); }
+    if (b.dataset.moodgo !== undefined) busy(b, moodStart).then(() => { moodPanel(box); linkPanel($('#linkbox')); })
       .catch(err => { MOOD.err = err.name === 'NotAllowedError' ? 'The microphone wasn’t allowed. Allow it for this page in the browser, then try again.' : err.message; moodPanel(box); });
   };
 }
@@ -2197,6 +2197,174 @@ function colorPanel(box) {
 }
 
 /* ---------------------------------------------------------------- music */
+/* Music › Music from this computer (4.1, experimental). This browser
+   listens (a microphone or line-in, or the computer's own sound), turns it
+   into 16 sound levels (bands.js) and sends them about 9 times a second; the
+   app passes them to the controller over the home network, the way the
+   Trimlight app does from a phone, so the lights move to the beat. Like
+   mood follow it needs the page on the app computer (a browser only allows
+   listening on the computer itself or a secure page). */
+const LINK = { on: false, stream: null, ctx: null, node: null, timer: null, edges: null, lv: null, busy: false,
+               tab: '', err: '', st: null, sent: 0, devices: [], since: 0, out: '' };
+function linkOpts() {
+  let o = {};
+  try { o = JSON.parse(localStorage.getItem('linkopts') || '{}') || {}; } catch { o = {}; }
+  return { input: typeof o.input === 'string' ? o.input : 'default', pattern: Number.isInteger(o.pattern) ? o.pattern : 0,
+           sensitivity: Number.isInteger(o.sensitivity) ? o.sensitivity : 8, gain: Number.isFinite(o.gain) ? o.gain : 0,
+           minutes: Number.isInteger(o.minutes) ? o.minutes : 60 };
+}
+function linkSave(o) { try { localStorage.setItem('linkopts', JSON.stringify(o)); } catch { /* private window */ } }
+async function linkListen(input) {
+  if (input === 'screen') {
+    if (!navigator.mediaDevices.getDisplayMedia) throw new Error('This browser can\u2019t share the computer\u2019s sound. Use Chrome or Edge, or choose a microphone or line-in.');
+    const s = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }, systemAudio: 'include' });
+    s.getVideoTracks().forEach(t => t.stop());
+    if (!s.getAudioTracks().length) throw new Error('No sound was shared. Start again, choose Entire screen and tick \u201cAlso share system audio\u201d.');
+    return s;
+  }
+  const audio = { echoCancellation: false, noiseSuppression: false, autoGainControl: false };
+  if (input && input !== 'default') audio.deviceId = { exact: input };
+  return navigator.mediaDevices.getUserMedia({ audio });
+}
+async function linkStart() {
+  const o = linkOpts();
+  LINK.tab = LINK.tab || Math.random().toString(36).slice(2, 12);
+  LINK.err = ''; LINK.out = '';
+  const stream = await linkListen(o.input);
+  try {
+    LINK.st = await api('musiclink', { body: { op: 'start', tab: LINK.tab, pattern: o.pattern, sensitivity: o.sensitivity, minutes: o.minutes } });
+  } catch (e) { stream.getTracks().forEach(t => t.stop()); throw e; }
+  const ctx = new (window.AudioContext || window.webkitAudioContext)(), an = ctx.createAnalyser(), src = ctx.createMediaStreamSource(stream);
+  an.fftSize = 2048; an.smoothingTimeConstant = 0.5; src.connect(an);
+  if (ctx.state === 'suspended') await ctx.resume().catch(() => {});
+  const fd = new Float32Array(an.frequencyBinCount);
+  Object.assign(LINK, { on: true, stream, ctx, edges: Bands.edges(ctx.sampleRate, an.fftSize), sent: 0, since: Date.now() });
+  stream.getTracks().forEach(t => t.addEventListener('ended', () => { if (LINK.on) { LINK.err = 'The sound stopped being shared.'; linkStop(); } }));
+  let last = 0;
+  const tick = () => {
+    if (!LINK.on) return;
+    const now = performance.now();
+    if (now - last < 100) return;
+    last = now;
+    an.getFloatFrequencyData(fd);
+    LINK.lv = Bands.levels(fd, LINK.edges, linkOpts().gain);
+    const bars = $('#linkbars');
+    if (bars) [...bars.children].forEach((b, i) => { b.style.height = Math.max(2, LINK.lv[i] / 255 * 100) + '%'; });
+    if (LINK.busy) return;                  // never let requests pile up
+    LINK.busy = true;
+    api('musiclink', { body: { op: 'levels', tab: LINK.tab, levels: LINK.lv } })
+      .then(r => { LINK.sent++; if (r && r.running === false && LINK.on) { LINK.err = 'The show ended in the app.'; linkStop(false); } })
+      .catch(e => { if (LINK.on) { LINK.err = e.message; linkStop(false); } })
+      .finally(() => { LINK.busy = false; });
+  };
+  // As with mood follow: the audio thread keeps going in a background tab,
+  // where timers slow down; the timer is the backup.
+  if (ctx.createScriptProcessor) {
+    const node = ctx.createScriptProcessor(1024, 1, 1), mute = ctx.createGain();
+    mute.gain.value = 0; src.connect(node); node.connect(mute); mute.connect(ctx.destination);
+    node.onaudioprocess = tick;
+    LINK.node = node;
+  }
+  LINK.timer = setInterval(tick, 50);
+}
+function linkStop(tell = true) {
+  clearInterval(LINK.timer);
+  if (LINK.node) LINK.node.onaudioprocess = null;
+  if (LINK.stream) LINK.stream.getTracks().forEach(t => t.stop());
+  if (LINK.ctx) LINK.ctx.close().catch(() => {});
+  const was = LINK.on;
+  Object.assign(LINK, { on: false, stream: null, ctx: null, node: null, timer: null, lv: null });
+  if (tell && was) api('musiclink', { body: { op: 'stop', tab: LINK.tab } }).catch(() => {});
+  linkPanel($('#linkbox'));
+  moodPanel($('#moodbox'));
+}
+window.addEventListener('pagehide', () => { if (LINK.on) { linkStop(false); api('musiclink', { body: { op: 'stop', tab: LINK.tab }, keepalive: true }).catch(() => {}); } });
+async function linkPanel(box) {
+  if (!box) return;
+  let st;
+  try { st = await api('musiclink'); } catch (e) { box.innerHTML = `<h2>Music from this computer</h2><p class="callout warn small">${esc(e.message)}</p>`; return; }
+  if (!document.body.contains(box)) return;
+  const o = linkOpts(), admin = role() === 'admin', ro = role() === 'viewer';
+  const pats = [], sens = [];
+  for (let i = st.patterns[0]; i <= st.patterns[1]; i++) pats.push(i);
+  for (let i = st.sensitivity[0]; i <= st.sensitivity[1]; i++) sens.push(i);
+  if (moodAvailable() && navigator.mediaDevices.enumerateDevices && !LINK.devices.length) {
+    navigator.mediaDevices.enumerateDevices().then(ds => {
+      LINK.devices = ds.filter(d => d.kind === 'audioinput' && d.deviceId && d.deviceId !== 'default');
+      if (LINK.devices.length && !LINK.on) linkPanel(box);
+    }).catch(() => {});
+  }
+  const running = LINK.on || (st.running && st.host);
+  const addr = admin ? `<div class="row">
+      <label class="field" style="flex:1;min-width:180px">Controller\u2019s address on your home network<input type="text" id="lkaddr" value="${esc(st.address)}" placeholder="e.g. 192.168.1.50" inputmode="decimal" ${running ? 'disabled' : ''}></label>
+      <button class="small" data-lksave ${running ? 'disabled' : ''}>Save</button>
+      <button class="small ghost" data-lkfind ${running ? 'disabled' : ''}>Find</button>
+      <button class="small ghost" data-lktest ${running || !st.address ? 'disabled' : ''}>Test connection</button>
+      <button class="small ghost" data-lkread ${running || !st.address ? 'disabled' : ''}>Read the controller</button></div>
+      <p class="hint">The Trimlight app shows it when it opens (for example 192.168.1.50); your router\u2019s device list shows it too. Reserve it in the router so it doesn\u2019t change. <b>Test connection</b> only says hello. <b>Read the controller</b> also sets the controller\u2019s clock and lists what it holds, as the Trimlight app does each time it opens.</p>
+      <div id="lkout">${LINK.out || ''}</div>`
+    : `<p class="note">Controller\u2019s address: <b>${st.address ? esc(st.address) : 'not set yet'}</b>${st.address ? '' : ' (an Administrator enters it here)'}.</p>`;
+  const inputs = [['default', 'Default microphone or line-in'], ...LINK.devices.map(d => [d.deviceId, d.label || 'Microphone']),
+                  ['screen', 'This computer\u2019s sound (share it from the browser)']];
+  box.innerHTML = `<div class="panel-head"><h2>Music from this computer</h2>
+      ${LINK.on ? '<button class="small danger" data-lkstop>Stop</button>'
+        : `<button class="small primary" data-lkgo ${ro || !st.address || !moodAvailable() || MOOD.on || st.show ? 'disabled' : ''}>Start the show</button>`}</div>
+    <p class="note">The lights dance to music this computer hears or plays, beat by beat, with no phone: this app talks to the controller directly on your home network, the way the Trimlight app does in music mode. Choose the music pattern and sensitivity here instead of in the Trimlight app.</p>
+    ${addr}
+    <div class="grid3">
+      <label class="field">Listen to<select id="lkin" ${LINK.on || ro ? 'disabled' : ''}>${inputs.map(([v, l]) => `<option value="${esc(v)}" ${o.input === v ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>
+      <label class="field">Music pattern<select id="lkpat" ${ro ? 'disabled' : ''}>${pats.map(i => `<option value="${i}" ${o.pattern === i ? 'selected' : ''}>${i + 1}${i === 0 ? ' (the first in the Trimlight app)' : ''}</option>`).join('')}</select></label>
+      <label class="field">How long<select id="lklen" ${LINK.on || ro ? 'disabled' : ''}>${SHOW_LENGTHS.map(([v, l]) => `<option value="${v}" ${o.minutes === v ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label></div>
+    <div class="grid3">
+      <label class="field">Sensitivity <span class="muted small" id="lksensv">${o.sensitivity}</span><input type="range" id="lksens" min="${sens[0]}" max="${sens[sens.length - 1]}" value="${o.sensitivity}" ${ro ? 'disabled' : ''}></label>
+      <label class="field">Input level <span class="muted small" id="lkgainv">${o.gain > 0 ? '+' : ''}${o.gain} dB</span><input type="range" id="lkgain" min="-18" max="18" step="3" value="${o.gain}" ${ro ? 'disabled' : ''}></label></div>
+    ${LINK.on ? `<div class="bars" id="linkbars" aria-hidden="true">${Array.from({ length: 16 }, () => '<i></i>').join('')}</div>
+      <p class="small">Sending to <b>${esc(st.host || st.address)}</b>. Keep this page open (a background tab is fine). Stop here, or choose a pattern, and the schedule comes back; if this page closes or goes quiet for 20 seconds, the show ends by itself.</p>` : ''}
+    ${!moodAvailable() ? `<p class="callout small">A browser only lets a page listen on the computer itself. Open EaveLuxOS on the app computer (<b>http://localhost:${location.port || 8787}</b>) and start it there.</p>` : ''}
+    ${MOOD.on ? '<p class="callout small">Mood follow is listening. Stop it first: both can\u2019t run the lights at once.</p>' : ''}
+    ${st.show && !LINK.on ? '<p class="callout small">A music show is already on. Stop it above first.</p>' : ''}
+    ${LINK.err || st.error ? `<p class="callout warn small">${esc(LINK.err || st.error)}</p>` : ''}
+    <p class="hint">Experimental: built from a capture of the Trimlight app (firmware 1.17.77). The computer and the controller must be on the same home network. Sound from a microphone arrives a moment late; the computer\u2019s own sound is right on time.</p>`;
+  // Kept, so the answer stays when the panel redraws (every 15 seconds).
+  const show = html => { LINK.out = html; const o2 = $('#lkout'); if (o2) o2.innerHTML = html; };
+  box.onclick = async e => {
+    const b = e.target.closest('button'); if (!b) return; const d = b.dataset;
+    if (d.lksave !== undefined) {
+      busy(b, async () => { await api('musiclink/address', { body: { address: $('#lkaddr').value.trim() } }); S.settings = await api('settings'); toast('Saved'); linkPanel(box); }).catch(() => {});
+    } else if (d.lkfind !== undefined) {
+      busy(b, async () => {
+        const r = await api('musiclink/find', { body: {} });
+        if (r.found.length === 1) $('#lkaddr').value = r.found[0];
+        show(r.found.length ? `<p class="small">Answered: <b>${r.found.map(esc).join(', ')}</b>${r.found.length === 1 ? ' (filled in; press Save)' : ''}.</p>`
+          : '<p class="small muted">Nothing answered. Enter the address the Trimlight app shows instead.</p>');
+      }).catch(() => {});
+    } else if (d.lktest !== undefined || d.lkread !== undefined) {
+      busy(b, async () => {
+        const r = await api('musiclink/test', { body: { read: d.lkread !== undefined } });
+        show(`<p class="callout small" style="border-color:var(--ok)"><b>The controller answered</b> in ${r.ms} ms.${r.names ? ` It holds ${r.bytes} bytes${r.names.length ? `, including: ${r.names.slice(0, 15).map(esc).join(', ')}` : ''}.` : ''}</p>`);
+      }).catch(err => show(`<p class="callout warn small">${esc(err.message)}</p>`));
+    } else if (d.lkgo !== undefined) {
+      busy(b, () => linkStart()).then(() => { linkPanel(box); moodPanel($('#moodbox')); })
+        .catch(err => { LINK.err = err.name === 'NotAllowedError' ? 'Listening wasn\u2019t allowed. Allow the microphone (or the sharing) for this page in the browser, then try again.' : err.message; linkPanel(box); });
+    } else if (d.lkstop !== undefined) linkStop();
+  };
+  box.oninput = e => {
+    const t = e.target;
+    if (t.id === 'lksens') $('#lksensv').textContent = t.value;
+    if (t.id === 'lkgain') { const v = +t.value; $('#lkgainv').textContent = `${v > 0 ? '+' : ''}${v} dB`; linkSave({ ...linkOpts(), gain: v }); }
+  };
+  box.onchange = e => {
+    const t = e.target, o2 = linkOpts();
+    if (t.id === 'lkin') linkSave({ ...o2, input: t.value });
+    else if (t.id === 'lklen') linkSave({ ...o2, minutes: +t.value });
+    else if (t.id === 'lkpat' || t.id === 'lksens') {
+      const k = t.id === 'lkpat' ? 'pattern' : 'sensitivity';
+      linkSave({ ...o2, [k]: +t.value });
+      if (LINK.on) api('musiclink', { body: { op: 'set', tab: LINK.tab, [k]: +t.value } }).catch(err => toast(err.message, true));
+    }
+  };
+}
+
 const SHOW_LENGTHS = [[30, '30 minutes'], [60, '1 hour'], [90, '1½ hours'], [120, '2 hours'], [180, '3 hours'], [0, 'Until I stop it']];
 const fmtMin = n => n % 60 === 0 ? `${n / 60} hour${n === 60 ? '' : 's'}` : n > 60 ? `${Math.floor(n / 60)} h ${n % 60} min` : `${n} minutes`;
 VIEWS.music = async () => {
@@ -2250,12 +2418,14 @@ VIEWS.music = async () => {
           </div>`)}
         </div>
       </div>
+      <h3 class="secthead">Music from this computer <span class="pill">Experimental</span></h3>
+      <div class="panel stack" id="linkbox"></div>
       <h3 class="secthead">Mood follow: this app listens and changes patterns</h3>
       <div class="panel stack" id="moodbox"></div>
       </div>`;
   };
   const render0 = render;
-  render = st => { render0(st); moodPanel($('#moodbox')); };
+  render = st => { render0(st); moodPanel($('#moodbox')); linkPanel($('#linkbox')); };
   try { render(await refreshStatus()); } catch (e) { m.innerHTML = `<div class="view"><p class="callout warn">${esc(e.message)}</p></div>`; return; }
   S.timers.push(setInterval(async () => { if (!document.hidden && !$('#dlg').open) render(await refreshStatus()); }, 15000));
   const act = (body, btn) => busy(btn, async () => { S.status = await api('action', { body }); statusPill(S.status); render(S.status); }).catch(() => {});

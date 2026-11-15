@@ -37,7 +37,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from zoneinfo import available_timezones
 
-from . import alerts, autostart, catalog, community, gameday, holidays, restore, scores, sharecode, updates, winfirewall
+from . import alerts, autostart, catalog, community, gameday, holidays, lanlink, restore, scores, sharecode, updates, winfirewall
 from .api import TrimlightAPI, TrimlightError, port_base
 from .controller import Controller
 from .safety import SafetyNet
@@ -171,7 +171,8 @@ REAUTH_SECONDS = 300
 # household's location, controllers, weather or safety-net settings, accounts,
 # or anything on the admin list. Viewers can look but not change anything.
 EDITOR_POSTS = {"/api/action", "/api/settings", "/api/photo", "/api/photo/upload", "/api/photo/delete", "/api/device/save_effect", "/api/import",
-                "/api/textpattern", "/api/mood", "/api/holidays/refresh", "/api/share", "/api/share/open"}
+                "/api/textpattern", "/api/mood", "/api/holidays/refresh", "/api/share", "/api/share/open",
+                "/api/musiclink"}    # 4.1: a music show from this computer (address, finding and tests: Administrators)
 # Viewers may make a share code: it only reads patterns (3.19.1).
 VIEWER_POSTS = {"/api/share"}
 MOOD_LEVELS = ("calm", "lively", "party")
@@ -181,11 +182,11 @@ ADMIN_GETS = {"/api/users", "/api/safety/backup", "/api/backups", "/api/backups/
 # Household settings only an Administrator may change. "community" is the
 # address the app computer fetches the pattern library from: anyone who could
 # set it could make this computer request any address on the home network.
-HOUSEHOLD_KEYS = ("location", "safety", "weather", "setup_done", "color", "community", "ai")   # ai: the AI model, which spends the owner's money (3.18.2)
+HOUSEHOLD_KEYS = ("location", "safety", "weather", "setup_done", "color", "community", "ai", "lan")   # ai: the AI model, which spends the owner's money (3.18.2)
 # This home's own, never in an export and never taken from someone's file:
 # away mode reveals when nobody's home, and usage is this home's equipment and
 # electric rate (3.15.1).
-PRIVATE_KEYS = ("away", "usage", "ai")   # ai (3.18.2): which paid model to call is this home's choice
+PRIVATE_KEYS = ("away", "usage", "ai", "lan")   # ai (3.18.2): which paid model to call is this home's choice
 ROLE_NAMES = {"admin": "Administrator", "editor": "Editor", "viewer": "Viewer"}
 # A browser on the app computer itself (when it doesn't require a password).
 LOCAL_USER = {"id": None, "username": "this computer", "role": "admin", "disabled": False, "local": True}
@@ -279,6 +280,7 @@ class App:
         self.ai_fetch = None                                                     # tests replace the AI call (3.18)
         self.ai_calls = []                                                       # times of AI calls, for the limits (3.18.2)
         self.mood_state = None                                                   # mood follow: {"level", "key", "at"}
+        self.lanshow = lanlink.Streamer(on_end=self._musiclink_ended)          # music from this computer (4.1)
         self._port_base = {}         # controller id -> 0 or 1 (how it numbers its ports)
         self._port_write_base = {}   # controller id -> 0 or 1 when the cloud takes other numbers than it shows (4.0.3)
         self._bulbs = None           # last bulb count read from the controller (zones without a House map total)
@@ -397,6 +399,15 @@ class App:
                     v is not None and v not in effs for v in md.values()):
                 raise ApiError("Mood follow: choose one of your patterns for calm, lively and party music.")
         ai = data.get("ai")
+        lan = data.get("lan")
+        if lan is not None:
+            if not (isinstance(lan, dict) and set(lan) <= {"address"} and isinstance(lan.get("address", ""), str)):
+                raise ApiError("The controller's local address is malformed.")
+            if lan.get("address"):
+                try:
+                    lanlink.check_address(lan["address"])
+                except lanlink.LinkError as e:
+                    raise ApiError(str(e)) from None
         if ai is not None and not (isinstance(ai, dict) and set(ai) <= {"model"} and (
                 ai.get("model") is None or (isinstance(ai["model"], str) and re.fullmatch(r"[a-z0-9][a-z0-9.\-]{2,63}", ai["model"])))):
             raise ApiError("AI pattern ideas: a model name looks like claude-haiku-5-5.")
@@ -820,6 +831,132 @@ class App:
         if got == "set":
             c.note(f"Mood follow: {level} music, {c.cfg.effects[key].label}")
         return {"active": True, "level": level, "pattern": c.cfg.effects[key].label}
+
+    # ------------------------------------------------------------ music from this computer (4.1)
+    def _lan_address(self) -> str:
+        return str((self.store.settings.get("lan") or {}).get("address") or "")
+
+    def _our_show(self) -> bool:
+        c = self.ctrl
+        return bool(c and c.music and c.music.get("by") == "lan")
+
+    def musiclink_status(self) -> dict:
+        return {"address": self._lan_address(), **self.lanshow.status(),
+                "show": bool(self.ctrl and self.ctrl.music), "patterns": list(lanlink.PATTERNS),
+                "sensitivity": list(lanlink.SENSITIVITY)}
+
+    def musiclink_address(self, addr) -> dict:
+        """Administrators: the controller's address on the home network."""
+        if addr is None or (isinstance(addr, str) and not addr.strip()):
+            addr = ""
+        else:
+            try:
+                addr = lanlink.check_address(addr)
+            except lanlink.LinkError as e:
+                raise ApiError(str(e)) from None
+        s = copy.deepcopy(self.store.settings)
+        if addr:
+            s["lan"] = {"address": addr}
+        else:
+            s.pop("lan", None)
+        self.store.save_settings(s)
+        return self.musiclink_status()
+
+    def musiclink_test(self, addr=None, read=False) -> dict:
+        """Administrators: connect, greet and ping; with read, also set the
+        controller's clock and list what it holds (the Trimlight app does
+        both each time it opens)."""
+        try:
+            addr = lanlink.check_address(addr or self._lan_address())
+        except lanlink.LinkError as e:
+            raise ApiError(str(e)) from None
+        if self.lanshow.running():
+            raise ApiError("A music show from this computer is running. Stop it first.", 409)
+        try:
+            with lanlink.Link(addr) as link:
+                ms = link.ping()
+                out = {"ok": True, "address": addr, "ms": round(ms)}
+                if read:
+                    dump = link.read_all(self.cfg.loc.now() if self.cfg else datetime.now())
+                    out.update(bytes=len(dump), names=lanlink.names_in(dump))
+        except lanlink.LinkError as e:
+            raise ApiError(str(e), 502) from None
+        log.info("Local link to %s works (%s ms)%s", addr, out["ms"], " and read the controller" if read else "")
+        return out
+
+    def musiclink_find(self) -> dict:
+        try:
+            return {"found": lanlink.find()}
+        except OSError as e:
+            raise ApiError(f"Couldn't look for controllers: {e}", 502) from None
+
+    def musiclink(self, b: dict) -> dict:
+        """Editors: start, feed, adjust or stop a music show from this
+        computer. The listening page sends 16 sound levels about 9 times a
+        second; this app passes them to the controller over the home network
+        and steps aside like any music show while it runs."""
+        op, tab = b.get("op"), b.get("tab")
+        if not isinstance(tab, str) or not 1 <= len(tab) <= 40:
+            raise ApiError("Unknown listening page.")
+
+        def num(k, lo, hi):
+            v = b.get(k)
+            if isinstance(v, bool) or not isinstance(v, int) or not lo <= v <= hi:
+                raise ApiError(f"{k.capitalize()} must be a whole number from {lo} to {hi}.")
+            return v
+        if op == "levels":
+            try:
+                return {"running": self.lanshow.feed(b.get("levels"), tab)}
+            except ValueError as e:
+                raise ApiError(str(e)) from None
+        if op == "set":
+            try:
+                ok = self.lanshow.adjust(tab, pattern=num("pattern", *lanlink.PATTERNS) if "pattern" in b else None,
+                                           sensitivity=num("sensitivity", *lanlink.SENSITIVITY) if "sensitivity" in b else None)
+            except ValueError as e:
+                raise ApiError(str(e)) from None
+            return {"running": ok}
+        if op == "stop":
+            self.lanshow.stop(tab, "stopped")
+            return {"running": False}
+        if op != "start":
+            raise ApiError("Unknown music step.")
+        c = self.ctrl
+        if c is None:
+            raise ApiError("Finish setup first.", 409)
+        addr = self._lan_address()
+        if not addr:
+            raise ApiError("Enter the controller's address on your home network first (Music › Music from this computer).", 409)
+        pattern, sens = num("pattern", *lanlink.PATTERNS), num("sensitivity", *lanlink.SENSITIVITY)
+        minutes = b.get("minutes", 0)
+        if isinstance(minutes, bool) or not isinstance(minutes, int) or not 0 <= minutes <= 360:
+            raise ApiError("Minutes must be from 0 (until stopped) to 360.")
+        fresh = not self.lanshow.running()
+        if fresh:
+            try:
+                c.start_music(minutes or None, by="lan")
+            except ValueError as e:
+                raise ApiError(str(e), 409) from None
+        try:
+            self.lanshow.start(addr, pattern, sens, tab, wanted=self._our_show,
+                               clock=lambda: self.cfg.loc.now() if self.cfg else datetime.now())
+        except (lanlink.LinkError, ValueError) as e:
+            if fresh and self._our_show():
+                c.stop_music()
+            raise ApiError(str(e), 502 if isinstance(e, lanlink.LinkError) else 400) from None
+        if fresh:
+            c.note(f"Music from this computer: started (music pattern {pattern}, sensitivity {sens}).")
+        return self.musiclink_status()
+
+    def _musiclink_ended(self, why: str):
+        c = self.ctrl
+        if c is None:
+            return
+        text = {"stopped": "stopped", "idle": "the listening page stopped sending sound",
+                "lost": "the connection to the controller was lost", "app": "the music show ended"}.get(why, why)
+        c.note(f"Music from this computer: {text}.")
+        if why != "app" and self._our_show():
+            c.stop_music()
 
     def ai_pattern(self, prompt) -> dict:
         """An AI pattern idea (3.18), limited to AI_PER_MINUTE a minute and
@@ -1692,6 +1829,8 @@ def make_server(app: App, host: str, port: int):
                     return {"pattern": app.community.pattern(app.store.settings, q.get("id", ""))}
                 except community.CommunityError as e:
                     raise ApiError(str(e), 502) from None
+            if path == "/api/musiclink":
+                return app.musiclink_status()
             if path == "/api/lan_check":
                 # Why can't a phone open the app? Only from this computer: it
                 # reads this computer's firewall.
@@ -1916,6 +2055,14 @@ def make_server(app: App, host: str, port: int):
                     return textpattern.generate(b.get("prompt"), max(0, min(50, v)))
                 except ValueError as e:
                     raise ApiError(str(e)) from None
+            if path == "/api/musiclink":           # Editors: music from this computer (4.1)
+                return app.musiclink(b)
+            if path == "/api/musiclink/address":   # Administrators
+                return app.musiclink_address(b.get("address"))
+            if path == "/api/musiclink/test":      # Administrators
+                return app.musiclink_test(b.get("address"), bool(b.get("read")))
+            if path == "/api/musiclink/find":      # Administrators
+                return app.musiclink_find()
             if path == "/api/mood":                # Editors: mood follow, from the listening page (3.18)
                 return app.mood(b.get("level"), b.get("tab"))
             if path == "/api/ai/settings":         # Administrators: the owner's own Anthropic API key

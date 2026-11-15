@@ -1,5 +1,37 @@
 # Changelog
 
+## 4.1.0: music from this computer (experimental)
+
+- **New: Music from this computer** (Music tab). The lights dance to music
+  the app computer hears or plays, beat by beat, with no phone. This app now
+  talks to the controller directly on the home network, the way the
+  Trimlight app does in music mode: the browser measures the music in 16
+  bands, about 9 times a second, and the app passes that to the controller.
+  Listen through a microphone or line-in, or to the computer's own sound
+  (screen sharing with system audio, in Chrome or Edge). Music pattern,
+  sensitivity and how long are chosen on the page; it steps aside like any
+  music show and hands the lights back when stopped, when the page closes or
+  goes quiet, or when the connection is lost. Off until an Administrator
+  enters the controller's address; Editors can run shows.
+  - Worked out from a capture of the Trimlight app (firmware 1.17.77): the
+    app finds controllers on UDP port 8589 and talks on TCP port 8586, in
+    "SPTECH" frames with an MD5 of the contents and a one-byte scramble; no
+    account or key is involved. See `eaveluxos/lanlink.py`.
+  - A second capture showed the rest: lights off and on, and leaving
+    Music. A show now ends the way the Trimlight app leaves Music (out of
+    music mode), then the scheduled pattern comes back. The greeting is new
+    each time, as the app's is.
+  - **Test connection** (says hello) and **Read the controller** (sets its
+    clock and lists the patterns and timers it holds, as the Trimlight app
+    does on opening). **Find** asks the network for controllers.
+- **Capture kit:** `summarize_capture.py` now puts Trimlight's messages back
+  together and decodes them in plain words ("music settings: input …; music
+  pattern 2; sensitivity 14", "sound levels …", "set the controller's
+  clock …", "lights off", "back to normal (out of music mode)"), with
+  repeats and retransmissions shown once.
+- The controller's local address is this home's own: it isn't exported or
+  taken from an imported file, and only an Administrator can change it.
+
 ## 4.0.3: saving ports ("Invalid parameter [port -> id]")
 
 - **Fixed:** **Save to controller** on Setup › Lights & controller failed

@@ -1040,7 +1040,7 @@ class Controller:
                 "next": {"name": nxt.window.rule.name, "start": fmt(nxt.start), "end": fmt(nxt.end),
                          "day": nxt.start.strftime("%a %b %d").replace(" 0", " ")} if nxt else None}
 
-    def start_music(self, minutes: int | None = None):
+    def start_music(self, minutes: int | None = None, by: str | None = None):
         """Step aside so the controller's music mode can run: until stopped,
         or for `minutes`. 0 or None with until_stopped means no end time."""
         with self.lock:
@@ -1051,7 +1051,7 @@ class Controller:
             if minutes:
                 minutes = max(5, min(6 * 60, int(minutes)))
                 until = add_real(now, timedelta(minutes=minutes))
-            self.music = {"since": now, "until": until}
+            self.music = {"since": now, "until": until, "by": by}   # by: "lan" for music from this computer (4.1)
             self.override, self.adjust = None, {}
             self._kick()
             self.note("Music show started " + (f"for {minutes} min." if until else "(until stopped)."))
