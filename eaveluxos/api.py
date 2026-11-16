@@ -143,9 +143,23 @@ class TrimlightAPI:
             raise TrimlightError(msg, code=code if isinstance(code, int) else None)
         return obj.get("payload")
 
+    def _read(self, method: str, path: str, body=None):
+        """A read, tried once more after a network hiccup (4.3.8: "Network
+        error calling /v1/oauth/resources/devices: timed out" showed on the
+        Lights tab and was gone a moment later). Changes are never repeated."""
+        try:
+            return self._request(method, path, body)
+        except TrimlightError as e:
+            if e.kind != "network" or "certificate" in str(e).lower():
+                raise
+        time.sleep(self.read_retry_wait)
+        return self._request(method, path, body)
+
+    read_retry_wait = 1.0   # seconds; tests set 0
+
     # --- reads -------------------------------------------------------------
     def list_devices(self) -> list:
-        payload = self._request("GET", "/v1/oauth/resources/devices", {"page": 0}) or {}
+        payload = self._read("GET", "/v1/oauth/resources/devices", {"page": 0}) or {}
         return payload.get("data", []) or []
 
     def _controller_time(self, now_local):
@@ -163,7 +177,7 @@ class TrimlightAPI:
         its data again and try once more."""
         body = {"deviceId": device_id, "currentDate": self._controller_time(now_local)}
         try:
-            return self._request("POST", "/v1/oauth/resources/device/get", body) or {}
+            return self._read("POST", "/v1/oauth/resources/device/get", body) or {}
         except TrimlightError as e:
             # Reads happen every few minutes while holding the command lock, so
             # don't wait on a resync each time a broken copy is read again.

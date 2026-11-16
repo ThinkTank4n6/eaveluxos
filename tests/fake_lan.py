@@ -30,7 +30,11 @@ class FakeController:
         self.holds = holds
         self.ignore = set()
         self.needs_ping = False
-        self.silent_reads = 0            # don't answer this many clock requests          # 4.3.6: no answer to a request before a keep-alive
+        self.silent_reads = 0            # don't answer this many clock requests
+        self.late_reads = 0              # after each change, this many reads still show the old state
+        self.drop_saves = 0              # lose this many pattern saves (both halves)
+        self._shown = None               # what late reads show
+        self._late_left = 0          # 4.3.6: no answer to a request before a keep-alive
         self.active = self.most_active = 0
         self.off_reads_zero = False      # report a port that is off as 0-0
         self.tidies_slots = False        # store unused color slots as 00 00 00 00 01
@@ -121,10 +125,21 @@ class FakeController:
                     pats = [h["patterns"][k] for k in sorted(h["patterns"])]
                     payload = L.state_payload([(0, 0) if self.off_reads_zero and not on else (a, b)
                                                for a, b, on in h["ports"]], pats)
+                    if self._late_left and self._shown is not None:
+                        self._late_left -= 1
+                        payload = self._shown
+                    else:
+                        self._shown = payload
                 c.sendall(L.frame(L.CMD_REQUEST, payload))
         elif kind == "frame" and cmd == L.CMD_REQUEST and self.holds is not None and body[0] not in self.ignore:
             sub, d = body[0], body[3:]
             with self.lock:
+                if sub in (L.SUB_PATTERN_NEW, L.SUB_PATTERN_SAVE, L.SUB_DELETE, L.SUB_PORT):
+                    self._late_left = self.late_reads
+                if sub == L.SUB_PATTERN_SAVE and self.drop_saves:
+                    self.drop_saves -= 1
+                    self.holds["patterns"].pop(d[0], None)    # neither half took
+                    return
                 if sub in (L.SUB_PATTERN_NEW, L.SUB_PATTERN_SAVE) and len(d) == L.RECORD:
                     rec = bytearray(d)
                     if self.tidies_slots:

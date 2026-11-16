@@ -178,14 +178,38 @@ class Local:
         return st
 
     def _change(self, link, before, send, **expect) -> dict:
+        """Send one change and check it by reading the controller back.
+
+        4.3.8: on Nov 15 the fourth of four patterns put back in a row wasn't
+        on the controller one second later, yet putting it back again minutes
+        afterward worked: the controller can need longer to store a change.
+        So a read that doesn't match yet is repeated after a pause, and a
+        change that left the controller exactly as it was (it didn't take,
+        nothing else moved) is sent once more. Anything else still stops."""
         with self.lock:
             try:
                 send()
-                time.sleep(self.gap)
-                after = link.state(self.now())
+                after = None
+                for pause in (self.gap, self.gap * 2):
+                    time.sleep(pause)
+                    after = link.state(self.now())
+                    try:
+                        _check(before, after, **expect)
+                        break
+                    except LocalError as e:
+                        why = e
+                else:
+                    try:
+                        _check(before, after)                      # untouched: it didn't take
+                    except LocalError:
+                        raise why from None                       # something changed, but not as sent: stop
+                    log.info("A change didn't take on the controller; sending it once more.")
+                    send()
+                    time.sleep(self.gap * 2)
+                    after = link.state(self.now())
+                    _check(before, after, **expect)
             except L.LinkError as e:
                 raise LocalError(f"the connection failed: {e}") from None
-            _check(before, after, **expect)
         time.sleep(0.05)              # give a waiting scheduled on/off a turn at the lock
         return after
 

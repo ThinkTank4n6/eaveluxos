@@ -125,8 +125,8 @@ class Patterns(WithController):
             self.loc.restore(self.BACKUP, [10, 11])
         self.assertIn("Stopped after “American Flag”", str(cm.exception))
         self.assertIn("Put back before it: none", str(cm.exception))
-        self.assertEqual(sum(1 for _, _, b in self.ctl.frames(L.CMD_REQUEST) if b[0] == L.SUB_PATTERN_SAVE), 1,
-                         "never a second save after trouble")
+        saves = [b[3] for _, _, b in self.ctl.frames(L.CMD_REQUEST) if b[0] == L.SUB_PATTERN_SAVE]
+        self.assertEqual(saves, [10, 10], "sent once more when it didn't take (4.3.8), never a second pattern")
 
     def test_a_controller_with_two_patterns_on_one_number_is_left_alone(self):
         good = self.ctl.holds["patterns"]
@@ -422,6 +422,24 @@ class ReviewFixes436(ServerBase):
         s["gameday"]["teams"][0]["effect"] = "gone"
         with self.assertRaises(ConfigError):
             build_config(s, {"client_id": "x", "client_secret": "y"})
+
+
+class SlowController438(WithController):
+    """4.3.8: on Nov 15 a pattern put back fourth in a row wasn't there one
+    second later, and putting it back again worked."""
+
+    def test_a_change_that_shows_late_passes(self):
+        self.ctl.late_reads = 1             # the first read after a change still shows the old state
+        r = self.loc.restore(Patterns.BACKUP, [10, 11])
+        self.assertEqual(r["restored"], ["American Flag", "Dolly"])
+        saves = [b[3] for _, _, b in self.ctl.frames(L.CMD_REQUEST) if b[0] == L.SUB_PATTERN_SAVE]
+        self.assertEqual(saves, [10, 11], "no resend needed")
+
+    def test_a_change_that_didnt_take_is_sent_once_more(self):
+        self.ctl.drop_saves = 1             # the first save is lost
+        r = self.loc.restore(Patterns.BACKUP, [10, 11])
+        self.assertEqual(r["restored"], ["American Flag", "Dolly"])
+        self.assertEqual(L.read_record(self.ctl.holds["patterns"][10])["name"], "American Flag")
 
 
 class SampleFilesReachGitHub(unittest.TestCase):

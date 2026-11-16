@@ -1,5 +1,26 @@
 # Changelog
 
+## 4.3.8: from the first real use of local mode and the backup timer
+
+- **Backup timer:** on Nov 16 it wrote its 14 calendar timers and stopped
+  itself at once: "14 entries differed". The safety worked (it took them back
+  and wrote nothing more), but every entry differing at once looks like
+  Trimlight's cloud not having updated its copy yet. It now reads back again
+  after 5 and then 20 seconds before calling it a mismatch, and the log says
+  what an entry was written as and what came back, so a real difference can
+  be found.
+- **Local mode:** on Nov 15, three patterns went back in a row and the fourth
+  wasn't on the controller a second later, yet putting it back again minutes
+  afterward worked. A read that doesn't match yet is now repeated after a
+  pause, and a change that left the controller exactly as it was is sent once
+  more. Any other difference still stops.
+- **Cloud reads** (the controller list, the controller's details) are tried
+  once more after a network hiccup, such as "Network error calling
+  /v1/oauth/resources/devices: timed out" on the Lights tab. Changes are
+  never repeated.
+- The backup timer's status line says "(last copied …)" next to the date, so
+  an older date next to a newer message isn't confusing.
+
 ## 4.3.7: review fixes (one connection to the controller)
 
 - **Fixed (most important):** reads and changes over the home network took

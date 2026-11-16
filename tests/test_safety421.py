@@ -75,6 +75,39 @@ class Settled(unittest.TestCase):
         self.net.sync(self.api, self.cfg, [DEV], self.now.replace(day=30))
         self.assertTrue(self.writes())
 
+    def test_a_late_cloud_copy_is_read_again_4_3_8(self):
+        """Nov 16, 2026: all 14 entries "differed" on the first read-back."""
+        self.net.settle = 0
+        real, reads = self.api.get_device, []
+
+        def lagging(dev, now, **k):
+            det = real(dev, now, **k)
+            reads.append(1)
+            if any(p.endswith("/calendar/save") for p, _ in F.STATE["log"]) and len(reads) == 2:
+                det = {**det, "calendar": []}           # the first read after writing: not there yet
+            return det
+        self.api.get_device = lagging
+        self.assertTrue(self.net.sync(self.api, self.cfg, [DEV], self.now), self.net.summary())
+        self.assertEqual(len(reads), 3, "read once more")
+        self.assertIsNone(self.net.halted)
+        self.assertTrue(self.net.ready(DEV, self.now.date()))
+
+    def test_a_real_mismatch_still_halts_and_says_what_differed(self):
+        self.net.settle = 0
+        real = self.api.get_device
+        F.STATE["log"].clear()
+
+        def wrong(dev, now, **k):
+            det = real(dev, now, **k)
+            if any(p.endswith("/calendar/save") for p, _ in F.STATE["log"]):
+                det = {**det, "calendar": [{**c, "effectId": 99} for c in det.get("calendar", [])]}
+            return det
+        self.api.get_device = wrong
+        with self.assertLogs("eaveluxos.safety", "WARNING") as cm:
+            self.net.sync(self.api, self.cfg, [DEV], self.now)
+        self.assertTrue(self.net.halted)
+        self.assertIn("read back as", "".join(cm.output))
+
     def test_no_writes_while_held(self):
         self.net.settle = 0
         self.net.hold()

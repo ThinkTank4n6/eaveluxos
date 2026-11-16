@@ -78,6 +78,7 @@ _CAL_KEYS = ("effectId", "startDate", "endDate", "startTime", "endTime")
 MAX_CALENDAR = 60
 PREFIX = "Auto "
 SETTLE = 120      # seconds between the two matching readings before a write
+READBACK_PAUSES = (0, 5, 20)   # seconds before each read-back (4.3.8: the cloud's copy can lag behind)
 HOLD = 900        # no writes this long after a music show or local-link use
 
 
@@ -144,6 +145,7 @@ class SafetyNet:
         self.hold_until = 0.0
         self.clock = _time.time      # tests replace it
         self.settle = SETTLE
+        self.readback_pauses = READBACK_PAUSES
 
     # ---------------------------------------------------------------- state
     def _dev(self, dev_id: str) -> dict:
@@ -545,16 +547,30 @@ class SafetyNet:
                               "off": "%02d:%02d" % tuple(e["end"]), "pattern": e["label"]} for e in entries]
             self._save()
 
-        # 3. read back and verify every entry
-        det2 = self._read(api, dev, now)
-        cal2 = {c.get("id"): c for c in det2.get("calendar", [])}
-        lib2 = {e.get("id"): str(e.get("name", "")) for e in det2.get("effects", [])}
-        bad = []
-        for cid, p in written:
-            c = cal2.get(cid)
-            if not c or any(c.get(k) != p[k] for k in _CAL_KEYS):
-                bad.append(cid)
-        missing_eff = [i for i in ids.values() if i not in lib2]
+        # 3. read back and verify every entry. 4.3.8: Trimlight's cloud
+        # updates its copy after the controller confirms, so the first read
+        # can come too soon (Nov 16: all 14 entries "differed" at once); read
+        # again after a pause before calling it a mismatch, and log what
+        # differed.
+        for pause in self.readback_pauses:
+            if pause:
+                _time.sleep(pause)
+            det2 = self._read(api, dev, now)
+            cal2 = {c.get("id"): c for c in det2.get("calendar", [])}
+            lib2 = {e.get("id"): str(e.get("name", "")) for e in det2.get("effects", [])}
+            bad = []
+            for cid, p in written:
+                c = cal2.get(cid)
+                if not c or any(c.get(k) != p[k] for k in _CAL_KEYS):
+                    bad.append(cid)
+            missing_eff = [i for i in ids.values() if i not in lib2]
+            if not (bad or missing_eff):
+                break
+        if bad:
+            cid = bad[0]
+            want = next(p for c, p in written if c == cid)
+            log.warning("Backup timer read-back: entry %s was written as %s, read back as %s (calendar holds ids %s)",
+                        cid, {k: want[k] for k in _CAL_KEYS}, cal2.get(cid), sorted(cal2)[:20])
         if not (bad or missing_eff):
             with self.lock:   # what the live check compares against later
                 st["written"] = {str(cid): {k: p[k] for k in _CAL_KEYS} for cid, p in written}
