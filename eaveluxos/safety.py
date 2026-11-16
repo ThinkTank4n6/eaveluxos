@@ -6,7 +6,8 @@ or the internet goes down.
 
 How it stays safe (4.2.1, after a pattern save through Trimlight's cloud
 left a controller unreadable, error 12006, and a reset lost its patterns)
-- It never saves patterns. Each night uses a pattern already saved on the
+- It never saves or deletes patterns (4.3: not even its own old "Auto"
+  copies when it is turned off). Each night uses a pattern already saved on the
   controller with the same name; a night whose pattern isn't there is
   skipped and listed. Only calendar entries are written, and only its own
   (their ids are recorded in data/safety.json).
@@ -596,13 +597,21 @@ class SafetyNet:
                 for cid in st.get("calendar", []):
                     if cid in cal:
                         api.calendar_delete(dev, cid)
-                for eid in set(st.get("effects", {}).values()):
-                    if eid in lib and _is_auto(lib[eid]):     # never a pattern that took over its number
-                        api.effect_delete(dev, eid)
+                # 4.3: patterns are never deleted through the cloud any more
+                # (deleting by number while the cloud's copy was out of step
+                # removed the owner's patterns, Nov 13, 2026). An "Auto" copy an
+                # older version saved is named, to delete over the home network
+                # (Local mode) or in the Trimlight app.
+                left = sorted({lib[eid].get("name") for eid in set(st.get("effects", {}).values())
+                               if eid in lib and _is_auto(lib[eid])})
+                msg = "Backup timer is off."
+                if left:
+                    msg += (f" Patterns an older version saved are still on the controller: {', '.join(left)}. Delete "
+                            "them in Setup \u203a Lights & controller \u203a Local mode, or in the Trimlight Edge app.")
                 with self.lock:
-                    self.state["devices"][dev] = {"ok": False, "message": "Backup timer is off.", "effects": {}, "calendar": []}
+                    self.state["devices"][dev] = {"ok": False, "message": msg, "effects": {}, "calendar": []}
                     self._save()
-                note("Backup timer removed from the controller.")
+                note("Backup timer removed from the controller." + (f" {msg[21:]}" if left else ""))
             except (TrimlightError, ValueError) as e:
                 ok = False
                 note(f"Couldn't remove the backup timer yet: {e}", logging.WARNING)

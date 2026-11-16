@@ -1,7 +1,7 @@
 # EaveLuxOS: User Manual
 ### The Intelligent Lighting Control Platform
 
-Version 4.2.1 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
+Version 4.3.3 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
 
 > **Downloaded the ready-made app? You can skip most of the setup.**
 > The downloads on the project's GitHub **Releases** page
@@ -515,8 +515,10 @@ This works like the color circles in the Trimlight app.
    animation is a close approximation of the controller's.
 6. Tap **Try on my lights** to see it on the house. A preview lasts 15
    minutes, then the schedule takes over again.
-7. Tap **Save pattern**. Tick **Also add it to the Trimlight app's library**
-   first if you want it in the Trimlight Edge app too.
+7. Tap **Save pattern**. Tick **Also save it on the controller** first if you
+   want it in the Trimlight Edge app's list too. Since 4.3 this goes over your
+   home network (see **Local mode** in section 18), so the controller's address
+   must be set there.
 
 When **color correction** is on (see
 [Setup › Lights & controller](#18-setup--lights--controller)), the lights get adjusted
@@ -1017,12 +1019,24 @@ Your team's colors on the nights they play, instead of the usual pattern.
    Giants).
 2. Change the **Pattern** or the **On** and **Off** times if you like (sunset
    to 11:00 PM to start).
-3. The panel lists the next games. They also show on the Month calendar.
+3. Tick **Use game-day lights**. Nothing is checked while it's off (the
+   panel says so). Within a minute the panel lists the next games. They also
+   show on the Month calendar.
 
-Game dates come from ESPN's public schedule (regular season and playoffs),
-checked twice a day. It's free and needs no account, but isn't an official
-service, so it could change. If it can't be reached, the dates already known
-are kept, and with none your normal schedule simply runs. A game night wins
+**When it talks to ESPN.** Game dates come from ESPN's public schedule: about
+a minute after the app starts or game-day lights are turned on (or a team is
+added), then every 6 hours, and right away after you change the time zone.
+**Check now** asks at once. Each time it asks for the regular season and the
+playoffs by name (not the preseason). Live scores are a separate, much more
+frequent check, only on game days (see Score celebrations below). It's free
+and needs no account, but isn't an official service, so it could change.
+
+- Postponed and canceled games light up nothing.
+- A game starting after midnight (a late West Coast game) counts for the
+  evening before; one whose time ESPN hasn't set yet, for ESPN's own date.
+- If ESPN can't be reached, or answers with no games at all, the dates
+  already known are kept (the panel says so), and with none your normal
+  schedule simply runs. A game night wins
 over seasonal rules (priority 250), so an Eagles game in December shows Eagles
 colors. Turn **Use game-day lights** off to pause it without losing the teams.
 
@@ -1550,11 +1564,14 @@ each part instead.
   same part of the pattern (mirroring). For example, Port 2 = 84–138 and
   Port 3 = 100–138.
 
-**Not connected ports.** Trimlight has no setting that turns a port off: the
-cloud refuses a port without bulb numbers (code 12000, "Invalid parameter
-[port -> start]"). So a port marked Not connected keeps the numbers the
-controller already holds, and this app simply leaves it out of the bulb
-count, the bulb finder and the house tools. A controller reports a port that
+**Not connected ports.** Since 4.3, when the controller's home-network
+address is set (**Local mode**, below), ports are saved over the home network,
+where a port marked Not connected is really **switched off** on the
+controller and keeps its numbers. Without the address they go through
+Trimlight's cloud, which has no off: it refuses a port without bulb numbers
+(code 12000, "Invalid parameter [port -> start]"), so a port marked Not
+connected keeps the numbers the controller already holds. Either way this app
+leaves it out of the bulb count, the bulb finder and the house tools. A controller reports a port that
 was never set up as **bulbs 1–600**; if yours shows that on ports with nothing
 plugged in, Setup › Lights & controller suggests marking them Not connected, so the app
 counts your real bulbs (for example 138) instead of 600. If a port really
@@ -1591,10 +1608,55 @@ end to end.
 - If a dealer or installer set up your system, check with them before changing
   ports, chip type or color order.
 
+### Local mode (home network)
+
+(Version 4.3, Administrators.) The app reads and changes the controller
+straight over your home network, the way the Trimlight Edge app does when it
+shows **Local**: saved patterns, and ports. **Nothing about patterns goes
+through Trimlight's cloud any more.** Saving and deleting patterns there left
+the cloud's copy of a controller unreadable (code 12006) three times in
+November 2026, and deletes by number while that copy was out of step removed
+the owner's own patterns.
+
+1. Open **Setup › Lights & controller › Local mode**.
+2. Enter the controller's address on your home network (the Trimlight Edge
+   app shows it when you open the controller on your home Wi-Fi), or tap
+   **Find it**, then **Save**. It's the same address **Music from this
+   computer** uses.
+3. The panel lists the ports and every pattern saved on the controller, with
+   its number and colors, read from the controller itself.
+
+What goes over the home network:
+
+- **Pattern backups › Put back selected** (below).
+- **Also save it on the controller** when you save a pattern of your own
+  colors.
+- **Delete** in the Local mode list. A pattern is deleted only if its number
+  still holds the pattern of that name; otherwise nothing is deleted and you
+  are asked to read the controller again.
+- **Ports** saved on this page.
+
+How it stays safe: the controller is read first and that is kept as a backup
+(listed under Pattern backups). Changes go one at a time; the controller
+doesn't answer a change, so after each one it is read back and checked: the
+change is there exactly as sent, nothing else changed, and no two patterns
+share a number. At the first difference it stops before the next change and
+tells you what was done. Afterward the app asks the controller to send
+Trimlight's cloud a fresh copy.
+
+Limits: built-in effects (the 180) can't be written this way yet, only
+patterns of your own colors. Names on the controller can be at most 25
+characters. One change runs at a time. It works with one controller. The name, LED chip
+and color order still go through the cloud (they don't touch patterns). A
+port's on/off switch isn't in what the controller sends back, so that one
+part can't be checked (nor the numbers of a port switched off). Stop **Music from this computer** first; it uses the
+same connection.
+
 ### Pattern backups
 
 Before every change it makes, the backup timer (section 17) saves a backup of
-the controller, including every pattern saved in the Trimlight app. The first
+the controller, including every pattern saved in the Trimlight app. Local
+mode saves one before each change too. The first
 one, from before EaveLuxOS ever changed the controller, is kept forever. After
 a factory reset, or after deleting a pattern by mistake, you can put patterns
 back from these backups (Administrators only):
@@ -1604,13 +1666,14 @@ back from these backups (Administrators only):
    are marked and can't be ticked.
 3. Tap **Put back selected**.
 
-It only adds: nothing on the controller is changed or deleted. It backs up the
-controller first and puts patterns back **one at a time**: after each one it
-waits for Trimlight's cloud to catch up, then reads the controller back to
-check it still reads, holds the new pattern under its own number and name,
-and has no two patterns with one number. At the first sign of trouble it
-stops before saving another, and says what was put back. The controller's
-library holds 60 patterns. Putting back a few at a time is gentlest.
+It only adds: nothing on the controller is changed or deleted. Since 4.3 it
+works **over your home network** (Local mode, above; set the controller's
+address there first), never through Trimlight's cloud. It backs up the
+controller first and puts patterns back **one at a time**, reading the
+controller back after each and stopping at the first difference. A pattern
+gets **its old number** when that's free, so timers made in the Trimlight app
+that use it find it again. Built-in effects in a backup are listed as not put
+back. The controller's library holds 60 patterns.
 
 ### Color correction (gamma)
 
@@ -2068,9 +2131,9 @@ What it checks:
 | Controller clock | Whether the time this app sends really sets the controller's clock |
 | First 10 bulbs | That bulb numbering starts where you expect |
 | 90 bulbs per color | Whether the cloud accepts 90 or only 60 (the app adapts either way) |
-| Save to library | Whether designs can be added to the Trimlight app's library (asks first; deleted afterward) |
+| Save to library | Skipped since 4.3: patterns are never saved through the cloud (Local mode does it over the home network) |
 | Port 0-0 refused | That Trimlight still refuses a port without bulbs, which is why Setup › Lights & controller keeps a Not connected port's numbers (asks first; nothing changes when refused) |
-| Controller timer | Whether the backup timer works: the lights should turn green by themselves 2 minutes later and off 2 minutes after that (asks first) |
+| Controller timer | Whether the backup timer works: the lights should come on by themselves 2 minutes later with one of the controller's own patterns, and go off 2 minutes after that (asks first) |
 | Command rate | Whether quick changes, like the bulb finder's, are accepted |
 
 Before changing anything, the test saves the controller's full state as
@@ -2086,7 +2149,7 @@ Sharing it helps other Trimlight owners know what works on their firmware.
 | The browser says it can't connect | The app isn't running. Double-click the launcher. On Mac or Linux, keep its window open. |
 | "Couldn't check these with Trimlight" during setup | The app couldn't reach Trimlight, so your keys weren't checked yet. Check the internet connection and try again. If the message also says the **certificate check failed**: on a Mac, update to version 3.11.1 or later, which fixes this. Otherwise check the computer's date and time, and whether antivirus or network filtering software checks secure (HTTPS) connections. |
 | "Trimlight didn't accept these" | Re-enter the Client ID and Secret. They're case-sensitive, so check for spaces. Also check the computer's clock is correct, because Trimlight's sign-in uses the time. |
-| "Trimlight's cloud can't read its copy of this controller" (code 12006, "Device data could not be parsed … declared 21 and scanned 20 effect records") | Trimlight's cloud copy of the controller is out of step, for example because two saved patterns got the same number. The lights keep running. The app first asks the controller to resend its data and tries again. Since 4.2.1 the backup timer never saves patterns and doesn't try to repair this itself: it removes its timers and stops itself until you turn it off and on again. While it lasts, Setup › Lights & controller shows the error and turns saving off, so the port layout can't be overwritten. If it doesn't clear: open the **Trimlight Edge app** on your home Wi-Fi (connection shows **LOCAL**), open the controller so it syncs, and delete any patterns whose names start with **Auto**. Still stuck: unplug the controller for 30 seconds. |
+| "Trimlight's cloud can't read its copy of this controller" (code 12006, "Device data could not be parsed … declared 21 and scanned 20 effect records") | Trimlight's cloud copy of the controller is out of step, for example because two saved patterns got the same number. The lights keep running. The app first asks the controller to resend its data and tries again. Since 4.2.1 the backup timer never saves patterns and doesn't try to repair this itself: it removes its timers and stops itself until you turn it off and on again. Since 4.3 nothing in this app saves or deletes patterns through the cloud (Local mode does it over the home network), and with the controller's address set, Setup › Lights & controller still saves ports while the cloud can't read it. While it lasts, Setup › Lights & controller shows the error and turns saving off, so the port layout can't be overwritten. If it doesn't clear: open the **Trimlight Edge app** on your home Wi-Fi (connection shows **LOCAL**), open the controller so it syncs, and delete any patterns whose names start with **Auto**. Still stuck: unplug the controller for 30 seconds. |
 | "Can't reach lights" on Home | Check the controller is online in the Trimlight Edge app and the computer has internet. The app retries automatically. |
 | Lights are on or off at the wrong time | **Setup › Location & time:** check the location, time zone and Daylight saving (Automatic). Check the computer's own clock. Check **Schedule › Coming up**. |
 | A different pattern than expected is showing | Look at the Home headline. It names the rule, weather rule or manual change in charge. Check priorities on the Schedule tab. |
@@ -2164,8 +2227,8 @@ standard SQLite file. Photos, controller backups and the log are in the same
 folder.
 
 Nothing has to be stored on the controller. The app writes to it only when
-you ask: the backup timer's copy of the coming nights, and patterns you choose
-to also add to the Trimlight app's library.
+you ask: the backup timer's copy of the coming nights, and (over the home
+network) ports and the patterns you save, put back or delete there.
 
 To back everything up while the app runs, use
 `python3 main.py backup ~/trimlight-backup.db`. Or quit the app and copy the

@@ -1195,7 +1195,7 @@ VIEWS.create = async (opts = {}) => {
             ${gOn() && !D.exact ? `<p class="note">Color correction is on (gamma ${Number(S.settings.color.gamma || GAMMA.def).toFixed(1)}): the lights get adjusted colors so they look like this preview. Change it under Lights.</p>` : ''}</div>
           <div class="panel stack">
             <button data-try>Try on my lights</button>
-            <label class="check"><input type="checkbox" id="alsoapp"> Also add it to the Trimlight app's library</label>
+            <label class="check"><input type="checkbox" id="alsoapp" ${lanAddr() ? '' : 'disabled'}> Also save it on the controller (the Trimlight app's list), over the home network${lanAddr() ? '' : ' <span class="small muted">(set its address in Setup \u203a Lights & controller \u203a Local mode)</span>'}</label>
             <button class="primary" data-save>${D.key ? 'Save changes' : 'Save pattern'}</button>
             <p class="note">Saved patterns appear in Patterns, Home and the schedule editor.</p>
           </div>
@@ -1275,7 +1275,7 @@ VIEWS.create = async (opts = {}) => {
       n.effects[key] = { ...def(), label };
       await saveSettings(n, D.key ? 'Changes saved' : `Saved “${label}”`);
       D.key = key;
-      if ($('#alsoapp').checked) { await api('device/save_effect', { body: { name: label.slice(0, 30), effect: def() } }); toast(`Saved “${label}” here and in the Trimlight app`); }
+      if ($('#alsoapp').checked) { await api('device/save_effect', { body: { name: label.slice(0, 30), effect: def() } }); toast(`Saved “${label}” here and on the controller`); }
       render();
     }).catch(() => {});
   };
@@ -1727,7 +1727,7 @@ async function gamePanel(box) {
       <label class="check small"><input type="checkbox" data-gdcel="${i}" ${t.celebrate ? 'checked' : ''} ${ro ? 'disabled' : ''}> Celebrate scores: flash these colors when they score${t.league === 'nfl' ? ' (field goals and touchdowns)' : t.league === 'nba' ? ' (3-pointers; baskets are too frequent)' : ''}</label>
       ${inf.live && inf.live.state === 'missing' ? `<p class="small warn">Not on ESPN’s scoreboard today under “${esc(inf.live.code)}”, so scores can’t be followed. Check the team code (the letters in the team’s address on espn.com).</p>`
         : inf.live ? `<p class="small"><b>${inf.live.state === 'in' ? 'Live' : inf.live.state === 'post' ? 'Final' : 'Today'}</b>: ${esc(t.name || t.team.toUpperCase())} ${inf.live.score}${inf.live.vs ? ` – ${esc(inf.live.vs)} ${inf.live.them ?? ''}` : ''} ${inf.live.detail ? '· ' + esc(inf.live.detail) : ''}</p>` : ''}
-      <p class="small ${inf.error && !inf.known ? 'warn' : 'muted'}">${inf.next && inf.next.length ? 'Next games: ' + inf.next.map(day).map(esc).join(', ') : inf.error ? 'Schedule not available yet: ' + esc(inf.error) : inf.known ? 'No more games this season.' : 'Schedule not checked yet.'}</p></div>`; }).join('')}
+      <p class="small ${inf.error && !inf.known ? 'warn' : 'muted'}">${inf.next && inf.next.length ? 'Next games: ' + inf.next.map(day).map(esc).join(', ') : inf.error ? 'Schedule not available yet: ' + esc(inf.error) : inf.known ? 'No more games this season.' : !gd.enabled ? 'Not checked while game-day lights are off: tick Use game-day lights above.' : 'Schedule not checked yet (within a minute of turning game-day lights on).'}</p></div>`; }).join('')}
     ${(gd.teams || []).some(t => t.celebrate) ? `<div class="row"><label class="row small">Celebrate for<select id="gdsec" style="width:auto" ${ro ? 'disabled' : ''}>${[10, 15, 20, 30, 45, 60].map(n => `<option value="${n}" ${(gd.celebrate_seconds || 15) === n ? 'selected' : ''}>${n} seconds</option>`).join('')}</select></label>
       <label class="check small"><input type="checkbox" id="gdonly" ${gd.celebrate_only_when_on !== false ? 'checked' : ''} ${ro ? 'disabled' : ''}> Only while the lights are on</label></div>
       <p class="note">Live scores come from ESPN’s free scoreboard, checked every 20 seconds during the game. It runs a little behind live TV, so the lights celebrate shortly after you see the score.</p>` : ''}
@@ -2616,44 +2616,94 @@ function devCards(devs, cur, chosen) {
    pattern whose name is already there is skipped. Administrators only. */
 async function backupPanel(box, d) {
   if (!box) return;
+  const tok = box.dataset.tok = String(Math.random());     // a newer draw wins (two can overlap while loading)
   const all = await api('backups').catch(e => { box.innerHTML = `<h2>Pattern backups</h2><p class="muted small">${esc(e.message)}</p>`; return null; });
   if (!all) return;
   const list = all.filter(b => b.device === d.id);
-  const have = new Set((d.effects || []).map(e => String(e.name || '').trim().toLowerCase()));
+  // 4.3: put back over the home network only, checked against the controller
+  // itself (not the cloud's copy, which can be out of step or unreadable).
+  if (!lanAddr()) {
+    box.innerHTML = '<h2>Pattern backups</h2><p class="callout small">Since 4.3 patterns are put back over your home network, never through Trimlight\u2019s cloud. Enter the controller\u2019s address in <b>Local mode</b> above first.</p>';
+    return;
+  }
+  let live;
+  try { live = await api('local'); } catch (e) { if (box.dataset.tok === tok) box.innerHTML = `<h2>Pattern backups</h2><p class="callout warn small">${esc(e.message)}</p>`; return; }
+  if (box.dataset.tok !== tok) return;
+  const have = new Set(live.patterns.map(e => String(e.name || '').trim().toLowerCase()));
+  d = { ...d, error: null };
   if (!list.length) {
     box.innerHTML = '<h2>Pattern backups</h2><p class="muted small">No backups of this controller yet. One is taken before every change the backup timer makes (Setup › Lights & controller).</p>';
     return;
   }
   const pick = S.bkFile && list.some(b => b.file === S.bkFile) ? S.bkFile : list[0].file;
   box.innerHTML = `<h2>Pattern backups</h2>
-    <p class="note">Put patterns back on the controller, for example after a factory reset or deleting one by mistake. It only adds: patterns already on the controller are left alone.</p>
+    <p class="note">Put patterns back on the controller, for example after a factory reset or deleting one by mistake. It only adds: patterns already on the controller are left alone. It works over your home network, one pattern at a time, reading the controller back after each and stopping at the first difference. A pattern gets its old number when that\u2019s free, so timers made in the Trimlight app find it again.</p>
     <label class="field">Backup<select id="bkfile">${list.map(b => `<option value="${esc(b.file)}" ${b.file === pick ? 'selected' : ''}>${esc(b.label)} (${b.patterns} patterns)</option>`).join('')}</select></label>
     <div id="bklist"><p class="muted small">Loading…</p></div>`;
   const load = async file => {
     S.bkFile = file;
     let r; try { r = await api('backups/patterns?file=' + encodeURIComponent(file)); }
-    catch (e) { $('#bklist').innerHTML = `<p class="callout warn">${esc(e.message)}</p>`; return; }
-    const missing = r.patterns.filter(p => !have.has(p.name.trim().toLowerCase()));
-    $('#bklist').innerHTML = `${r.patterns.length ? `<div class="list">${r.patterns.map(p => { const there = have.has(p.name.trim().toLowerCase());
-        return `<label class="check"><input type="checkbox" data-bk="${p.id}" ${there || d.error ? 'disabled' : missing.length <= 10 ? 'checked' : ''}> <span class="grow">${esc(p.name)} <span class="small muted">${esc(p.kind)}${there ? ' · on the controller now' : ''}</span></span></label>`; }).join('')}</div>`
+    catch (e) { $('#bklist', box).innerHTML = `<p class="callout warn">${esc(e.message)}</p>`; return; }
+    const builtin = p => p.category === 0;
+    const missing = r.patterns.filter(p => !have.has(p.name.trim().toLowerCase()) && !builtin(p));
+    $('#bklist', box).innerHTML = `${r.patterns.length ? `<div class="list">${r.patterns.map(p => { const there = have.has(p.name.trim().toLowerCase());
+        return `<label class="check"><input type="checkbox" data-bk="${p.id}" ${there || d.error || builtin(p) ? 'disabled' : missing.length <= 10 ? 'checked' : ''}> <span class="grow">${esc(p.name)} <span class="small muted">${esc(p.kind)}${there ? ' · on the controller now' : builtin(p) ? ' · can\u2019t be put back over the home network yet' : ''}</span></span></label>`; }).join('')}</div>`
       : '<p class="muted small">This backup has no patterns.</p>'}
       ${missing.length ? `<div class="row" style="margin-top:10px"><button class="primary small" data-bkgo ${d.error ? 'disabled' : ''}>Put back selected</button><span class="small muted">${missing.length} not on the controller now</span></div>`
         : r.patterns.length ? '<p class="small muted" style="margin-top:8px">Every pattern in this backup is on the controller now.</p>' : ''}`;
   };
-  $('#bkfile').onchange = e => load(e.target.value);
+  $('#bkfile', box).onchange = e => load(e.target.value);
   box.onclick = async e => {
     const b = e.target.closest('[data-bkgo]'); if (!b) return;
     e.stopPropagation();
     const ids = [...box.querySelectorAll('[data-bk]:checked')].map(x => +x.dataset.bk);
     if (!ids.length) return toast('Tick the patterns to put back.', true);
-    if (!await confirmBox('Put these patterns back?', `${ids.length} pattern${ids.length > 1 ? 's' : ''} will be added to ${esc(d.name || 'the controller')}. Nothing on it is changed or deleted. This takes a few seconds per pattern.`, 'Put back')) return;
+    if (!await confirmBox('Put these patterns back?', `${ids.length} pattern${ids.length > 1 ? 's' : ''} will be added to ${esc(d.name || 'the controller')} over your home network. Nothing on it is changed or deleted. This takes a few seconds per pattern.`, 'Put back')) return;
     busy(b, () => api('backups/restore', { body: { file: S.bkFile, ids } })).then(r => {
-      const dup = (r.duplicates || []).length ? ` Skipped ${r.duplicates.length} more with the same name as one put back (${r.duplicates.join(', ')}).` : '';
+      const dup = ((r.duplicates || []).length ? ` Skipped ${r.duplicates.length} more with the same name as one put back (${r.duplicates.join(', ')}).` : '')
+        + ((r.builtin || []).length ? ` Not put back (built-in effects can\u2019t be written over the home network yet): ${r.builtin.join(', ')}.` : '');
       toast((r.restored.length ? `Put back: ${r.restored.join(', ')}.` : 'Nothing to put back: those patterns are already there.') + dup);
-      S.devices = null; VIEWS.lights({ keep: true });
+      S.devices = null; backupPanel(box, d);
     }).catch(() => {});
   };
   load(pick);
+}
+
+/* Local mode (4.3): the controller over the home network. Patterns are saved,
+   put back and deleted only this way, never through Trimlight's cloud; ports
+   too when the address is known. */
+const lanAddr = () => ((S.settings || {}).lan || {}).address || '';
+async function localPanel(box) {
+  if (!box) return;
+  const addr = lanAddr();
+  const head = `<h2>Local mode (home network)</h2>
+    <p class="note">This app saves, puts back and deletes the controller's patterns, and sets its ports, straight over your home network, as the Trimlight Edge app does when it shows <b>Local</b>. Nothing about patterns goes through Trimlight's cloud: saves and deletes there left its copy of the controller unreadable (code 12006) and lost patterns. Each change is checked by reading the controller back, and it stops at the first difference.</p>
+    <div class="row" style="align-items:flex-end">
+      <label class="field" style="flex:1;min-width:180px">Controller\u2019s address on your home network<input type="text" id="lcaddr" value="${esc(addr)}" placeholder="e.g. 192.168.1.50" inputmode="decimal" spellcheck="false"></label>
+      <button class="small" data-lcsave>Save</button><button class="small ghost" data-lcfind>Find it</button></div>`;
+  if (!addr) { box.innerHTML = head + '<p class="callout small">Enter the address (the Trimlight Edge app shows it when you open the controller on your home Wi-Fi), or tap <b>Find it</b>.</p>'; }
+  else {
+    box.innerHTML = head + '<div id="lcbody"><p class="muted small">Reading the controller\u2026</p></div>';
+    try {
+      const st = await api('local');
+      $('#lcbody', box).innerHTML = `<p class="small">Ports: ${st.ports.map(p => `${p.port}: ${p.start}\u2013${p.end}`).join(' \u00b7 ')}</p>
+        <h3 style="margin:8px 0 4px">On the controller now (${st.patterns.length})</h3>
+        <div class="list">${st.patterns.map(p => `<div class="item"><div class="grow"><b>${esc(p.name)}</b> <span class="small muted">#${p.id}</span>
+          <div>${swatches(p.colors.map(c => c[1]), 10)}</div></div><button class="small ghost danger" data-lcdel="${p.id}" data-name="${esc(p.name)}">Delete</button></div>`).join('') || '<p class="muted small">No saved patterns.</p>'}</div>
+        <div class="row" style="margin-top:8px"><button class="small ghost" data-lcread>Read again</button></div>`;
+    } catch (e) { $('#lcbody', box).innerHTML = `<p class="callout warn small">${esc(e.message)}</p><div><button class="small ghost" data-lcread>Try again</button></div>`; }
+  }
+  box.onclick = async e => {
+    const b = e.target.closest('button'); if (!b) return; const ds = b.dataset;
+    if (ds.lcsave !== undefined) return busy(b, async () => { await api('musiclink/address', { body: { address: $('#lcaddr', box).value.trim() } }); S.settings = await api('settings'); toast('Saved'); localPanel(box); }).catch(() => {});
+    if (ds.lcfind !== undefined) return busy(b, async () => { const r = await api('musiclink/find', { body: {} });
+      if (r.found.length) { $('#lcaddr', box).value = r.found[0]; toast(r.found.length === 1 ? 'Found it. Tap Save.' : `Found ${r.found.length}: ${r.found.join(', ')}`); } else toast('No controller answered. Enter its address instead.', true); }).catch(() => {});
+    if (ds.lcread !== undefined) return localPanel(box);
+    if (ds.lcdel !== undefined) {
+      if (!await confirmBox(`Delete \u201c${ds.name}\u201d from the controller?`, `It is removed from the controller's own library (the Trimlight app's list) over your home network. Timers in the Trimlight app that use it stop showing it. A backup of the controller is taken first, so it can be put back from Pattern backups.`, 'Delete', true)) return;
+      return busy(b, () => api('local/delete', { body: { id: +ds.lcdel, name: ds.name } })).then(() => { toast(`Deleted \u201c${ds.name}\u201d`); S.devices = null; localPanel(box); }).catch(() => {});
+    }
+  };
 }
 
 VIEWS.lights = async (opts = {}) => {
@@ -2692,7 +2742,7 @@ VIEWS.lights = async (opts = {}) => {
       ${d.error ? `<div class="panel stack"><h2>Ports and bulbs</h2><p class="muted">Unknown until the controller can be read.</p><div><button class="ghost" data-reload>Try again</button></div></div>` : `<div class="panel stack"><div class="panel-head"><h2>Ports and bulbs</h2>
           <div class="seg"><button data-pm="simple" aria-pressed="${S.portMode === 'simple'}">Simple</button><button data-pm="advanced" aria-pressed="${S.portMode === 'advanced'}">Advanced</button></div></div>
         ${unset.length ? `<p class="callout small">${unset.map(p => 'Port ' + (p.id + 1)).join(' and ')} ${unset.length === 1 ? 'reads' : 'read'} bulbs 1–600, which is how the controller reports a port that was never set up. If nothing is plugged in there, mark ${unset.length === 1 ? 'it' : 'them'} <b>Not connected</b> and save, so this app counts ${Math.max(...ports.filter(q => !q.off && !unset.includes(q)).map(q => q.end))} bulbs instead of 600. <button class="small ghost" data-portreal="${unset.map(p => p.id).join(',')}">${unset.length === 1 ? 'It\u2019s' : 'They\u2019re'} really connected</button></p>` : ''}
-        <p class="note">Trimlight has no setting that turns a port off. A port marked <b>Not connected</b> keeps its numbers on the controller, and this app leaves it out of the bulb count, the bulb finder and the house tools.</p>
+        <p class="note">${lanAddr() ? 'Saved over your home network (Local mode), where a port marked <b>Not connected</b> is really switched off on the controller and keeps its numbers.' : 'Trimlight\u2019s cloud has no setting that turns a port off. A port marked <b>Not connected</b> keeps its numbers on the controller.'} This app leaves it out of the bulb count, the bulb finder and the house tools.</p>
         <p class="note">${S.portMode === 'simple' ? 'Enter how many bulbs are on each port. Use 0 for a port with nothing plugged in. Ports are numbered in order along the roofline.' : 'Set the first and last bulb number for each port. Ports may overlap to mirror the same section of the pattern.'}</p>
         <div class="ports">${P.map(p => `<div class="port"><b>Port ${p.id + 1}</b><div class="vals">
           ${S.portMode === 'simple' ? `<input type="number" min="0" max="2048" data-pc="${p.id}" value="${p.count}" aria-label="Bulbs on port ${p.id + 1}"><span class="small muted">bulbs</span>`
@@ -2700,7 +2750,7 @@ VIEWS.lights = async (opts = {}) => {
              <input type="number" min="1" max="2048" data-ps="${p.id}" value="${p.off ? '' : p.start}" ${p.off ? 'disabled' : ''} aria-label="First bulb"><span class="muted">to</span>
              <input type="number" min="1" max="2048" data-pe="${p.id}" value="${p.off ? '' : p.end}" ${p.off ? 'disabled' : ''} aria-label="Last bulb">`}</div></div>`).join('')}</div>
         <div class="portmap" id="pmap"></div><p class="note" id="ptotal"></p>
-        <div class="row"><button class="primary" data-saveports ${d.error ? 'disabled' : ''}>Save to controller</button><button class="ghost" data-reload>Undo changes</button></div>
+        <div class="row"><button class="primary" data-saveports ${d.error && !lanAddr() ? 'disabled' : ''}>Save to controller</button><button class="ghost" data-reload>Undo changes</button></div>
       </div>`}
       <div class="stack">
         <div class="panel stack"><h2>Controller</h2>
@@ -2713,6 +2763,7 @@ VIEWS.lights = async (opts = {}) => {
         </div>
         ${fold('safety', 'Backup timer', '<div class="panel stack" id="safetybox"><p class="muted">Loading…</p></div>', false)}
         ${fold('color', 'Color correction', '<div class="panel stack" id="gbox"></div>')}
+        ${isAdmin() ? fold('local', 'Local mode (home network)', '<div class="panel stack" id="lcbox"></div>') : ''}
         ${isAdmin() ? fold('backups', 'Pattern backups', '<div class="panel stack" id="bkbox"></div>') : ''}
         ${devs.length > 1 ? `<div class="panel stack"><h2>Controlled by this app</h2>${devs.map(x => `<label class="check"><input type="checkbox" data-ctl="${esc(x.id)}" ${!chosen.length || chosen.includes(x.id) ? 'checked' : ''}>${esc(x.name)}</label>`).join('')}
           <div><button class="small" data-savectl>Save</button></div></div>` : ''}
@@ -2721,6 +2772,7 @@ VIEWS.lights = async (opts = {}) => {
   draw();
   whenOpen('color', () => colorPanel($('#gbox')));
   if ($('#bkbox')) whenOpen('backups', () => backupPanel($('#bkbox'), d));
+  if ($('#lcbox')) whenOpen('local', () => localPanel($('#lcbox')));
   whenOpen('safety', () => safetyPanel($('#safetybox')));
   m.oninput = e => {
     const t = e.target, ds = t.dataset;
@@ -2764,7 +2816,7 @@ VIEWS.lights = async (opts = {}) => {
       if (bad) return toast(`Port ${bad.id + 1}: the first bulb must be 1 or more and not after the last bulb (max 2048).`, true);
       if (!await confirmBox('Save ports to the controller?', 'The lights may flicker while the controller applies the new layout.', 'Save')) return;
       return busy(b, () => api('device/update', { body: { deviceId: d.id, ports: P.map(p => ({ id: p.id, start: p.off ? 0 : p.start, end: p.off ? 0 : p.end })) } }))
-        .then(async r => { toast(r && r.note ? r.note : 'Ports saved', !!(r && r.note)); S.portMode = null; await loadSettings().catch(() => {}); VIEWS.lights(); }).catch(() => {});
+        .then(async r => { toast(r && r.note ? r.note : r && r.local ? 'Ports saved over the home network and read back' : 'Ports saved', !!(r && r.note)); S.portMode = null; await loadSettings().catch(() => {}); VIEWS.lights(); }).catch(() => {});
     }
     if (ds.savedev !== undefined) {
       const body = { deviceId: d.id };

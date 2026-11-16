@@ -21,8 +21,16 @@ class FakeController:
     NOISE = (L.MAGIC + b"\x04\x00\x00\x01\x07" + b"\x00junk!"
              + L.MAGIC + b"\x04\x00\x00\x02" + b"\x11" * 16 + b"\x05\x01\x02")
 
-    def __init__(self, greet=True, answer_pings=True, close_after=None, greet_delay=0.0, noise=False):
+    def __init__(self, greet=True, answer_pings=True, close_after=None, greet_delay=0.0, noise=False, holds=None):
+        """holds: {"ports": [(start, end, on)] * 4, "patterns": {id: record}}: a
+        controller that keeps patterns and ports, applies changes and
+        answers the clock request with them, as the real one does (4.3).
+        ignore: set of request subs it receives but doesn't apply (trouble)."""
         self.noise = noise
+        self.holds = holds
+        self.ignore = set()
+        self.off_reads_zero = False      # report a port that is off as 0-0
+        self.tidies_slots = False        # store unused color slots as 00 00 00 00 01
         self.greet, self.answer_pings, self.close_after = greet, answer_pings, close_after
         self.greet_delay = greet_delay
         self.srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -90,7 +98,29 @@ class FakeController:
                 self.answer_pings -= 1
             c.sendall((self.NOISE if self.noise else b"") + L.MAGIC + b"\x0b\x00\x00\x01\x00")
         elif kind == "frame" and cmd == L.CMD_REQUEST and body[:1] == bytes([L.SUB_TIME]):
-            c.sendall(L.frame(L.CMD_REQUEST, L.request(L.SUB_TIME, DUMP)))
+            if self.holds is None:
+                c.sendall(L.frame(L.CMD_REQUEST, L.request(L.SUB_TIME, DUMP)))
+            else:
+                with self.lock:
+                    h = self.holds
+                    pats = [h["patterns"][k] for k in sorted(h["patterns"])]
+                    payload = L.state_payload([(0, 0) if self.off_reads_zero and not on else (a, b)
+                                               for a, b, on in h["ports"]], pats)
+                c.sendall(L.frame(L.CMD_REQUEST, payload))
+        elif kind == "frame" and cmd == L.CMD_REQUEST and self.holds is not None and body[0] not in self.ignore:
+            sub, d = body[0], body[3:]
+            with self.lock:
+                if sub in (L.SUB_PATTERN_NEW, L.SUB_PATTERN_SAVE) and len(d) == L.RECORD:
+                    rec = bytearray(d)
+                    if self.tidies_slots:
+                        for i in range(L.SLOTS):
+                            if rec[32 + 5 * i] == 0:
+                                rec[32 + 5 * i:37 + 5 * i] = b"\0\0\0\0\x01"
+                    self.holds["patterns"][d[0]] = bytes(rec)
+                elif sub == L.SUB_DELETE and len(d) == 1:
+                    self.holds["patterns"].pop(d[0], None)
+                elif sub == L.SUB_PORT and len(d) == 6:
+                    self.holds["ports"][d[0]] = (int.from_bytes(d[1:3], "big"), int.from_bytes(d[3:5], "big"), d[5])
 
     def frames(self, cmd=None):
         with self.lock:

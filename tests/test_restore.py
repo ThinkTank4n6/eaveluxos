@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Christopher A. Tankelewicz (ThinkTank4n6)
-"""Put patterns back from a controller backup (3.15)."""
+"""Controller backups to put patterns back from (3.15). Putting them back is
+over the home network since 4.3: tests/test_local43.py."""
 import copy
 import json
 import shutil
@@ -37,12 +38,6 @@ class RestoreTests(unittest.TestCase):
             F.STATE.pop(k, None)
         shutil.rmtree(self.dir, ignore_errors=True)
 
-    def run_restore(self, ids):
-        return restore.restore(self.api, DEV, NOW, self.backup, ids, backup=self.backups_made.append)
-
-    def names(self):
-        return [e["name"] for e in F.STATE["dev"]["effects"]]
-
     def test_list_newest_first_original_last(self):
         (self.dir / f"{DEV}-20261114-080000-000001.json").write_text(json.dumps(self.backup), encoding="utf-8")
         (self.dir / "notes.json").write_text("{}", encoding="utf-8")                     # not a backup
@@ -50,89 +45,6 @@ class RestoreTests(unittest.TestCase):
         files = [b["file"] for b in restore.list_backups(self.dir)]
         self.assertEqual(files, [f"{DEV}-20261114-080000-000001.json", f"{DEV}-20261113-172240-460361.json", f"{DEV}-original.json"])
         self.assertEqual(restore.list_backups(self.dir)[-1]["label"], "Before EaveLuxOS first changed the controller")
-
-    def test_puts_back_missing_patterns_as_new(self):
-        before = copy.deepcopy(F.STATE["dev"]["effects"])
-        r = self.run_restore([e["id"] for e in self.backup["effects"]])
-        self.assertEqual(sorted(r["restored"]), sorted(e["name"] for e in self.lost))
-        self.assertEqual(sorted(r["skipped"]), sorted(e["name"] for e in before))      # already there: left alone
-        for e in before:
-            self.assertIn(e, F.STATE["dev"]["effects"])                                # nothing changed
-        ids = [e["id"] for e in F.STATE["dev"]["effects"]]
-        self.assertEqual(len(ids), len(set(ids)))
-        back = {e["name"]: e for e in F.STATE["dev"]["effects"]}
-        for e in self.lost:
-            self.assertEqual(back[e["name"]]["pixels"], e["pixels"])                   # same colors
-        self.assertEqual(len(self.backups_made), 1)                                    # backed up first
-
-    def test_same_name_twice_in_a_backup(self):
-        """Review #7 (3.15.1): the owner's real backup has "0-Security" twice;
-        the second was reported as already on the controller."""
-        twin = {**copy.deepcopy(self.lost[0]), "id": 77}
-        self.backup["effects"].append(twin)
-        r = self.run_restore([self.lost[0]["id"], 77])
-        self.assertEqual(r["restored"], [self.lost[0]["name"]])
-        self.assertEqual(r["duplicates"], [self.lost[0]["name"]])
-        self.assertEqual(r["skipped"], [])
-
-    def test_waits_for_the_cloud_between_saves(self):
-        F.STATE["stale_shadow"] = True                    # numbering from a stale copy, as on Nov 13
-        F.STATE["shadow"] = {e["id"] for e in F.STATE["dev"]["effects"]}
-        self.run_restore([e["id"] for e in self.lost])
-        ids = [e["id"] for e in F.STATE["dev"]["effects"]]
-        self.assertEqual(len(ids), len(set(ids)))
-        self.api.get_device(DEV, NOW)                     # still readable
-
-    def test_stops_if_a_number_is_reused(self):
-        F.STATE["stale_shadow"] = True
-        F.STATE["shadow"] = {e["id"] for e in F.STATE["dev"]["effects"]} - {0}    # forgot pattern #0
-        with self.assertRaises(restore.RestoreError) as cm:
-            restore.restore(type("NoResync", (TrimlightAPI,), {"resync": None})(F.CID, F.SECRET, base_url=BASE),
-                            DEV, NOW, self.backup, [e["id"] for e in self.lost])
-        self.assertIn("delete “", str(cm.exception))
-        self.assertNotIn("/device/effect/delete", [p for p, _ in F.STATE["log"][-5:]])
-
-    def test_reads_back_after_each_pattern_and_stops_on_trouble(self):
-        """4.2.1: one pattern at a time, each read back, so trouble after the
-        first never gets a second save on top of it."""
-        F.STATE["log"].clear()
-        self.run_restore([e["id"] for e in self.lost])
-        paths = [p for p, _ in F.STATE["log"]]
-        saves = [i for i, p in enumerate(paths) if p == "/device/effect/save"]
-        self.assertEqual(len(saves), 2)
-        self.assertIn("/device/get", paths[saves[0]:saves[1]], "read back before the next save")
-
-        class Renamed(TrimlightAPI):             # the cloud's copy shows something else under the new number
-            def get_device(s, dev, now, **k):
-                det = super().get_device(dev, now, **k)
-                if s.saved is not None:
-                    for e in det["effects"]:
-                        e["name"] = "Something else" if e["id"] == s.saved else e["name"]
-                return det
-
-            def save_effect(s, dev, payload):
-                r = super().save_effect(dev, payload)
-                s.saved = r.get("id")
-                return r
-        F.STATE["dev"]["effects"] = [e for e in F.STATE["dev"]["effects"] if e["name"] not in {x["name"] for x in self.lost}]
-        api = Renamed(F.CID, F.SECRET, base_url=BASE)
-        api.saved = None
-        F.STATE["log"].clear()
-        with self.assertRaises(restore.RestoreError) as cm:
-            restore.restore(api, DEV, NOW, self.backup, [e["id"] for e in self.lost])
-        self.assertIn("didn't read back", str(cm.exception))
-        self.assertEqual([p for p, _ in F.STATE["log"]].count("/device/effect/save"), 1, "stopped after the first")
-
-    def test_nothing_chosen_or_unreadable_changes_nothing(self):
-        with self.assertRaises(restore.RestoreError):
-            self.run_restore([])
-        F.STATE["fail_get"] = (DEV,)
-        try:
-            with self.assertRaises(restore.RestoreError):
-                self.run_restore([self.lost[0]["id"]])
-        finally:
-            F.STATE.pop("fail_get")
-        self.assertNotIn(self.lost[0]["name"], self.names())
 
     def test_bad_backup_names_are_refused(self):
         for bad in ("../secret.key", "x.json", f"{DEV}-original.json/../../a"):
@@ -149,6 +61,7 @@ class Endpoints(unittest.TestCase):
         js = (Path(__file__).resolve().parent.parent / "eaveluxos" / "static" / "app.js").read_text(encoding="utf-8")
         self.assertIn("async function backupPanel", js)
         self.assertIn("backups/restore", js)
+        self.assertFalse(hasattr(restore, "restore"), "4.3: no putting back through the cloud")
 
 
 if __name__ == "__main__":

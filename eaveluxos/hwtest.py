@@ -137,20 +137,13 @@ def run(store, data_dir: Path, ask=input, say=print, sleep=time.sleep, now=lambd
         except TrimlightError as e:
             rep.add("90 bulbs per color slot", "NO", f"cloud refuses runs over 60 ({e}); the app splits them automatically")
 
-        # 6. save to library -----------------------------------------------------
-        if yes("Test saving a pattern into the Trimlight app's library? (it's deleted again afterward)"):
-            r = api.save_effect(dev_id, {"id": -1, "name": "HW TEST delete me", **_custom([(GREEN, 3), (RED, 3)])}) or {}
-            eid = r.get("id")
-            if eid is None:
-                rep.add("Save pattern to library", "FAIL", "no id returned")
-            else:
-                cleanup.append(("delete the test pattern", lambda eid=eid: api.effect_delete(dev_id, eid)))
-                listed = any(e.get("id") == eid for e in api.get_device(dev_id, now()).get("effects", []))
-                seen = yes("Pull down to refresh the Trimlight app's pattern library. Is \u201cHW TEST delete me\u201d there?")
-                rep.add("Save pattern to library", "PASS" if listed and seen else "FAIL",
-                        f"read back: {'yes' if listed else 'no'}, visible in the app: {'yes' if seen else 'no'}")
-        else:
-            rep.add("Save pattern to library", "SKIP")
+        # 6. save to library ------------------------------------------------------
+        # 4.3: never through the cloud any more. Saving and deleting patterns
+        # that way left Trimlight's copy of a controller unreadable (12006,
+        # Nov 13 and 15, 2026) and lost the owner's patterns. Patterns are
+        # saved over the home network now (Setup › Lights & controller ›
+        # Local mode), which this test doesn't touch.
+        rep.add("Save pattern to library", "SKIP", "not tested through the cloud since 4.3")
 
         # 7. no "off" for a port -------------------------------------------------
         # 3.18.1: the cloud refuses a port without bulbs (start 0, end 0) with
@@ -189,9 +182,12 @@ def run(store, data_dir: Path, ask=input, say=print, sleep=time.sleep, now=lambd
         if yes("Test the controller's own timer (the backup timer)? Takes about 5 minutes."):
             if any(x.get("enable") for x in det.get("daily", [])):
                 say("Note: the Trimlight app's daily timers are on; they may also run during this test.")
-            r = api.save_effect(dev_id, {"id": -1, "name": "HW TIMER delete me", **_custom(_solid(GREEN, total))}) or {}
-            eid = r.get("id")
-            cleanup.append(("delete the timer test pattern", lambda eid=eid: api.effect_delete(dev_id, eid)))
+            # 4.3: one of the controller's own patterns, not a new one saved
+            # through the cloud (see step 6).
+            mine = [e for e in det.get("effects", []) if isinstance(e.get("id"), int)]
+            if not mine:
+                raise TrimlightError("the controller has no saved pattern to run the timer with")
+            eid, pname = mine[0]["id"], mine[0].get("name") or f"pattern {mine[0]['id']}"
             used = {c.get("id") for c in api.get_device(dev_id, now()).get("calendar", [])}
             cid = min(i for i in range(60) if i not in used)
             start = (now() + timedelta(minutes=2)).replace(second=0, microsecond=0)
@@ -207,10 +203,10 @@ def run(store, data_dir: Path, ask=input, say=print, sleep=time.sleep, now=lambd
             api.set_switch(dev_id, 0)
             sleep(2)
             api.set_switch(dev_id, 2)   # Timer mode, lights off until the entry starts
-            say(f"The lights are off now. They should turn GREEN by themselves at {start:%H:%M} "
+            say(f"The lights are off now. They should turn on by themselves at {start:%H:%M}, showing \u201c{pname}\u201d, "
                 f"and turn OFF at {end:%H:%M}. Don't touch anything.")
             sleep(max(0, (start - now()).total_seconds()) + 30)
-            on = yes(f"Did the lights turn green by themselves at {start:%H:%M}?")
+            on = yes(f"Did the lights turn on by themselves at {start:%H:%M}?")
             sleep(max(0, (end - now()).total_seconds()) + 30)
             off = yes(f"Did they turn off by themselves at {end:%H:%M}?")
             rep.add("Controller timer turns lights on", "PASS" if on else "FAIL")

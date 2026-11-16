@@ -377,12 +377,14 @@ class HardwareTestScript(unittest.TestCase):
     def test_full_run_passes_and_restores_everything(self):
         code, report, before, after = self._run()
         self.assertEqual(code, 0, report)
-        for line in ("[PASS] 90 bulbs per color slot", "[PASS] Save pattern to library", "[PASS] Port 0-0 refused",
+        for line in ("[PASS] 90 bulbs per color slot", "[SKIP] Save pattern to library", "[PASS] Port 0-0 refused",
                      "[PASS] Controller timer turns lights on", "[PASS] Timer entry reads back as written"):
             self.assertIn(line, report)
         self.assertEqual(after["ports"], before["ports"])
         self.assertEqual(after["calendar"], before["calendar"])
         self.assertEqual([e["id"] for e in after["effects"]], [e["id"] for e in before["effects"]])
+        self.assertNotIn("/device/effect/save", [p for p, _ in __import__("tests.fake_trimlight", fromlist=["x"]).STATE["log"]],
+                         "4.3: no pattern is saved through the cloud")
 
     def test_reports_a_60_bulb_cloud(self):
         code, report, *_ = self._run(max_count=60)

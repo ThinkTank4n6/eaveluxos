@@ -231,6 +231,96 @@ def names_in(dump: bytes) -> list[str]:
     return seen[:200]
 
 
+# ------------------------------------------------------------------ what the controller holds (4.3)
+# Decoded from four captures (Nov 15, 2026) against the cloud's copy of the
+# same controller. The answer to the clock request, after "15 LL LL":
+#   3 bytes (01 00 00 seen; not known), then ports 1-4 as start (2) and end (2),
+#   then 3 bytes (10 4d, then the pattern count less one), the pattern count,
+#   then one 182-byte record per saved pattern, then timers and the time.
+# A pattern record (also what sub 0x0f / 0x0e send):
+#   number | name (25 bytes, NUL-padded) | 02 | mode | speed | brightness
+#   | 00 00 | 30 color slots of count, red, green, blue, on (1) / off (0)
+NAME_LEN, SLOTS, RECORD, HEAD = 25, 30, 182, 23
+MAX_PATTERN_ID = 60                     # the Trimlight Edge library's size
+WRITE_GAP = 0.6                         # between the two halves of a pattern save, as the app spaced them
+
+
+def pattern_record(pid: int, name: str, mode: int, speed: int, brightness: int, slots) -> bytes:
+    """slots: up to 30 of (count, (red, green, blue), on). Raises ValueError."""
+    if not 1 <= pid <= 255:
+        raise ValueError("pattern number out of range")
+    raw = str(name).strip().encode("ascii", "replace")[:NAME_LEN]
+    if not raw:
+        raise ValueError("a pattern needs a name")
+    for v in (mode, speed, brightness):
+        if not (isinstance(v, int) and 0 <= v <= 255):
+            raise ValueError("mode, speed and brightness are 0-255")
+    slots = list(slots)
+    if len(slots) > SLOTS:
+        raise ValueError(f"at most {SLOTS} color slots")
+    out = bytearray([pid]) + raw.ljust(NAME_LEN, b"\0") + bytes([2, mode, speed, brightness, 0, 0])
+    for count, (r, g, b), on in slots + [(0, (0, 0, 0), True)] * (SLOTS - len(slots)):
+        if not 0 <= count <= 255:
+            raise ValueError("at most 255 bulbs in one color slot")
+        out += bytes([count, r, g, b, 1 if on else 0])
+    return bytes(out)
+
+
+def record_from_effect(pid: int, e: dict) -> bytes:
+    """A custom-colors pattern as Trimlight's cloud describes it (a backup's
+    "effects" entry, or this app's own pattern) as a local record."""
+    if e.get("category") not in (1, None):
+        raise ValueError("only custom-color patterns can be written over the home network")
+    px = sorted([p for p in e.get("pixels") or [] if isinstance(p, dict)], key=lambda p: p.get("index", 0))
+    slots = []
+    for p in px:
+        c = int(p.get("color") or 0)
+        slots.append((int(p.get("count") or 0), ((c >> 16) & 255, (c >> 8) & 255, c & 255), not p.get("disable")))
+    while slots and slots[-1] == (0, (0, 0, 0), True) and len(slots) > SLOTS:
+        slots.pop()
+    return pattern_record(pid, str(e.get("name") or ""), int(e.get("mode") or 0), int(e.get("speed", 128)),
+                          int(e.get("brightness", 255)), slots)
+
+
+def read_record(r: bytes) -> dict:
+    slots = [[r[32 + 5 * i], "#%02X%02X%02X" % tuple(r[33 + 5 * i:36 + 5 * i]), r[36 + 5 * i]] for i in range(SLOTS)]
+    return {"id": r[0], "name": r[1:1 + NAME_LEN].split(b"\0")[0].decode("ascii", "replace"),
+            "mode": r[27], "speed": r[28], "brightness": r[29], "slots": slots}
+
+
+def read_state(body: bytes) -> dict:
+    """The controller's answer to the clock request, decoded. Raises
+    LinkError if it isn't laid out as expected (then nothing may be written)."""
+    if body[:1] != bytes([SUB_TIME]) or len(body) < 3 + HEAD:
+        raise LinkError("The controller's answer wasn't in the expected layout.")
+    d = body[3:3 + int.from_bytes(body[1:3], "big")]
+    if len(d) < HEAD:                   # review #6 (4.3.1): a short declared length
+        raise LinkError("The controller's answer was shorter than expected.")
+    n = d[22]
+    if len(d) < HEAD + RECORD * n:
+        raise LinkError("The controller's answer was shorter than its pattern count says.")
+    ports = [{"port": i + 1, "start": int.from_bytes(d[3 + 4 * i:5 + 4 * i], "big"),
+              "end": int.from_bytes(d[5 + 4 * i:7 + 4 * i], "big")} for i in range(4)]
+    pats = [read_record(d[HEAD + RECORD * k:HEAD + RECORD * (k + 1)]) for k in range(n)]
+    return {"head": d[:3].hex(" "), "ports": ports, "patterns": pats}
+
+
+def state_payload(ports, patterns, head=b"\x01\x00\x00", tail=b"\x00" * 37) -> bytes:
+    """The other way round (tests, and to check read_state against itself)."""
+    d = bytearray(head)
+    for p in ports:
+        d += int(p[0]).to_bytes(2, "big") + int(p[1]).to_bytes(2, "big")
+    d += bytes([0x10, 0x4D, max(len(patterns) - 1, 0), len(patterns)])
+    for r in patterns:
+        d += r
+    return request(SUB_TIME, bytes(d + tail))
+
+
+def same_record(p: dict, rec: bytes) -> bool:
+    """Does a pattern read back from the controller hold exactly this record?"""
+    return read_record(rec) == p
+
+
 def check_address(addr) -> str:
     """A controller address: an IPv4 address on a home network."""
     import ipaddress
@@ -372,6 +462,31 @@ class Link:
         self._send(frame(CMD_REQUEST, time_payload(now)))
         m = self._wait(lambda m: m[0] == "frame" and m[2][:1] == bytes([SUB_TIME]), timeout=max(self.timeout, 6))
         return m[2]
+
+    def state(self, now: datetime) -> dict:
+        return read_state(self.read_all(now))
+
+    def _write(self, sub: int, data: bytes):
+        """One change, sent the way the Trimlight app sends it: a keep-alive
+        answered first, then the request. The controller doesn't answer
+        changes: read it back to check (4.3)."""
+        self.ping()
+        self._send(frame(CMD_REQUEST, request(sub, data)))
+
+    def save_pattern(self, record: bytes):
+        """Create, then save, as the Trimlight app does (0x0f, then 0x0e)."""
+        self._write(SUB_PATTERN_NEW, record)
+        time.sleep(WRITE_GAP)
+        self._write(SUB_PATTERN_SAVE, record)
+
+    def delete_pattern(self, pid: int):
+        self._write(SUB_DELETE, bytes([pid]))
+
+    def set_port(self, port: int, start: int, end: int, on: bool):
+        """port 0-3; start and end 1-2048. A port can really be off here."""
+        if port not in range(4) or not 1 <= start <= end <= 2048:
+            raise ValueError("port 1-4, bulbs 1-2048")
+        self._write(SUB_PORT, bytes([port]) + start.to_bytes(2, "big") + end.to_bytes(2, "big") + bytes([1 if on else 0]))
 
     def power(self, on: bool):
         self._send(frame(CMD_REQUEST, request(SUB_POWER, b"\x01" if on else b"\x00")))

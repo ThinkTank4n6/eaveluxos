@@ -148,6 +148,16 @@ class ScoreWatch:
                         g = pick_game(parse_games(self.fetch(scoreboard_url(league, lg["day"]))), t["team"]) or g
                     except GameDayError:
                         pass
+                if g is None and today in (dates.get(t["key"]) or ()):
+                    # 4.3.3: a game after midnight counts for this evening
+                    # (gameday.py), but ESPN lists it on tomorrow's board.
+                    try:
+                        later = pick_game(parse_games(self.fetch(scoreboard_url(league, today + timedelta(days=1)))), t["team"])
+                    except GameDayError:
+                        later = None
+                    if later and later["state"] != "post" and later["start"] is not None \
+                            and (later["start"] - datetime.fromtimestamp(now, timezone.utc)).total_seconds() < 12 * 3600:
+                        g = later
                 if g is None:
                     self.live_game.pop(t["key"], None)
                     with self.lock:
@@ -174,6 +184,12 @@ class ScoreWatch:
             k = (g["id"], t["key"])
             before = self.last.get(k)
             base = max(before, self.high.get(k, before)) if before is not None else None
+            if (g["state"] == "in" and base is not None and score - base >= t["min_points"]
+                    and now - self.last_party.get(t["key"], 0) < COOLDOWN):
+                # 4.3.2: a second score inside the cooldown used to be
+                # forgotten; leave it unseen, so it's celebrated when the
+                # cooldown ends.
+                return LIVE_EVERY
             self.last[k] = score
             self.high[k] = max(score, self.high.get(k, score))
             for d in (self.last, self.high):
@@ -189,7 +205,7 @@ class ScoreWatch:
         if g["state"] == "in":
             return LIVE_EVERY
         if g["state"] == "pre" and g["start"] is not None:
-            until = (g["start"] - datetime.now(timezone.utc)).total_seconds()
+            until = (g["start"] - datetime.fromtimestamp(now, timezone.utc)).total_seconds()   # this watcher's clock (4.3.3)
             return SOON_EVERY if until < 15 * 60 else max(SOON_EVERY, min(IDLE_EVERY, until - 10 * 60))
         return FINAL_EVERY if g["state"] == "post" else IDLE_EVERY
 

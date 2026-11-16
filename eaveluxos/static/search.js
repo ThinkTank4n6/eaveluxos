@@ -61,6 +61,7 @@
     { t: 'Backup timer', w: 'Setup › Lights & controller', v: 'lights', f: 'safety', k: 'safety net offline timers calendar internet down fallback' },
     { t: 'Color correction', w: 'Setup › Lights & controller', v: 'lights', f: 'color', k: 'gamma color accuracy calibrate white balance' },
     { t: 'Pattern backups', w: 'Setup › Lights & controller', v: 'lights', f: 'backups', k: 'restore lost patterns reset backup put back' },
+    { t: 'Local mode (home network)', w: 'Setup › Lights & controller', v: 'lights', f: 'local', k: 'local lan wifi ip address delete pattern save controller library trimlight list offline 12006' },
     // Setup › Location & time
     { t: 'Date and time', w: 'Setup › Location & time', v: 'time', h: 'Date and time', k: 'clock time date' },
     { t: 'Sun today', w: 'Setup › Location & time', v: 'time', h: 'Sun today', k: 'sunset sunrise dusk dawn' },

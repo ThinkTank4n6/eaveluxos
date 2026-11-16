@@ -333,9 +333,10 @@ class ScoreTests(unittest.TestCase):
         self.step(board("in", 6, 0))                 # touchdown
         self.step(board("in", 7, 0), dt=60)          # extra point: below 3 points
         self.step(board("in", 14, 0), dt=60)         # touchdown
-        self.step(board("in", 21, 0), dt=10)         # within the cooldown after it
+        self.step(board("in", 21, 0), dt=10)         # within the cooldown after it: kept for later (4.3.2)
+        self.assertEqual(len(self.parties), 2)
         self.step(board("in", 28, 0), dt=60)
-        self.assertEqual(self.parties, [("Eagles", 6), ("Eagles", 7), ("Eagles", 7)])
+        self.assertEqual(self.parties, [("Eagles", 6), ("Eagles", 7), ("Eagles", 14)])   # both scores, once
 
     def test_only_game_days_and_polling_pace(self):
         calls = []

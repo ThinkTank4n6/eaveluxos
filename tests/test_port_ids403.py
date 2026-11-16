@@ -116,7 +116,7 @@ class PortIds(unittest.TestCase):
 
     def test_page_shows_the_note(self):
         js = (Path(__file__).resolve().parent.parent / "eaveluxos" / "static" / "app.js").read_text(encoding="utf-8")
-        self.assertIn("toast(r && r.note ? r.note : 'Ports saved'", js)
+        self.assertIn("toast(r && r.note ? r.note : r && r.local ?", js)
 
 
 if __name__ == "__main__":

@@ -38,7 +38,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from zoneinfo import available_timezones
 
-from . import alerts, autostart, catalog, community, gameday, holidays, lanlink, restore, scores, sharecode, updates, winfirewall
+from . import alerts, autostart, catalog, community, gameday, holidays, lanlink, localmode, restore, scores, sharecode, updates, winfirewall
 from .api import TrimlightAPI, TrimlightError, port_base
 from .controller import Controller
 from .safety import SafetyNet
@@ -179,7 +179,7 @@ VIEWER_POSTS = {"/api/share"}
 MOOD_LEVELS = ("calm", "lively", "party")
 MOOD_MINUTES = 3     # a mood pattern ends by itself this long after the last word from the listening page
 AI_PER_MINUTE, AI_PER_DAY = 6, 100   # AI pattern ideas cost money on the owner's key (3.18.2)
-ADMIN_GETS = {"/api/users", "/api/safety/backup", "/api/backups", "/api/backups/patterns", "/api/alerts"}
+ADMIN_GETS = {"/api/users", "/api/safety/backup", "/api/backups", "/api/backups/patterns", "/api/alerts", "/api/local"}
 # Household settings only an Administrator may change. "community" is the
 # address the app computer fetches the pattern library from: anyone who could
 # set it could make this computer request any address on the home network.
@@ -284,6 +284,7 @@ class App:
         self.lanshow = lanlink.Streamer(on_end=self._musiclink_ended)          # music from this computer (4.1)
         self.lan_seen = {"address": None, "ok": None, "at": 0.0, "checking": False, "gen": 0}  # answering there? (4.1.2)
         self.lan_lock = threading.Lock()     # guards lan_seen (4.1.4)
+        self.local_busy = threading.Lock()   # one local-mode job at a time (4.3.1)
         self._port_base = {}         # controller id -> 0 or 1 (how it numbers its ports)
         self._port_write_base = {}   # controller id -> 0 or 1 when the cloud takes other numbers than it shows (4.0.3)
         self._bulbs = None           # last bulb count read from the controller (zones without a House map total)
@@ -845,6 +846,91 @@ class App:
         by = str((c.music or {}).get("by") or "") if c else ""
         return by == f"lan:{sid}" if sid else by.startswith("lan:")
 
+    # ------------------------------------------------------------ local mode (4.3)
+    def local(self, *, write: bool = True):
+        """The controller over the home network: (Local, device id). Patterns
+        are saved, put back and deleted only this way since 4.3."""
+        addr = self._lan_address()
+        if not addr:
+            raise ApiError("Patterns are saved over your home network since 4.3, so this app needs the controller's "
+                           "address there first: Setup \u203a Lights & controller \u203a Local mode (or Music \u203a "
+                           "Music from this computer).", 409)
+        if write and self.lanshow.running():
+            raise ApiError("A music show from this computer is using the connection. Stop it first.", 409)
+        try:
+            devs = self.target_devices()
+        except ApiError:
+            # Review #7 (4.3.1): the cloud is down; the controllers this app
+            # already knows will do (local mode shouldn't need the cloud).
+            devs = [d["deviceId"] for d in (self.ctrl.devices if self.ctrl else []) or []]
+            if not devs:
+                raise
+        if len(devs) != 1:
+            raise ApiError("Local mode works with one controller for now; this app runs "
+                           f"{len(devs)}. Choose one under Setup \u203a Lights & controller.", 409)
+        dev = devs[0]
+        if write:
+            self.safety.hold()        # no backup-timer writes next to these
+        return localmode.Local(addr, now=self.controller_now, backup=lambda det: self.safety._backup(dev, det),
+                               lock=self.ctrl.apply_lock if self.ctrl else None, busy=self.local_busy), dev
+
+    def controller_now(self):
+        """The time the controller should hold: reading it over the home
+        network sets its clock, so the Setup offset goes along, as with every
+        cloud request (review #3, 4.3.1; music from this computer since 4.1)."""
+        from datetime import timedelta
+        return self.now() + timedelta(minutes=self.clock_offset())
+
+    def _after_local_write(self, dev: str):
+        """The controller changed without the cloud: forget what was read
+        through it, and ask the controller to send Trimlight's cloud a fresh
+        copy (a read for the cloud, not a write to the controller)."""
+        if self.ctrl:
+            with self.ctrl.lock:
+                self.ctrl.saved = {}
+
+        def nudge():
+            try:
+                self.client().resync(dev, self.now())
+            except (ApiError, TrimlightError, OSError) as e:
+                log.info("Couldn't ask the controller to update Trimlight's cloud: %s", e)
+        threading.Thread(target=nudge, daemon=True).start()
+
+    def local_state(self) -> dict:
+        loc, dev = self.local(write=False)
+        try:
+            st = loc.read()
+        except localmode.LocalError as e:
+            raise ApiError(str(e), 502) from None
+        return {"address": loc.host, "device": dev, "ports": st["ports"],
+                "patterns": [{"id": p["id"], "name": p["name"], "mode": p["mode"], "speed": p["speed"],
+                              "brightness": p["brightness"],
+                              "colors": [[c, col] for c, col, on in p["slots"] if c and on]} for p in st["patterns"]]}
+
+    def local_ports(self, ports) -> dict:
+        loc, dev = self.local()
+        try:
+            changed = loc.ports(ports)
+        except localmode.LocalError as e:
+            raise ApiError(str(e), 502) from None
+        log.info("Ports set over the home network: %s", "; ".join(changed))
+        self._after_local_write(dev)
+        if self.ctrl:
+            self.ctrl.refresh_devices()
+        return {"ok": True, "changed": changed}
+
+    def local_delete(self, pid, name) -> dict:
+        if isinstance(pid, bool) or not isinstance(pid, int) or not isinstance(name, str) or not name.strip():
+            raise ApiError("Choose a pattern to delete.")
+        loc, dev = self.local()
+        try:
+            loc.delete(pid, name)
+        except localmode.LocalError as e:
+            raise ApiError(str(e), 502) from None
+        log.info("Deleted pattern %s (%r) over the home network.", pid, name)
+        self._after_local_write(dev)
+        return {"ok": True}
+
     def musiclink_status(self) -> dict:
         return {"address": self._lan_address(), **self.lanshow.status(),
                 "show": bool(self.ctrl and self.ctrl.music), "patterns": list(lanlink.PATTERNS),
@@ -926,13 +1012,15 @@ class App:
             raise ApiError(str(e)) from None
         if self.lanshow.running():
             raise ApiError("A music show from this computer is running. Stop it first.", 409)
+        if self.local_busy.locked():
+            raise ApiError("A change to the controller over the home network is running. Try again when it's done.", 409)
         self.safety.hold()      # no backup-timer writes next to local-link use (4.2.1)
         try:
             with lanlink.Link(addr) as link:
                 ms = link.ping()
                 out = {"ok": True, "address": addr, "ms": round(ms)}
                 if read:
-                    dump = link.read_all(self.cfg.loc.now() if self.cfg else datetime.now())
+                    dump = link.read_all(self.controller_now())
                     out.update(bytes=len(dump), names=lanlink.names_in(dump))
         except lanlink.LinkError as e:
             self._lan_result(addr, False)
@@ -990,6 +1078,8 @@ class App:
         addr = self._lan_address()
         if not addr:
             raise ApiError("Enter the controller's address on your home network first (Music › Music from this computer).", 409)
+        if self.local_busy.locked():
+            raise ApiError("A change to the controller over the home network is running. Start the show when it's done.", 409)
         pattern, sens = num("pattern", *lanlink.PATTERNS), num("sensitivity", *lanlink.SENSITIVITY)
         try:
             color = lanlink.check_color(b.get("color", "#FF0000"))      # for the "Single Color" patterns (4.2)
@@ -1014,7 +1104,7 @@ class App:
             sid = None
         try:
             self.lanshow.start(addr, pattern, sens, tab, wanted=(lambda: self._our_show(sid)) if sid else self._our_show,
-                               clock=lambda: self.cfg.loc.now() if self.cfg else datetime.now(), sid=sid, color=color)
+                               clock=self.controller_now, sid=sid, color=color)
         except (lanlink.LinkError, ValueError) as e:
             if fresh and self._our_show(sid):
                 c.stop_music()
@@ -1084,7 +1174,8 @@ class App:
         return out
 
     def restore_patterns(self, name, ids) -> dict:
-        """Put patterns from a controller backup back on that controller."""
+        """Put patterns from a controller backup back on that controller,
+        over the home network (4.3; never through the cloud)."""
         if not isinstance(ids, list) or not ids:
             raise ApiError("Choose at least one pattern to put back.")
         try:
@@ -1092,20 +1183,16 @@ class App:
         except restore.RestoreError as e:
             raise ApiError(str(e), 404)
         m = restore.NAME_RE.fullmatch(str(name))
-        dev = m.group(1)
-        if dev not in self.target_devices():
+        loc, dev = self.local()
+        if m.group(1) != dev:
             raise ApiError("That backup is of a controller this app doesn't use now.", 409)
-        try:   # the command lock is held per pattern inside, not for the whole restore
-            r = restore.restore(self.client(), dev, self.now(), det, ids,
-                                backup=lambda cur: self.safety._backup(dev, cur),
-                                lock=self.ctrl.apply_lock if self.ctrl else None)
-        except restore.RestoreError as e:
+        try:
+            r = loc.restore(det, ids)
+        except localmode.LocalError as e:
             raise ApiError(str(e), 502)
-        if self.ctrl:
-            with self.ctrl.lock:
-                self.ctrl.saved = {}          # read the library again
         if r["restored"]:
-            log.info("Put back from backup %s: %s", name, ", ".join(r["restored"]))
+            log.info("Put back from backup %s over the home network: %s", name, ", ".join(r["restored"]))
+            self._after_local_write(dev)
         return r
 
     # ------------------------------------------------------------ devices
@@ -1287,8 +1374,13 @@ class App:
                 if not off and not (1 <= st <= en <= 2048):
                     raise ApiError(f"Port {pid + 1}: bulbs must be within 1-2048 and the start can't be after the end.")
                 ports.append({"id": pid, "start": st, "end": en})
+            if len({p["id"] for p in ports}) != len(ports):
+                raise ApiError("Each port can be given only once.")          # review #5 (4.3.1)
             if ports and all(p["start"] == 0 and p["end"] == 0 for p in ports):
                 raise ApiError("At least one port needs bulbs. Turning every port off would leave the lights dark.")
+            if self._lan_address() and sorted(p["id"] for p in ports) == [0, 1, 2, 3]:   # review #5 (4.3.1): each port once
+                # 4.3: over the home network, where a port can really be off.
+                return self._ports_local(dev, ports, {k: v for k, v in payload.items()})
             off_ids = sorted(p["id"] for p in ports if p["start"] == 0 and p["end"] == 0)
             base = self._port_base.get(dev)
             current = None
@@ -1332,6 +1424,40 @@ class App:
             # (switch-on included), not just forget the list.
             self.ctrl.refresh_devices()
         return {"ok": True, **({"note": note} if note else {})}
+
+    def _ports_local(self, dev: str, ports: list, other: dict) -> dict:
+        """The Lights tab's port layout, sent over the home network (4.3). A
+        port marked not connected is switched off and keeps its numbers."""
+        loc, ldev = self.local()
+        if ldev != dev:
+            raise ApiError("Local mode works with the controller this app runs.", 409)
+        try:
+            cur = loc.read()["ports"]
+        except localmode.LocalError as e:
+            raise ApiError(f"{e} Nothing was changed.", 502) from None
+        want = []
+        for p in sorted(ports, key=lambda p: p["id"]):
+            off = p["start"] == 0 and p["end"] == 0
+            c = cur[p["id"]]
+            st_, en = (c["start"], c["end"]) if off else (p["start"], p["end"])
+            if not 1 <= st_ <= en:
+                st_, en = 1, max(1, en)
+            want.append({"start": st_, "end": en, "on": not off})
+        try:
+            changed = loc.ports(want)
+        except localmode.LocalError as e:
+            raise ApiError(str(e), 502) from None
+        log.info("Ports set over the home network: %s", "; ".join(changed))
+        self._after_local_write(dev)
+        note = None
+        if other:       # the name, chip type and color order still go through the cloud
+            note = self._send_device_update(dev, other, None)
+        self.set_unused_ports(dev, [p["id"] for p in ports if p["start"] == 0 and p["end"] == 0],
+                              touched={p["id"] for p in ports},
+                              given={p["id"] for p in ports if (p["start"], p["end"]) not in ((0, 0), (1, 600))})
+        if self.ctrl:
+            self.ctrl.refresh_devices()
+        return {"ok": True, "local": True, **({"note": note} if note else {})}
 
     def _send_device_update(self, dev: str, payload: dict, base: int | None):
         """Send a device update; ports go in the controller's own numbers.
@@ -1428,6 +1554,8 @@ class App:
         return {"ok": True, "sent": sent, "offset_min": offset, "label": shown.strftime("%a %b %d, %I:%M %p")}
 
     def save_to_controller(self, body: dict):
+        """Also save a pattern in the controller's own library (the Trimlight
+        app's list), over the home network (4.3; never through the cloud)."""
         name = str(body.get("name", "")).strip()
         if not 1 <= len(name) <= 30:
             raise ApiError("Pattern name must be 1-30 characters.")
@@ -1436,18 +1564,17 @@ class App:
             raise ApiError("That pattern is already on the controller.")
         if eff.kind == "split":
             raise ApiError("A pattern split across controllers can't be saved in the Trimlight app; save each part instead.")
-        payload = {"id": -1, "name": name, **eff.payload}
-        api = self.client()
-        out = []
-        for dev in self.target_devices(body.get("deviceIds")):
-            try:
-                r = api.save_effect(dev, payload) or {}
-                out.append({"device": dev, "id": r.get("id")})
-            except TrimlightError as e:
-                raise ApiError(str(e), 502)
-        if self.ctrl:
-            self.ctrl.saved = {}
-        return {"ok": True, "saved": out}
+        if eff.payload.get("category") != 1:
+            raise ApiError("Only patterns of your own colors can be saved on the controller; a built-in effect is "
+                           "already there.")
+        loc, dev = self.local()
+        try:
+            pid = loc.save({"name": name, **eff.payload})
+        except localmode.LocalError as e:
+            raise ApiError(str(e), 502)
+        log.info("Saved %r on the controller over the home network as pattern %s.", name, pid)
+        self._after_local_write(dev)
+        return {"ok": True, "saved": [{"device": dev, "id": pid}]}
 
     # ------------------------------------------------------------ misc
     def upcoming(self, days: int, month: str | None = None):
@@ -1992,6 +2119,8 @@ def make_server(app: App, host: str, port: int):
                 return app.holidays_status()
             if path == "/api/backups":                 # controller backups to restore patterns from (3.15)
                 return restore.list_backups(app.safety.backup_dir)
+            if path == "/api/local":                    # Administrators: the controller over the home network (4.3)
+                return app.local_state()
             if path == "/api/backups/patterns":
                 try:
                     det = restore.read_backup(app.safety.backup_dir, q.get("file", ""))
@@ -2119,6 +2248,10 @@ def make_server(app: App, host: str, port: int):
                 return {"ok": True}
             if path == "/api/backups/restore":      # Administrators (not on the editor list)
                 return app.restore_patterns(b.get("file"), b.get("ids"))
+            if path == "/api/local/ports":          # Administrators (4.3)
+                return app.local_ports(b.get("ports"))
+            if path == "/api/local/delete":         # Administrators (4.3)
+                return app.local_delete(b.get("id"), b.get("name"))
             if path == "/api/textpattern":         # Editors: describe a pattern in words (3.18)
                 from . import textpattern
                 try:

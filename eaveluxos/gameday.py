@@ -5,8 +5,13 @@
 Game dates come from ESPN's public site API (the one its own web pages use;
 free, no key, not officially documented, so it may change without notice):
   https://site.api.espn.com/apis/site/v2/sports/<sport>/<league>/teams/<team>/schedule
-Twice a day the app computer fetches each chosen team's schedule (regular
-season and playoffs) and keeps just the dates, in data/gamedays.json. If the
+Every 6 hours (4.3.2; it was 12) the app computer fetches each chosen team's
+schedule, regular season and playoffs, each asked for by name (4.3.2: asked
+for with no season type, ESPN answered with the preseason in September, so
+the opener wasn't known in time), and keeps just the dates, in
+data/gamedays.json. Postponed and canceled games are left out. A game that
+starts after midnight counts for the night before, and one whose time ESPN
+hasn't set (timeValid false) for ESPN's own day. If the
 source can't be reached or changes shape, the last dates are kept, and with
 none the normal schedule simply runs: game days can only ever add a pattern.
 
@@ -22,7 +27,8 @@ import threading
 import time
 import urllib.error
 import urllib.request
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from pathlib import Path
 
 from .trust import client_context
@@ -33,7 +39,11 @@ LEAGUES = {"nfl": ("football/nfl", "NFL"), "mlb": ("baseball/mlb", "MLB"),
 HOST = "https://site.api.espn.com/apis/site/v2/sports/"
 TEAM_RE = re.compile(r"[a-z]{2,5}")
 MAX_BYTES = 6_000_000
-EVERY = 12 * 3600
+EVERY = 6 * 3600
+SEASONS = (2, 3)            # regular season, playoffs (1 would be the preseason)
+NOT_PLAYED = ("STATUS_POSTPONED", "STATUS_CANCELED", "STATUS_CANCELLED", "STATUS_FORFEIT")
+EARLY_HOUR = 5              # a game starting before 5 AM belongs to the night before
+ESPN_TZ = ZoneInfo("America/New_York")
 RETRY = 2 * 3600
 PRIORITY = 250
 
@@ -88,8 +98,13 @@ def parse_dates(raw: bytes, tz) -> list[str]:
             continue
         s = ev.get("date")
         comp = ev.get("competitions")
-        if not isinstance(s, str) and isinstance(comp, list) and comp and isinstance(comp[0], dict):
-            s = comp[0].get("date")
+        c0 = comp[0] if isinstance(comp, list) and comp and isinstance(comp[0], dict) else {}
+        if not isinstance(s, str):
+            s = c0.get("date")
+        st = c0.get("status") if isinstance(c0.get("status"), dict) else ev.get("status")
+        name = str(((st or {}).get("type") or {}).get("name") or "") if isinstance(st, dict) else ""
+        if name.upper() in NOT_PLAYED:
+            continue                                       # 4.3.2: no game that night
         if not isinstance(s, str):
             continue
         s = s.strip().replace("Z", "+00:00")
@@ -101,7 +116,13 @@ def parse_dates(raw: bytes, tz) -> list[str]:
             continue
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
-        out.add(dt.astimezone(tz).date().isoformat())
+        if c0.get("timeValid") is False or ev.get("timeValid") is False:
+            out.add(dt.astimezone(ESPN_TZ).date().isoformat())   # time not set yet: ESPN's own day
+            continue
+        loc = dt.astimezone(tz)
+        if loc.hour < EARLY_HOUR:
+            loc -= timedelta(days=1)                       # after midnight: that evening's game
+        out.add(loc.date().isoformat())
     return sorted(out)
 
 
@@ -135,6 +156,8 @@ class GameDays:
         self.now = now
         self.on_change = on_change
         self.lock = threading.Lock()
+        self.busy = threading.Lock()         # one refresh at a time (the loop and "Check now", 4.3.2)
+        self.tz_used = None                  # the time zone the dates were worked out in
         self.cache = self._load()            # key -> {"dates": [...], "fetched": ts, "error": str|None}
         self.next_at = 0.0
         self.thread = None
@@ -180,16 +203,26 @@ class GameDays:
     def refresh(self, teams, tz) -> bool:
         """Fetch every team's schedule. Returns True if any dates changed.
         A failure keeps the dates already known."""
+        with self.busy:
+            return self._refresh(teams, tz)
+
+    def _refresh(self, teams, tz) -> bool:
         changed = False
+        self.tz_used = str(tz)
         for t in teams:
             k = team_key(t["league"], t["team"])
             dates, err = None, None
             try:
-                dates = set(parse_dates(self.fetch(schedule_url(t["league"], t["team"])), tz))
+                dates = set(parse_dates(self.fetch(schedule_url(t["league"], t["team"], SEASONS[0])), tz))
                 try:                         # playoffs too, when there are any
-                    dates |= set(parse_dates(self.fetch(schedule_url(t["league"], t["team"], 3)), tz))
+                    dates |= set(parse_dates(self.fetch(schedule_url(t["league"], t["team"], SEASONS[1])), tz))
                 except GameDayError:
                     pass
+                if not dates:
+                    # 4.3.2: an answer listing no games at all (a rollover at
+                    # ESPN) mustn't erase the nights already known.
+                    dates = None
+                    raise GameDayError("ESPN listed no games for this team just now; the dates already known are kept.")
             except GameDayError as e:
                 err = str(e)
                 log.info("Game days for %s: %s", t.get("name"), e)
@@ -207,15 +240,17 @@ class GameDays:
 
     def _loop(self, teams_fn, tz_fn):
         while not self.stop.wait(60):
-            if self.now() < self.next_at:
-                continue
+            tz = tz_fn()
+            if self.now() < self.next_at and (self.tz_used is None or str(tz) == self.tz_used):
+                continue                     # a new time zone: work the dates out again now (4.3.2)
             teams = teams_fn() or []
             if not teams:
                 self.next_at = self.now() + 3600
                 continue
             try:
-                changed = self.refresh(teams, tz_fn())
-                errs = any((self.cache.get(team_key(t["league"], t["team"])) or {}).get("error") for t in teams)
+                changed = self.refresh(teams, tz)
+                with self.lock:
+                    errs = any((self.cache.get(team_key(t["league"], t["team"])) or {}).get("error") for t in teams)
                 self.next_at = self.now() + (RETRY if errs else EVERY)
                 if changed and self.on_change:
                     self.on_change()

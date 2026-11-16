@@ -1,5 +1,103 @@
 # Changelog
 
+## 4.3.3: ESPN review fixes
+
+- **Fixed (most important):** since 4.3.2 a game starting after midnight
+  counts for the evening before, but on that evening the score watcher only
+  asked ESPN's board for that day, which doesn't list the game, so the panel
+  said "Not on ESPN's scoreboard today" all evening. It now also looks at
+  tomorrow's board for a game starting within 12 hours. (Reproduced in
+  `tests/repro_scores_late_game.py`.)
+- **Fixed:** the wait before a game was worked out with the computer's clock
+  while everything else in the score watcher used its own, so a test clock
+  (or a clock change) could make it check too early or too late.
+
+## 4.3.2: game-day lights review fixes
+
+- **Fixed (most important):** the regular season was asked for with no season
+  type, so ESPN answered with whatever it calls current. In the preseason that
+  is the preseason: preseason games lit up, and the season opener wasn't known
+  until ESPN flipped over, often the day before or the day of. The regular
+  season and the playoffs are now asked for by name. (Reproduced in
+  `tests/repro_gameday_seasontype.py`.)
+- **Fixed:** postponed and canceled games still lit up their nights.
+- **Fixed:** a game starting after midnight local time (a late West Coast
+  start) lit up the night after; it counts for that evening now. A game whose
+  time ESPN hasn't set yet uses ESPN's own date.
+- **Fixed:** an answer from ESPN listing no games at all (as during its
+  rollovers) erased the nights already known. They're kept now, and the panel
+  says so.
+- **Fixed:** "Check now" and the background check could ask ESPN at the same
+  time; one runs at a time.
+- **Fixed:** changing the time zone left game nights worked out in the old
+  one for up to 12 hours; they're worked out again at once.
+- Schedules are checked every 6 hours (was 12), so a game moved on short
+  notice (an NFL flex, a playoff date) is picked up sooner.
+- **Fixed:** a second score within 45 seconds of a celebration was never
+  celebrated; it's celebrated when the 45 seconds are up.
+- The panel says "Not checked while game-day lights are off" instead of
+  "Schedule not checked yet" when the switch is off.
+
+## 4.3.1: review fixes (local mode)
+
+- **Fixed (most important):** switching a port off over the home network was
+  checked by reading back its first and last bulb, but what the controller
+  reports for a port that is off has never been seen. If it reports anything
+  else (0-0, say), a correct save of your layout (ports 3 and 4 off) would be
+  called a failure and stop halfway. An off port's numbers are no longer
+  judged; every other port still is. (Reproduced in
+  `tests/repro_off_port_readback.py`.)
+- **Fixed:** a pattern read back was compared byte for byte, including color
+  slots that hold no bulbs. If the controller tidies those, every correct save
+  would stop a restore after the first pattern. Now the name, motion, speed,
+  brightness and the slots that hold bulbs are compared.
+- **Fixed:** reading the controller over the home network sets its clock, and
+  that ignored the clock offset in Setup › Location & time (so did Music from
+  this computer since 4.1), moving the clock the backup timer's timers run on.
+- **Fixed:** two local-mode jobs at once (two pages, or ports and a restore)
+  could interleave their changes on two connections. One runs at a time now,
+  and a music show from this computer waits for it.
+- **Fixed:** a port list naming one port twice could set the wrong port.
+- **Fixed:** an answer from the controller shorter than its own header was an
+  error page instead of a clear refusal.
+- **Fixed:** local mode needed Trimlight's cloud to know which controller it
+  was; it uses the controllers it already knows when the cloud is down.
+- **Fixed:** saving a pattern with a name over 25 characters cut the name
+  short on the controller (so the backup timer, which matches by name,
+  couldn't find it). Such names are refused with a clear message.
+
+## 4.3.0: local mode, and no pattern writes through the cloud
+
+- **Local mode** (Setup › Lights & controller, Administrators): the app reads
+  and changes the controller straight over the home network, as the Trimlight
+  Edge app does when it shows "Local". The panel lists the ports and every
+  pattern saved on the controller, read from the controller itself, with a
+  **Delete** for each.
+- **Nothing saves or deletes patterns through Trimlight's cloud any more.**
+  Every 12006 so far followed one, and on Nov 13 deletes by number, sent while
+  the cloud's copy was out of step, removed the owner's own patterns (by Nov
+  15 the controller held 11 of its 19). Now:
+  - **Pattern backups › Put back selected** works over the home network, one
+    pattern at a time, each read back. A pattern gets its old number when
+    that's free, so the Trimlight app's timers find it again.
+  - **Also save it on the controller** in the designer saves over the home
+    network.
+  - **Delete** checks that the number still holds the pattern of that name.
+  - Turning the **backup timer** off no longer deletes old "Auto" patterns; it
+    names them, to delete in Local mode.
+  - The **hardware test** no longer saves a test pattern; its timer test uses
+    one of the controller's own patterns.
+- **Ports** are saved over the home network when the controller's address is
+  known, where a port marked **Not connected** is really switched off. Saving
+  ports works even while Trimlight's cloud can't read the controller.
+- How it stays safe: the controller is read and backed up first; changes go
+  one at a time, each read back and checked (the change is there exactly,
+  nothing else changed, no two patterns on one number); it stops at the first
+  difference. The backup timer holds off meanwhile.
+- The layout of the controller's own messages (patterns, ports) was decoded
+  from captures and checked against its cloud backup byte for byte: the
+  owner's patterns encode exactly as the controller held them.
+
 ## 4.2.1: feature search, and a backup timer that can't break a controller
 
 - **Search features** at the top of every page. Type a few letters ("backup",
