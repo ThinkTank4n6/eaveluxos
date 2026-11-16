@@ -22,6 +22,11 @@
   <div class="brand">
     <img class="logo" src="logo-mark.svg" alt="" width="28" height="28">
     <span class="brandname"><b>EaveLuxOS</b><small>Intelligent lighting control</small></span>
+    <div class="search" role="search">
+      <input type="search" id="q" placeholder="Search features" aria-label="Search features" autocomplete="off" spellcheck="false"
+        role="combobox" aria-expanded="false" aria-controls="qres" aria-autocomplete="list">
+      <div class="qres" id="qres" role="listbox" aria-label="Features" hidden></div>
+    </div>
     <span class="pill" id="pill">Starting…</span>
     <span class="quick" id="quick" hidden></span>
     <span class="pill who" id="who" hidden></span>
@@ -48,6 +53,7 @@
 <script src="qr.js"></script>
 <script src="colors.js"></script>
 <script src="nav.js"></script>
+<script src="search.js"></script>
 <script src="merge.js"></script>
 <script src="app.js"></script>
 </body>

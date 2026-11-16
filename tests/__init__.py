@@ -15,3 +15,9 @@ os.environ["EAVELUXOS_UPDATE_CHECK"] = "0"
 
 # Nor do they start phone alerts or game-day fetching.
 os.environ["EAVELUXOS_BACKGROUND"] = "0"
+
+# The backup timer waits for two matching readings 2 minutes apart before it
+# writes (4.2.1). Tests of everything else write at once; the tests of that
+# wait set it back (tests/test_safety421.py).
+import eaveluxos.safety as _safety
+_safety.SETTLE = 0

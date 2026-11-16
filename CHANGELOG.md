@@ -1,5 +1,87 @@
 # Changelog
 
+## 4.2.1: feature search, and a backup timer that can't break a controller
+
+- **Search features** at the top of every page. Type a few letters ("backup",
+  "eagles", "ports", "sunset") and choose a result, or press Enter for the
+  first: the app goes to that page, opens the panel, scrolls to it and
+  outlines it. **/** jumps to the box from anywhere; Esc clears it. Works with
+  the keyboard and screen readers, and on a phone.
+- **Fixed (serious): the backup timer could leave a controller unreadable.**
+  On Nov 15, 2026 it saved "Auto 0-Security" and "Auto Fall" through
+  Trimlight's cloud; the controller didn't read back as written and the cloud
+  answered 12006 ("declared 13 and scanned 13 effect records"). Unplugging the
+  controller then reset it to its factory patterns. Now:
+  - It **never saves patterns.** Each night uses a pattern already saved on
+    the controller with the same name; a night whose pattern isn't there is
+    skipped and listed under "Not copied". It only writes its own calendar
+    timers.
+  - It writes only to a **settled** controller: two readings at least 2
+    minutes apart must match (patterns, calendar, daily timers).
+  - **No writes during a music show**, local-link use, or the 15 minutes
+    after.
+  - On a read-back mismatch or a 12006 it removes its timers and **stops
+    itself**. It writes nothing more until it is turned off and on again. It
+    no longer deletes patterns by number to "repair" a controller (after a
+    reset, a number can belong to any pattern).
+  - It notices when a night's pattern number now holds a different pattern.
+  - Turning it on asks first, and says what it will and won't do.
+- **Pattern backups** put patterns back one at a time and read the controller
+  back after each, stopping before another save at the first sign of trouble.
+- **Fixed:** at the end of a show, **Music from this computer** sent `04 0e`,
+  which a new capture showed means "show saved pattern #14", not "leave music
+  mode". It sends nothing now; the schedule's next pattern ends the show.
+- The capture kit decodes the newly understood messages: show and delete
+  saved pattern #N, port pixels, new and saved pattern records (name, mode,
+  speed, brightness) and the live pattern preview.
+
+## 4.2.0: music patterns by name, and their color
+
+- **Music from this computer** lists the controller's **18 built-in music
+  patterns by name**, in the Trimlight app's order (1. Full Color Rhythm
+  Spectrum … 15. Independence Day, 16. Christmas, 17. HeatBeat, 18. Party),
+  instead of numbers up to 20 (there are 18).
+- **Color** for the seven "Single Color" patterns: a color choice appears
+  next to the pattern, is remembered on this computer, and can be changed
+  while the show runs. A fourth capture showed the three bytes after the
+  pattern number follow the Trimlight app's color bar (red, green, blue);
+  until now they were always sent as red.
+- The capture kit names the pattern and shows its color in "music settings".
+
+## 4.1.4: review fixes (music from this computer)
+
+- **Fixed (most important):** the keep-alive sent every 5 seconds waited for
+  its answer, up to 3 seconds, and no sound levels went out meanwhile: on
+  busy Wi-Fi the lights froze to the beat every few seconds (12 level frames
+  in 4 seconds instead of about 36), and a late answer could end a working
+  show as "connection lost". Keep-alives no longer wait; answers are counted
+  as they arrive, and only 15 seconds with no answer at all counts as lost.
+  (Reproduced in `tests/repro_keepalive_stall.py`.)
+- **Fixed:** two pages starting a show at the same moment could both
+  connect, leaving two streams and a thread that couldn't be stopped. A start
+  is now claimed before connecting; the second is told one is already
+  starting.
+- **Fixed:** anything the controller sent that this app didn't understand (a
+  newer firmware's message, a damaged frame) counted as a lost connection.
+  It's now skipped up to the next message and noted once in the log.
+- **Fixed:** the controller's address check let `0.0.0.0` through (which
+  reaches this computer itself), and 169.254.x and 240.x. Only home-network
+  device addresses (10.x, 172.16-31.x, 192.168.x) are accepted now.
+- **Fixed:** the server let a show from this computer start over another
+  music show or a show night (only the page's button was off), and stopping
+  it then ended the show night too. It now says which show is on.
+- **Fixed:** Home's "answering" check could run twice at once, and a slow
+  check finishing after **Test connection** replaced its answer.
+- **Fixed:** **Stop** could answer before the schedule was back, and a
+  stream winding down late could end a show started right after it. Each
+  show now has its own ID, and Stop hands the lights back itself.
+- The release build shows a warning on its page if building PyInstaller's
+  launcher from source fails, so Defender's false alarm can't quietly return.
+- **Capture kit:** TCP sequence numbers that roll over, and re-sent pieces
+  that overlap differently, no longer cut the decoded stream short.
+- The page keeps the input level in memory while listening instead of
+  reading saved settings ten times a second.
+
 ## 4.1.3: the Music tab stays put; sharing sound
 
 - **Fixed:** the Music tab rebuilt itself every 15 seconds, so the page

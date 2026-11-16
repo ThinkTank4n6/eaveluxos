@@ -540,6 +540,8 @@ class Controller:
                 t = self._target()
                 due = t.key != self.applied_key and time.time() >= self.next_try
                 gen = self.apply_gen
+            if t.hands_off and self.safety:
+                self.safety.hold()           # and none for 15 minutes after it (4.2.1)
             if due and t.hands_off:
                 # A music show: send nothing, so the controller's music mode
                 # isn't interrupted. What it shows afterward is unknown, so the
@@ -632,6 +634,12 @@ class Controller:
         # right before a scheduled on/off; it runs on the next pass after it.
         nxt = self.cfg.schedule.next_change(now)
         if nxt is not None and ts(nxt) - ts(now) < 180:
+            return
+        if not self.cfg.safety["enabled"]:
+            self.safety.clear_halt()      # off and on again clears a halt (4.2.1)
+        # Never write next to a music show (the button's, a show night or the
+        # local link: tick() holds it while one runs) or local-link use.
+        if self.safety.held():
             return
         if not self.cfg.safety["enabled"]:
             if now_ts >= self.safety.retry_at and not self.safety.remove(self.api, ids, now, self.note):
@@ -1039,6 +1047,20 @@ class Controller:
                 "minutes": self.cfg.music["minutes"], "shows": len(self.cfg.music["shows"]),
                 "next": {"name": nxt.window.rule.name, "start": fmt(nxt.start), "end": fmt(nxt.end),
                          "day": nxt.start.strftime("%a %b %d").replace(" 0", " ")} if nxt else None}
+
+    def other_show_on(self, by: str | None = None) -> str | None:
+        """The name of a music show running now that wasn't started by `by` (a prefix)
+        (a show from the button, a webhook or a show night), or None (4.1.4)."""
+        with self.lock:
+            now = self.cfg.loc.now()
+            m = self.music
+            if m and not (m.get("until") and ts(now) >= ts(m["until"])):
+                return None if by is not None and str(m.get("by") or "").startswith(by) else "A music show"
+            msched = self.cfg.music.get("schedule")
+            w = msched.active_window(now) if msched is not None else None
+            if w is not None and w.key != self.music_skipped:
+                return f"Show night \u201c{w.rule.name}\u201d"
+            return None
 
     def start_music(self, minutes: int | None = None, by: str | None = None):
         """Step aside so the controller's music mode can run: until stopped,

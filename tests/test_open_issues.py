@@ -272,6 +272,9 @@ class SyncTiming(unittest.TestCase):
             def plan_hash(self, *a): return "h"
             def due(self, *a): return True
             def sync(self, *a, **k): synced.append(1)
+            def held(self): return False
+            def hold(self, *a): pass
+            def clear_halt(self): pass
 
         class Api:
             clock_offset_min = 0

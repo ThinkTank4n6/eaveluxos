@@ -62,6 +62,10 @@ class Workflow(unittest.TestCase):
         self.assertIn("continue-on-error: true", step, "a failed compile falls back, never blocks a release")
         self.assertLess(wf.index("PYINSTALLER_COMPILE_BOOTLOADER"), wf.index("python packaging/build.py"))
         self.assertIn("sha256sum -- * > SHA256SUMS.txt", wf)
+        # 4.1.4 review #8: a fallback is reported on the run's page
+        self.assertIn("id: launcher", wf)
+        self.assertIn("steps.launcher.outcome == 'failure'", wf)
+        self.assertIn("::warning", wf[wf.index("steps.launcher.outcome"):])
         self.assertLess(wf.index("SHA256SUMS.txt"), wf.index("softprops/action-gh-release"))
 
 

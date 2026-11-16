@@ -21,6 +21,10 @@ _cloud = F.start()
 BASE = f"http://127.0.0.1:{_cloud.server_address[1]}/trimlight"
 
 
+WARM = {"id": 5, "name": "Warm White", "category": 1, "mode": 0, "speed": 100, "brightness": 200,
+        "pixels": [{"index": 0, "count": 1, "color": 0xFFB46B, "disable": False}]}
+
+
 def settings(**extra):
     s = copy.deepcopy(DEFAULT_SETTINGS)
     s["location"].update(latitude=39.95, longitude=-75.17)
@@ -63,6 +67,9 @@ class Safety(unittest.TestCase):
         for x in d["daily"]:
             x["enable"] = False
         d["effects"] = [e for e in d["effects"] if not str(e.get("name", "")).startswith("Auto ")]
+        # The nights' patterns, saved on the controller (4.2.1: the backup
+        # timer uses these by name and never saves patterns itself).
+        d["effects"] = [e for e in d["effects"] if e["name"] != "Warm White"] + [WARM]
         self.user_effects = copy.deepcopy(d["effects"])
         self.api = TrimlightAPI(F.CID, F.SECRET, base_url=BASE)
         self.cfg = build_config(settings(), {"client_id": F.CID, "client_secret": F.SECRET})
@@ -71,6 +78,7 @@ class Safety(unittest.TestCase):
 
     def tearDown(self):
         F.STATE["dev"]["daily"] = self.saved_daily
+        F.STATE["dev"]["effects"] = [e for e in F.STATE["dev"]["effects"] if e["name"] != "Warm White"]
         shutil.rmtree(self.dir, ignore_errors=True)
 
     def test_trimlight_app_timers_hold_the_copy_back(self):
@@ -140,9 +148,8 @@ class Safety(unittest.TestCase):
         dec31 = sorted((c for c in mine if c["startDate"] == {"month": 12, "day": 31}), key=lambda c: c["startTime"]["hours"])
         self.assertEqual([c["endTime"] for c in dec31], [{"hours": 20, "minutes": 0}, {"hours": 23, "minutes": 59}])  # tail trimmed
         self.assertEqual(dec31[1]["startTime"], {"hours": 20, "minutes": 0})
-        autos = [e for e in d["effects"] if str(e.get("name", "")).startswith("Auto ")]
-        self.assertEqual({e["name"] for e in autos}, {"Auto Warm white", "Auto Christmas"})
-        self.assertEqual(next(e for e in autos if e["name"] == "Auto Warm white")["brightness"], 90)  # rule level baked in
+        self.assertFalse([e for e in d["effects"] if str(e.get("name", "")).startswith("Auto ")])   # none saved (4.2.1)
+        self.assertEqual({c["effectId"] for c in mine}, {5, 3})          # the controller's own "Warm White", "CHRISTMAS"
         for e in self.user_effects:
             self.assertIn(e, d["effects"])
         self.assertTrue(self.net.ready("TL-EDGE-01", self.now.date()))
@@ -161,6 +168,7 @@ class Safety(unittest.TestCase):
         self.assertEqual(F.STATE["dev"]["calendar"], [self.user_cal])
         self.assertFalse(self.net.ready("TL-EDGE-01", self.now.date()))
         self.assertIn("didn't read back", self.net.summary()["TL-EDGE-01"]["message"])
+        self.assertTrue(self.net.halted, "a read-back mismatch halts it (4.2.1)")
 
     def test_remove_deletes_only_its_own(self):
         self.net.sync(self.api, self.cfg, ["TL-EDGE-01"], self.now)
@@ -168,15 +176,15 @@ class Safety(unittest.TestCase):
         self.assertEqual(F.STATE["dev"]["calendar"], [self.user_cal])
         self.assertEqual(F.STATE["dev"]["effects"], self.user_effects)
 
-    def test_full_library_refuses_cleanly(self):
+    def test_a_night_whose_pattern_isnt_saved_is_skipped_and_listed(self):
         d = F.STATE["dev"]
-        d["effects"] += [{"id": 100 + i, "name": f"filler {i}", "category": 0, "mode": 1} for i in range(60 - len(d["effects"]))]
-        try:
-            self.assertFalse(self.net.sync(self.api, self.cfg, ["TL-EDGE-01"], self.now))
-            self.assertIn("too full", self.net.summary()["TL-EDGE-01"]["message"])
-            self.assertEqual(F.STATE["dev"]["calendar"], [self.user_cal])
-        finally:
-            d["effects"] = copy.deepcopy(self.user_effects)
+        d["effects"] = [e for e in d["effects"] if e["name"] != "Warm White"]
+        self.assertTrue(self.net.sync(self.api, self.cfg, ["TL-EDGE-01"], self.now))
+        sm = self.net.summary()["TL-EDGE-01"]
+        self.assertEqual(sm["skipped"], ["Warm white"])
+        self.assertIn("Not copied", sm["message"])
+        self.assertEqual(len([c for c in d["calendar"] if c["id"] != 0]), 1)   # only Dec 31's Christmas stretch
+        self.assertEqual(d["effects"], [e for e in self.user_effects if e["name"] != "Warm White"])
 
     def test_scheduler_uses_timer_mode_only_when_armed(self):
         clock = [datetime(2026, 12, 29, 12, 0, tzinfo=NY)]

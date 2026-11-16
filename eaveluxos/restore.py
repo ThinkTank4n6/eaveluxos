@@ -10,9 +10,11 @@ Trimlight app. This copies chosen ones back.
 
 It only ever adds: a pattern whose name is already on the controller is
 skipped, nothing is overwritten or deleted. It backs up the controller first,
-lets Trimlight's cloud catch up after each new pattern (saving two in a row
-can get both the same number, which leaves the cloud unable to read the
-controller: code 12006, Nov 13, 2026), and stops at the first problem.
+puts patterns back one at a time: it lets Trimlight's cloud catch up after
+each new pattern (saving two in a row can get both the same number, which
+leaves the cloud unable to read the controller: code 12006, Nov 13, 2026),
+reads the controller back after each one (4.2.1), and stops at the first
+problem.
 """
 import contextlib
 import json
@@ -150,14 +152,26 @@ def restore(api, dev: str, now, det: dict, ids: list, backup=None, lock=None) ->
             raise RestoreError(f"Trimlight gave “{name}” a number that was already in use, so the restore stopped. "
                                f"If the controller now can't be read, delete “{name}” in the Trimlight Edge app, "
                                "then try again. Put back before it: " + (", ".join(restored) or "none") + ".")
-        taken.add(rid)
+        # Read the controller back after every pattern (4.2.1), not just at
+        # the end: it must still read, hold the new pattern under its number
+        # and name, and have no two patterns with one number. Any doubt stops
+        # the restore before a second save can make it worse.
+        try:
+            with lock:
+                now_lib = api.get_device(dev, now).get("effects", []) or []
+        except TrimlightError as x:
+            raise RestoreError(f"Stopped after \u201c{name}\u201d: the controller can't be read now ({x}). Open the "
+                               "Trimlight Edge app on your home Wi-Fi so it syncs, then check your patterns. Put back: "
+                               + ", ".join(restored + [name]) + ".") from None
+        nums = [x.get("id") for x in now_lib]
+        mine = next((x for x in now_lib if x.get("id") == rid), None)
+        if len(nums) != len(set(nums)) or not mine or str(mine.get("name", "")).strip().lower() != name.lower():
+            log.warning("Restore: %r didn't read back as saved (number %s).", name, rid)
+            raise RestoreError(f"Stopped after \u201c{name}\u201d: the controller didn't read back as expected, so "
+                               "nothing more was saved. Check your patterns in the Trimlight Edge app. Put back: "
+                               + ", ".join(restored + [name]) + ".")
+        taken = set(nums)
         have.add(name.lower())
         restored.append(name)
         room -= 1
-    if restored:
-        try:
-            with lock:
-                api.get_device(dev, now)               # it still reads normally
-        except TrimlightError as x:
-            raise RestoreError(f"Put back {', '.join(restored)}, but now the controller can't be read: {x}") from None
     return {"restored": restored, "skipped": skipped, "duplicates": duplicates}

@@ -92,6 +92,37 @@ class RestoreTests(unittest.TestCase):
         self.assertIn("delete “", str(cm.exception))
         self.assertNotIn("/device/effect/delete", [p for p, _ in F.STATE["log"][-5:]])
 
+    def test_reads_back_after_each_pattern_and_stops_on_trouble(self):
+        """4.2.1: one pattern at a time, each read back, so trouble after the
+        first never gets a second save on top of it."""
+        F.STATE["log"].clear()
+        self.run_restore([e["id"] for e in self.lost])
+        paths = [p for p, _ in F.STATE["log"]]
+        saves = [i for i, p in enumerate(paths) if p == "/device/effect/save"]
+        self.assertEqual(len(saves), 2)
+        self.assertIn("/device/get", paths[saves[0]:saves[1]], "read back before the next save")
+
+        class Renamed(TrimlightAPI):             # the cloud's copy shows something else under the new number
+            def get_device(s, dev, now, **k):
+                det = super().get_device(dev, now, **k)
+                if s.saved is not None:
+                    for e in det["effects"]:
+                        e["name"] = "Something else" if e["id"] == s.saved else e["name"]
+                return det
+
+            def save_effect(s, dev, payload):
+                r = super().save_effect(dev, payload)
+                s.saved = r.get("id")
+                return r
+        F.STATE["dev"]["effects"] = [e for e in F.STATE["dev"]["effects"] if e["name"] not in {x["name"] for x in self.lost}]
+        api = Renamed(F.CID, F.SECRET, base_url=BASE)
+        api.saved = None
+        F.STATE["log"].clear()
+        with self.assertRaises(restore.RestoreError) as cm:
+            restore.restore(api, DEV, NOW, self.backup, [e["id"] for e in self.lost])
+        self.assertIn("didn't read back", str(cm.exception))
+        self.assertEqual([p for p, _ in F.STATE["log"]].count("/device/effect/save"), 1, "stopped after the first")
+
     def test_nothing_chosen_or_unreadable_changes_nothing(self):
         with self.assertRaises(restore.RestoreError):
             self.run_restore([])

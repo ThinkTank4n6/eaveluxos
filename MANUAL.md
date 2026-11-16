@@ -1,7 +1,7 @@
 # EaveLuxOS: User Manual
 ### The Intelligent Lighting Control Platform
 
-Version 4.1.3 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
+Version 4.2.1 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
 
 > **Downloaded the ready-made app? You can skip most of the setup.**
 > The downloads on the project's GitHub **Releases** page
@@ -99,6 +99,11 @@ things moved:
   Thanksgiving, Thu, Nov 26".
   Tap one to open it; the app remembers which ones you keep open.
 - The **Manual** is the **?** button at the top.
+- **Search features** (4.2.1), at the top of every page: type a few letters
+  of what you're after ("backup", "eagles", "ports", "sunset") and choose a
+  result, or press **Enter** for the first. The app goes to that page, opens
+  the panel, scrolls to it and outlines it for a moment. Press **/** to jump
+  to the search box from anywhere; **Esc** clears it.
 - Renamed: the **backup timer** is now the **backup timer**, and **Address space**
   is now **Bulb numbering**.
 - Old bookmarks still work: `#settings`, `#lights`, `#time` and `#create`
@@ -1287,25 +1292,49 @@ same router, or devices the router can reach directly).
      lists its name). It works in any browser, LibreWolf and Firefox
      included. No sound card Stereo Mix? The free VB-Audio Virtual Cable does
      the same.
-3. Choose a **Music pattern** (1 is the first in the Trimlight app's music
-   list), **How long**, and **Sensitivity** (1 to 14, as in the Trimlight
-   app). **Input level** makes quiet or loud sound fit better; the bars show
+3. Choose a **Music pattern**: the controller's 18 built-in music effects,
+   by name and in the Trimlight app's order (see the list below). For a
+   **Single Color** pattern, also choose its **Color**. Then **How long**
+   and **Sensitivity** (1 to 14, as in the Trimlight app). **Input level** makes quiet or loud sound fit better; the bars show
    what's sent, and a good level keeps most of them moving without all of
    them hitting the top.
 4. Tap **Start the show**. The bars move with the music and so do the lights.
    Music pattern and Sensitivity can be changed while it runs.
-5. Tap **Stop**. The controller leaves music mode, as when you leave Music
-   in the Trimlight app, and the scheduled pattern comes back.
+5. Tap **Stop**. The app sends the scheduled pattern again, which ends
+   music mode on the controller.
 
 While it runs, this app steps aside like any music show (no patterns, checks
 or timer copies). Keep the page open; a background tab is fine. The show ends
 by itself, and the schedule comes back, when you stop it, when you choose a
 pattern or **Stop the show** above, when **How long** is up, when the page
 closes or stops sending sound for 20 seconds, or when the connection to the
-controller is lost (it tries again first). Only one page runs it at a time,
+controller is lost: it tries again first, and only counts it lost when the
+controller hasn't answered at all for 15 seconds. A slow answer on busy Wi-Fi
+never holds up the music, and anything the controller sends that this app
+doesn't understand is skipped (and noted once in the log). Only one page runs it at a time,
 and mood follow can't run at the same time.
 
-**What's sent.** Only the 16 loudness numbers, the music pattern and the
+**The music patterns** are built into the controller, so they're the same as
+in the Trimlight app:
+
+| # | Pattern | # | Pattern |
+|---|---|---|---|
+| 1 | Full Color Rhythm Spectrum | 10 | Single Color Ejection Forward |
+| 2 | Single Color Rhythm Spectrum | 11 | Full Color Ejection Backward |
+| 3 | Full Color Rhythm Twinkle | 12 | Single Color Ejection Backward |
+| 4 | Single Color Rhythm Twinkle | 13 | Full Color VuMeter |
+| 5 | Gradient Energy | 14 | Single Color VuMeter |
+| 6 | Single Color Energy | 15 | Independence Day (red, white, blue) |
+| 7 | Gradient Pulse | 16 | Christmas (red, green) |
+| 8 | Single Color Pulse | 17 | HeatBeat |
+| 9 | Full Color Ejection Forward | 18 | Party |
+
+The seven **Single Color** patterns move in the color you choose (red until
+you change it); it can be changed while the show runs. The others have their
+own colors. For Christmas colors, choose **16. Christmas**, or a Single Color
+pattern in red or green.
+
+**What's sent.** Only the 16 loudness numbers, the music pattern, its color and the
 sensitivity; the sound itself never leaves the browser and isn't recorded.
 
 **Why "experimental".** Trimlight doesn't publish these local messages. They
@@ -1361,17 +1390,29 @@ copying the next few nights into the controller's **own timers**.
 1. Open **Setup › Lights & controller** and open **Backup timer**.
 2. Tick **On** and choose how many nights to copy (3 to 14; 7 is a good
    choice).
-3. Within a few seconds it says **Armed: 7 nights copied to the controller**.
+   The app asks you to confirm first and says what it will and won't do.
+3. After about two minutes (it waits until the controller is settled) it
+   says **Armed: 7 nights copied to the controller**.
+
+**Save each night's pattern on the controller first.** Since version 4.2.1
+the backup timer never saves patterns. Each night uses a pattern that is
+already saved on the controller (in the Trimlight Edge app) with the **same
+name** as the pattern here, such as "Warm white" (capitals don't matter).
+A night whose pattern isn't saved there is skipped and listed under **Not
+copied**. The controller's own pattern plays with its own brightness and
+speed.
 
 ### What it does
 
 - Each day, and whenever you change the schedule, it writes one controller
   calendar entry for each time the lights come on (two a day if you have a
   morning and an evening rule). Each entry has its pattern and on/off times.
-- The patterns it needs are saved in the controller's library with names
-  starting **"Auto "**, such as "Auto Warm white". They take up a few of the
-  controller's 60 pattern spaces. Your own patterns in the Trimlight app are
-  never changed.
+- Each entry points at the controller's own saved pattern of the same name.
+  It never saves, changes or deletes patterns. (Before 4.2.1 it saved copies
+  named "Auto …". On Nov 15, 2026 such a save through Trimlight's cloud left
+  a controller unreadable, code 12006, and resetting the controller then
+  lost its saved patterns. Turning the backup timer off removes any "Auto"
+  copies an older version left.)
 - **On a normal night, the controller runs the lights itself** from its copy,
   in **Timer** mode. It turns them on at the planned time and off at the end,
   even if this computer stops in the middle of the evening.
@@ -1386,12 +1427,26 @@ copying the next few nights into the controller's **own timers**.
 - **Backup first:** before every change, the controller's full state is saved
   in `data/controller-backups` (the last 20 are kept). Use the **Download the
   controller backup** link to get the latest one.
-- **Only its own items:** it only creates, changes or deletes the timers and
-  "Auto" patterns it made. Timers and patterns from the Trimlight app are left
-  alone.
-- **Read back:** after writing, it reads the controller back and checks every
-  entry. If anything differs, it removes what it wrote and shows **Not
-  armed** with the reason. Your lights keep running from the app as usual.
+- **Only its own timers:** it only writes calendar timers, and only creates,
+  changes or deletes the ones it made. Patterns, and timers from the
+  Trimlight app, are left alone.
+- **Only when settled:** before writing it reads the controller twice, at
+  least two minutes apart, and writes only if nothing changed in between
+  (patterns, calendar, daily timers). Someone using the Trimlight app, or a
+  controller just plugged back in, makes it wait.
+- **Never next to a music show:** no writes while a music show runs (from
+  the button, a show night or **Music from this computer**), while the local
+  link is being tested, or for 15 minutes after.
+- **Read back, and stop:** after writing, it reads the controller back and
+  checks every entry. If anything differs, or if Trimlight's cloud can't read
+  the controller (code 12006), it removes what it wrote and **stops itself**:
+  the panel shows **Stopped itself** with the reason, and it writes nothing
+  more until you untick **On** and tick it again. Your lights keep running
+  from the app as usual.
+- **Changed underneath it:** if a timer it wrote is changed or removed, or
+  the pattern number a night uses now holds a different pattern (a reset
+  numbers patterns afresh), it stops relying on the copy and writes it again
+  once the controller is settled.
 
 ### Warnings you might see
 
@@ -1409,16 +1464,16 @@ copying the next few nights into the controller's **own timers**.
   keeps them), then tap **Update now**. Timers on other dates don't matter.
   It checks again the next day or when you change the schedule, not every
   few minutes.
-- **"Trimlight gave the backup timer's new pattern "Auto …" number …, which
-  one of your own patterns already has":** Trimlight's cloud numbered a new
-  pattern like one of yours, so it can't read the controller. The app can't
-  safely fix that itself (deleting by number might remove yours). In the
-  Trimlight Edge app, delete the pattern named in the message. The backup timer
-  carries on by itself afterward.
+- **"Not copied: nights showing …":** the controller has no saved pattern
+  with that name. Save one under the same name in the Trimlight Edge app (or
+  choose a saved pattern for that rule), then tap **Update now**.
+- **"Checking that the controller is settled":** it's waiting for two
+  matching readings; nothing to do.
+- **"Stopped itself":** see above. Open the Trimlight Edge app on your home
+  Wi-Fi so it syncs the controller, check your patterns and timers there,
+  then untick **On** and tick it again.
 - **"Trimlight can't read its copy of this controller" (code 12006):** see
   Troubleshooting (section 25).
-- **"The controller's pattern library is too full":** delete a few patterns in
-  the Trimlight app, or copy fewer nights.
 
 ### Limits
 
@@ -1429,8 +1484,8 @@ copying the next few nights into the controller's **own timers**.
 - If the app stops on a night it took over (after a manual change, weather or
   the flash), the lights stay on until it comes back, because that night the
   controller is in Manual mode. On normal nights this can't happen.
-- To remove it, untick **On**. The app deletes its entries and "Auto" patterns
-  from the controller.
+- To remove it, untick **On**. The app deletes its entries (and any "Auto"
+  patterns an older version saved) from the controller.
 - The controller's calendar entries have a month and day but **no year**. If
   you stop using this app for good, untick **On** first (with the app still
   running and online). Otherwise the last nights it copied stay on the
@@ -1550,10 +1605,12 @@ back from these backups (Administrators only):
 3. Tap **Put back selected**.
 
 It only adds: nothing on the controller is changed or deleted. It backs up the
-controller first and waits a moment between patterns, so Trimlight's cloud
-gives each one its own number. If Trimlight reuses a number anyway, it stops
-and tells you which pattern to delete in the Trimlight Edge app. The
-controller's library holds 60 patterns.
+controller first and puts patterns back **one at a time**: after each one it
+waits for Trimlight's cloud to catch up, then reads the controller back to
+check it still reads, holds the new pattern under its own number and name,
+and has no two patterns with one number. At the first sign of trouble it
+stops before saving another, and says what was put back. The controller's
+library holds 60 patterns. Putting back a few at a time is gentlest.
 
 ### Color correction (gamma)
 
@@ -2029,7 +2086,7 @@ Sharing it helps other Trimlight owners know what works on their firmware.
 | The browser says it can't connect | The app isn't running. Double-click the launcher. On Mac or Linux, keep its window open. |
 | "Couldn't check these with Trimlight" during setup | The app couldn't reach Trimlight, so your keys weren't checked yet. Check the internet connection and try again. If the message also says the **certificate check failed**: on a Mac, update to version 3.11.1 or later, which fixes this. Otherwise check the computer's date and time, and whether antivirus or network filtering software checks secure (HTTPS) connections. |
 | "Trimlight didn't accept these" | Re-enter the Client ID and Secret. They're case-sensitive, so check for spaces. Also check the computer's clock is correct, because Trimlight's sign-in uses the time. |
-| "Trimlight's cloud can't read its copy of this controller" (code 12006, "Device data could not be parsed … declared 21 and scanned 20 effect records") | Trimlight's cloud copy of the controller is out of step, for example because two saved patterns got the same number. The lights keep running. The app first asks the controller to resend its data and tries again. If the cause is the backup timer's own "Auto" patterns (versions before 3.13.1 could cause this), the backup timer deletes them and reads again; your own patterns are never deleted. While it lasts, Setup › Lights & controller shows the error and turns saving off, so the port layout can't be overwritten. If it doesn't clear: open the **Trimlight Edge app** on your home Wi-Fi (connection shows **LOCAL**), open the controller so it syncs, and delete any patterns whose names start with **Auto**. Still stuck: unplug the controller for 30 seconds. |
+| "Trimlight's cloud can't read its copy of this controller" (code 12006, "Device data could not be parsed … declared 21 and scanned 20 effect records") | Trimlight's cloud copy of the controller is out of step, for example because two saved patterns got the same number. The lights keep running. The app first asks the controller to resend its data and tries again. Since 4.2.1 the backup timer never saves patterns and doesn't try to repair this itself: it removes its timers and stops itself until you turn it off and on again. While it lasts, Setup › Lights & controller shows the error and turns saving off, so the port layout can't be overwritten. If it doesn't clear: open the **Trimlight Edge app** on your home Wi-Fi (connection shows **LOCAL**), open the controller so it syncs, and delete any patterns whose names start with **Auto**. Still stuck: unplug the controller for 30 seconds. |
 | "Can't reach lights" on Home | Check the controller is online in the Trimlight Edge app and the computer has internet. The app retries automatically. |
 | Lights are on or off at the wrong time | **Setup › Location & time:** check the location, time zone and Daylight saving (Automatic). Check the computer's own clock. Check **Schedule › Coming up**. |
 | A different pattern than expected is showing | Look at the Home headline. It names the rule, weather rule or manual change in charge. Check priorities on the Schedule tab. |
@@ -2049,6 +2106,7 @@ Sharing it helps other Trimlight owners know what works on their firmware.
 | The finder lights the wrong spot | Check the port layout on Setup › Lights & controller (section 18). Bulb numbers follow it. |
 | "The settings database couldn't be read" | Rare, usually after a disk problem. The app kept the damaged file, restored your patterns and schedule from its plain-text copy (`settings.last-good.json`), and asks you to enter your Trimlight account and app password again. |
 | Music from this computer: "Couldn't reach the controller" or "didn't answer" | Check the address the Trimlight Edge app shows when it opens, and that the app computer is on the same home network (not a guest network). Unplugging the controller for 30 seconds clears a stuck connection. Close the Trimlight app on your phone while testing; it may hold the controller's attention. After a firmware update, a new capture (`tools/music-capture`) shows whether the messages changed. |
+| Music from this computer: "The controller stopped answering" | Nothing came back from the controller for 15 seconds. Check it's online in the Trimlight app, and that the app computer's Wi-Fi or cable is steady; unplugging the controller for 30 seconds clears a stuck one. |
 | Music from this computer: the bars move but the lights don't follow the beat | Raise **Sensitivity** or **Input level**; try another music pattern. With a microphone, move it closer to the speakers, or use **This computer's sound**. |
 | Music from this computer: "No sound was shared" | Pick the **browser tab** that's playing the music and keep **Also share tab audio** on. Sharing a window leaves the sound out, and **Also share system audio** for Entire screen doesn't appear on every computer. For music from an app (Spotify), use **Stereo Mix** (section 16). |
 | Microsoft Defender blocks or removes EaveLuxOS.exe ("executes commands from an attacker", Suspicious Behavior) | A false alarm: Defender guesses from behavior, and an unsigned program that runs a small web server and starts helpers (PowerShell for the phone check, `icacls` to lock its data folder) looks like that to it. Since 4.1.3 the Windows build uses its own launcher, which Defender flags far less. **1)** Check the file is the one GitHub built: in Command Prompt, `certutil -hashfile "%USERPROFILE%\Downloads\EaveLuxOS-Windows.zip" SHA256` must match the zip's line in **SHA256SUMS.txt** on the release page. **2)** In **Windows Security › Virus & threat protection › Protection history**, open the item and choose **Restore** (or **Allow on device**). **3)** Report it so Microsoft clears it for everyone: microsoft.com/wdsi/filesubmission, "Software developer" or "Home customer", **Incorrectly detected**. |

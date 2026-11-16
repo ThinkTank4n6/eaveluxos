@@ -285,6 +285,67 @@ function go(asked, extra, replace = false) {
 }
 const VIEWS = {};
 
+/* ---------------------------------------------------------------- feature search (4.2.1)
+   The box at the top of every page. Typing lists matching features
+   (search.js); choosing one goes to its page, opens its panel, scrolls to
+   it and outlines it for a moment. Enter takes the first; / jumps to the box. */
+async function jumpTo(f) {
+  if (f.f) { try { localStorage.setItem('fold:' + f.f, '1'); } catch { /* private mode */ } }
+  go(f.v, f.x);
+  const want = () => {
+    if (f.f) return $(`#main [data-fold="${f.f}"]`);
+    if (f.h) {
+      const h = $$('#main h2, #main h3, #main summary').find(x => x.textContent.trim().startsWith(f.h));
+      return h && (h.closest('.panel, .fold, details') || h);
+    }
+    return $('#main .view') || $('#main');
+  };
+  let el = null;
+  for (let i = 0; i < 40 && !(el = want()); i++) await new Promise(r => setTimeout(r, 75));   // views load their data first
+  if (!el) { toast(`\u201c${f.t}\u201d isn\u2019t shown here for your account.`); return; }
+  const fd = el.closest('.fold');
+  if (fd && fd.classList.contains('closed')) $('.foldbar', fd)?.click();      // already drawn closed: open it
+  el.style.scrollMarginTop = (($('#top')?.offsetHeight || 0) + 14) + 'px';   // not under the sticky header
+  el.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
+  el.classList.remove('found', 'fade'); void el.offsetWidth; el.classList.add('found');
+  setTimeout(() => el.classList.add('fade'), 1600);
+  setTimeout(() => el.classList.remove('found', 'fade'), 3000);
+}
+function setupSearch() {
+  const q = $('#q'), box = $('#qres');
+  if (!q || !box || typeof Search === 'undefined') return;
+  let hits = [], sel = 0;
+  const close = () => { box.hidden = true; q.setAttribute('aria-expanded', 'false'); q.removeAttribute('aria-activedescendant'); };
+  const draw = () => {
+    hits = Search.find(q.value);
+    if (!q.value.trim()) return close();
+    sel = Math.min(sel, Math.max(0, hits.length - 1));
+    box.innerHTML = hits.length ? hits.map((f, i) => `<button type="button" role="option" id="qr${i}" data-qi="${i}" aria-selected="${i === sel}">
+      <span>${esc(f.t)}</span><small>${esc(f.w)}</small></button>`).join('') : '<p>No feature matches. Try another word, or the Manual (?).</p>';
+    box.hidden = false; q.setAttribute('aria-expanded', 'true');
+    if (hits.length) q.setAttribute('aria-activedescendant', 'qr' + sel);
+  };
+  const pick = i => { const f = hits[i]; if (!f) return; q.value = ''; close(); q.blur(); jumpTo(f); };
+  q.addEventListener('input', () => { sel = 0; draw(); });
+  q.addEventListener('focus', () => { if (q.value.trim()) draw(); });
+  q.addEventListener('keydown', e => {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      if (!hits.length) return;
+      e.preventDefault(); sel = (sel + (e.key === 'ArrowDown' ? 1 : hits.length - 1)) % hits.length; draw();
+      $('#qr' + sel)?.scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'Enter') { e.preventDefault(); pick(sel); }
+    else if (e.key === 'Escape') { if (q.value) { q.value = ''; close(); } else q.blur(); }
+  });
+  box.addEventListener('mousedown', e => e.preventDefault());           // keep the box focused while clicking
+  box.addEventListener('click', e => { const b = e.target.closest('[data-qi]'); if (b) pick(+b.dataset.qi); });
+  q.addEventListener('blur', () => setTimeout(close, 150));
+  document.addEventListener('keydown', e => {
+    if (e.key === '/' && !typing(document.activeElement) && !e.ctrlKey && !e.metaKey && !e.altKey && !$('#dlg').open) {
+      e.preventDefault(); q.focus();
+    }
+  });
+}
+
 /* ---------------------------------------------------------------- data loaders */
 async function loadSettings() { S.settings = await api('settings'); return S.settings; }
 /* Saving settings (4.0.1). A screen builds the whole settings document from
@@ -358,7 +419,7 @@ async function boot() {
   $('#who').textContent = u.local ? '' : `${u.username} · ${ROLE_NAMES[u.role] || u.role}`;
   $('#viewonly').hidden = u.role !== 'viewer';
   buildQuick(u.role !== 'viewer', !!s.local);
-  if (!$('#ribbon').children.length) buildRibbon();
+  if (!$('#ribbon').children.length) { buildRibbon(); setupSearch(); }
   await Promise.all([loadSettings(), loadCatalog()]);
   if (!s.setup.wizard_done && u.role === 'admin') return wizard(0);
   // The status at the top right (and its On/Off buttons) on every page, not
@@ -2215,12 +2276,13 @@ function lanLine(lan) {
    mood follow it needs the page on the app computer (a browser only allows
    listening on the computer itself or a secure page). */
 const LINK = { on: false, stream: null, ctx: null, node: null, timer: null, edges: null, lv: null, busy: false,
-               tab: '', err: '', st: null, sent: 0, devices: [], since: 0, out: '' };
+               tab: '', err: '', st: null, sent: 0, devices: [], since: 0, out: '', gain: 0 };
 function linkOpts() {
   let o = {};
   try { o = JSON.parse(localStorage.getItem('linkopts') || '{}') || {}; } catch { o = {}; }
   return { input: typeof o.input === 'string' ? o.input : 'default', pattern: Number.isInteger(o.pattern) ? o.pattern : 0,
            sensitivity: Number.isInteger(o.sensitivity) ? o.sensitivity : 8, gain: Number.isFinite(o.gain) ? o.gain : 0,
+           color: typeof o.color === 'string' && /^#[0-9a-f]{6}$/i.test(o.color) ? o.color : '#ff0000',
            minutes: Number.isInteger(o.minutes) ? o.minutes : 60 };
 }
 function linkSave(o) { try { localStorage.setItem('linkopts', JSON.stringify(o)); } catch { /* private window */ } }
@@ -2255,13 +2317,13 @@ async function linkStart() {
   LINK.err = ''; LINK.out = '';
   const stream = await linkListen(o.input);
   try {
-    LINK.st = await api('musiclink', { body: { op: 'start', tab: LINK.tab, pattern: o.pattern, sensitivity: o.sensitivity, minutes: o.minutes } });
+    LINK.st = await api('musiclink', { body: { op: 'start', tab: LINK.tab, pattern: o.pattern, sensitivity: o.sensitivity, minutes: o.minutes, color: o.color } });
   } catch (e) { stream.getTracks().forEach(t => t.stop()); throw e; }
   const ctx = new (window.AudioContext || window.webkitAudioContext)(), an = ctx.createAnalyser(), src = ctx.createMediaStreamSource(stream);
   an.fftSize = 2048; an.smoothingTimeConstant = 0.5; src.connect(an);
   if (ctx.state === 'suspended') await ctx.resume().catch(() => {});
   const fd = new Float32Array(an.frequencyBinCount);
-  Object.assign(LINK, { on: true, stream, ctx, edges: Bands.edges(ctx.sampleRate, an.fftSize), sent: 0, since: Date.now() });
+  Object.assign(LINK, { on: true, stream, ctx, edges: Bands.edges(ctx.sampleRate, an.fftSize), sent: 0, since: Date.now(), gain: o.gain });
   stream.getTracks().forEach(t => t.addEventListener('ended', () => { if (LINK.on) { LINK.err = 'The sound stopped being shared.'; linkStop(); } }));
   let last = 0;
   const tick = () => {
@@ -2270,7 +2332,7 @@ async function linkStart() {
     if (now - last < 100) return;
     last = now;
     an.getFloatFrequencyData(fd);
-    LINK.lv = Bands.levels(fd, LINK.edges, linkOpts().gain);
+    LINK.lv = Bands.levels(fd, LINK.edges, LINK.gain);     // 4.1.4: kept in memory, not read from storage 10 times a second
     const bars = $('#linkbars');
     if (bars) [...bars.children].forEach((b, i) => { b.style.height = Math.max(2, LINK.lv[i] / 255 * 100) + '%'; });
     if (LINK.busy) return;                  // never let requests pile up
@@ -2342,7 +2404,8 @@ async function linkPanel(box, fresh = true) {
     ${addr}
     <div class="grid3">
       <label class="field">Listen to<select id="lkin" ${LINK.on || ro ? 'disabled' : ''}>${inputs.map(([v, l]) => `<option value="${esc(v)}" ${o.input === v ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>
-      <label class="field">Music pattern<select id="lkpat" ${ro ? 'disabled' : ''}>${pats.map(i => `<option value="${i}" ${o.pattern === i ? 'selected' : ''}>${i + 1}${i === 0 ? ' (the first in the Trimlight app)' : ''}</option>`).join('')}</select></label>
+      <label class="field">Music pattern<select id="lkpat" ${ro ? 'disabled' : ''}>${pats.map(i => `<option value="${i}" ${o.pattern === i ? 'selected' : ''}>${i + 1}. ${esc((st.names || [])[i] || '')}</option>`).join('')}</select></label>
+      ${(st.single || []).includes(o.pattern) ? `<label class="field">Color<input type="color" id="lkcolor" value="${esc(o.color)}" ${ro ? 'disabled' : ''}></label>` : ''}
       <label class="field">How long<select id="lklen" ${LINK.on || ro ? 'disabled' : ''}>${SHOW_LENGTHS.map(([v, l]) => `<option value="${v}" ${o.minutes === v ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label></div>
     <div class="grid3">
       <label class="field">Sensitivity <span class="muted small" id="lksensv">${o.sensitivity}</span><input type="range" id="lksens" min="${sens[0]}" max="${sens[sens.length - 1]}" value="${o.sensitivity}" ${ro ? 'disabled' : ''}></label>
@@ -2381,7 +2444,7 @@ async function linkPanel(box, fresh = true) {
   box.oninput = e => {
     const t = e.target;
     if (t.id === 'lksens') $('#lksensv').textContent = t.value;
-    if (t.id === 'lkgain') { const v = +t.value; $('#lkgainv').textContent = `${v > 0 ? '+' : ''}${v} dB`; linkSave({ ...linkOpts(), gain: v }); }
+    if (t.id === 'lkgain') { const v = +t.value; LINK.gain = v; $('#lkgainv').textContent = `${v > 0 ? '+' : ''}${v} dB`; linkSave({ ...linkOpts(), gain: v }); }
   };
   box.onchange = e => {
     const t = e.target, o2 = linkOpts();
@@ -2391,6 +2454,10 @@ async function linkPanel(box, fresh = true) {
       const k = t.id === 'lkpat' ? 'pattern' : 'sensitivity';
       linkSave({ ...o2, [k]: +t.value });
       if (LINK.on) api('musiclink', { body: { op: 'set', tab: LINK.tab, [k]: +t.value } }).catch(err => toast(err.message, true));
+      if (k === 'pattern') linkPanel(box, false);          // the Color choice comes and goes (4.2)
+    } else if (t.id === 'lkcolor') {
+      linkSave({ ...o2, color: t.value });
+      if (LINK.on) api('musiclink', { body: { op: 'set', tab: LINK.tab, color: t.value } }).catch(err => toast(err.message, true));
     }
   };
 }
@@ -3895,7 +3962,11 @@ async function safetyPanel(box) {
   const conflicts = devs.flatMap(d => d.conflicts || []);
   box.innerHTML = `<div class="panel-head"><h2>Backup timer</h2><label class="check"><input type="checkbox" id="sfon" ${st.enabled ? 'checked' : ''}> On</label></div>
     <p class="note">Copies the next nights into the controller's own timers, so the lights still come on and go off if this computer or the internet is down.
-      The app keeps running the lights as usual. It backs up the controller before every change, only touches timers and patterns it created itself (named \u201cAuto \u2026\u201d), and checks every write.</p>
+      The app keeps running the lights as usual. It never saves patterns: each night uses a pattern already saved on the controller under the same name, and a night whose pattern isn't there is skipped.
+      It writes only its own calendar timers, only when the controller has been settled for two minutes and no music show is near, backs up the controller first, and checks every write.</p>
+    ${st.halted ? `<p class="callout warn small"><b>Stopped itself</b> (${esc(st.halted.at.replace('T', ' '))}): ${esc(st.halted.why)}
+      It won't write to the controller again until you turn it off and on again.</p>` : ''}
+    ${st.enabled && st.held && !st.halted ? '<p class="note">Waiting: no writes during a music show, local-link use, or the 15 minutes after.</p>' : ''}
     ${st.enabled ? `
       <label class="row small">Copy the next <select id="sfdays" style="width:auto">${[3, 5, 7, 10, 14].map(n => `<option ${n === st.days ? 'selected' : ''}>${n}</option>`).join('')}</select> nights</label>
       ${devs.length ? devs.map(d => `<p class="callout small ${d.ok ? 'ok' : 'warn'}">${d.ok ? 'Armed' : 'Not armed'}: ${esc(d.message || '')}${d.last_sync_label ? ` <span class="muted">(${esc(d.last_sync_label)})</span>` : ''}
@@ -3907,6 +3978,16 @@ async function safetyPanel(box) {
       <div><button class="small" data-sfsync>Update now</button></div>
       <p class="note">On a normal night the controller now runs the lights itself from its copy, so they also go off on time if this computer stops. After a manual change, weather or the security flash, the app keeps control for the rest of that night; if it stops then, the lights stay on until it returns. Weather, minute-by-minute rotation, sliders and anything after midnight need the app.</p>` : ''}`;
   box.onchange = async e => {
+    if (e.target.id === 'sfon' && e.target.checked) {
+      e.target.checked = false;                       // until confirmed (4.2.1)
+      const yes = await confirmBox('Turn on the backup timer?',
+        'It writes calendar timers to your controller through Trimlight\u2019s cloud. It never saves patterns: each night uses a '
+        + 'pattern already saved on the controller with the same name, and other nights are skipped.<br><br>'
+        + 'If anything looks wrong (the controller doesn\u2019t read back as written, or Trimlight can\u2019t read it), it removes '
+        + 'its timers and stops itself.<br><br>Leave it off if you also set timers in the Trimlight app.', 'Turn it on');
+      if (!yes) return;
+      e.target.checked = true;
+    }
     if (e.target.id === 'sfon' || e.target.id === 'sfdays') {
       const n = clone(S.settings); n.safety = { enabled: $('#sfon', box).checked, days: +($('#sfdays', box)?.value || st.days || 7) };
       await busy(null, () => saveSettings(n, n.safety.enabled ? 'Backup timer on' : 'Backup timer off. Removing its timers from the controller.')).catch(() => {});

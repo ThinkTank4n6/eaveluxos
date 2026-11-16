@@ -65,6 +65,19 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
 .qbtn:disabled{opacity:.45;cursor:default}
 .qbtn.qquit{color:var(--muted)}
 .qbtn.qquit:hover{border-color:var(--warn);color:var(--warn)}
+/* feature search (4.2.1) */
+.search{position:relative;flex:1 1 200px;max-width:340px;margin-left:10px}
+.search input{width:100%;min-height:34px;padding:6px 12px;border-radius:999px;font-size:.9rem}
+.qres{position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:30;background:var(--surface);border:1px solid var(--line);
+  border-radius:var(--radius-m);box-shadow:0 10px 30px rgba(0,0,0,.18);padding:4px;max-height:min(70vh,420px);overflow:auto}
+.qres button{display:flex;flex-direction:column;align-items:flex-start;width:100%;text-align:left;gap:1px;padding:8px 10px;
+  border:0;border-radius:8px;background:none;color:var(--ink);font:inherit;cursor:pointer}
+.qres button small{color:var(--muted);font-size:.78rem}
+.qres button[aria-selected=true],.qres button:hover{background:var(--surface2)}
+.qres p{margin:8px 10px;color:var(--muted);font-size:.88rem}
+.found{outline:3px solid var(--lamp);outline-offset:4px;border-radius:var(--radius-m);transition:outline-color 1.2s}
+.found.fade{outline-color:transparent}
+@media (max-width:640px){ .brand{flex-wrap:wrap} .search{order:10;flex-basis:100%;max-width:none;margin:6px 0 2px} }
 @media (max-width:640px){ .qlbl{display:none} .qbtn{padding:0;width:34px;height:34px;justify-content:center} .brandname small{display:none} }
 @media (max-width:400px){ .brandname{display:none} .brand{gap:8px} }
 .ribbon{display:flex;gap:2px;max-width:1100px;margin:0 auto;padding:2px 8px 0;overflow-x:auto;scrollbar-width:none}

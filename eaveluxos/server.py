@@ -26,6 +26,7 @@ import mimetypes
 import os
 import platform
 import re
+import secrets
 import socket
 import sys
 import threading
@@ -281,7 +282,8 @@ class App:
         self.ai_calls = []                                                       # times of AI calls, for the limits (3.18.2)
         self.mood_state = None                                                   # mood follow: {"level", "key", "at"}
         self.lanshow = lanlink.Streamer(on_end=self._musiclink_ended)          # music from this computer (4.1)
-        self.lan_seen = {"address": None, "ok": None, "at": 0.0, "checking": False}  # is it answering there? (4.1.2)
+        self.lan_seen = {"address": None, "ok": None, "at": 0.0, "checking": False, "gen": 0}  # answering there? (4.1.2)
+        self.lan_lock = threading.Lock()     # guards lan_seen (4.1.4)
         self._port_base = {}         # controller id -> 0 or 1 (how it numbers its ports)
         self._port_write_base = {}   # controller id -> 0 or 1 when the cloud takes other numbers than it shows (4.0.3)
         self._bulbs = None           # last bulb count read from the controller (zones without a House map total)
@@ -665,7 +667,7 @@ class App:
     def safety_status(self) -> dict:
         sf = self.store.settings.get("safety", {}) or {}
         out = {"enabled": bool(sf.get("enabled")), "days": int(sf.get("days", 7) or 7), "devices": self.safety.summary(),
-               "plan": []}
+               "plan": [], "halted": self.safety.halted, "held": self.safety.held()}
         if self.cfg:
             entries, _ = self.safety.plan(self.cfg, self.cfg.loc.now(), self.clock_offset())
             out["plan"] = [{"date": f"{e['month']:02d}-{e['day']:02d}", "on": "%02d:%02d" % tuple(e["start"]),
@@ -837,13 +839,16 @@ class App:
     def _lan_address(self) -> str:
         return str((self.store.settings.get("lan") or {}).get("address") or "")
 
-    def _our_show(self) -> bool:
+    def _our_show(self, sid: str | None = None) -> bool:
+        """A show from this computer is in charge (sid: that very show)."""
         c = self.ctrl
-        return bool(c and c.music and c.music.get("by") == "lan")
+        by = str((c.music or {}).get("by") or "") if c else ""
+        return by == f"lan:{sid}" if sid else by.startswith("lan:")
 
     def musiclink_status(self) -> dict:
         return {"address": self._lan_address(), **self.lanshow.status(),
                 "show": bool(self.ctrl and self.ctrl.music), "patterns": list(lanlink.PATTERNS),
+                "names": list(lanlink.PATTERN_NAMES), "single": list(lanlink.SINGLE_COLOR),
                 "sensitivity": list(lanlink.SENSITIVITY)}
 
     LAN_CHECK_EVERY = 300          # seconds between "is the controller answering at its address?" checks
@@ -857,28 +862,41 @@ class App:
         addr = self._lan_address()
         if not addr:
             return None
-        seen = self.lan_seen
         if self.lanshow.running():
             return {"address": addr, "ok": True}
-        if seen["address"] != addr:
-            seen.update(address=addr, ok=None, at=0.0)
-        if not seen["checking"] and time.time() - seen["at"] >= self.LAN_CHECK_EVERY:
-            seen["checking"] = True
-
+        seen = self.lan_seen
+        # 4.1.4: one probe at a time, and a probe's answer only counts if
+        # nothing newer (Test connection, a new address) came in meanwhile.
+        with self.lan_lock:
+            if seen["address"] != addr:
+                seen.update(address=addr, ok=None, at=0.0, gen=seen["gen"] + 1)
+            start = not seen["checking"] and time.time() - seen["at"] >= self.LAN_CHECK_EVERY
+            if start:
+                seen["checking"] = True
+            gen, ok_now = seen["gen"], seen["ok"]
+        if start:
             def check():
                 try:
                     with socket.create_connection((addr, lanlink.TCP_PORT), timeout=1.5):
                         ok = True
                 except OSError:
                     ok = False
-                if seen["address"] == addr:
-                    seen.update(ok=ok, at=time.time())
-                seen["checking"] = False
+                with self.lan_lock:
+                    if seen["gen"] == gen:
+                        seen.update(ok=ok, at=time.time())
+                    seen["checking"] = False
             threading.Thread(target=check, daemon=True, name="lan-check").start()
-        return {"address": addr, "ok": seen["ok"]}
+        return {"address": addr, "ok": ok_now}
+
+    def _lan_result(self, addr, ok):
+        """Test connection's answer, newer than any probe still running."""
+        with self.lan_lock:
+            if addr == self._lan_address():
+                self.lan_seen.update(address=addr, ok=ok, at=time.time(), gen=self.lan_seen["gen"] + 1)
 
     def lan_recheck(self):
-        self.lan_seen.update(at=0.0, ok=None)
+        with self.lan_lock:
+            self.lan_seen.update(at=0.0, ok=None, gen=self.lan_seen["gen"] + 1)
 
     def musiclink_address(self, addr) -> dict:
         """Administrators: the controller's address on the home network."""
@@ -908,6 +926,7 @@ class App:
             raise ApiError(str(e)) from None
         if self.lanshow.running():
             raise ApiError("A music show from this computer is running. Stop it first.", 409)
+        self.safety.hold()      # no backup-timer writes next to local-link use (4.2.1)
         try:
             with lanlink.Link(addr) as link:
                 ms = link.ping()
@@ -916,11 +935,9 @@ class App:
                     dump = link.read_all(self.cfg.loc.now() if self.cfg else datetime.now())
                     out.update(bytes=len(dump), names=lanlink.names_in(dump))
         except lanlink.LinkError as e:
-            if addr == self._lan_address():
-                self.lan_seen.update(address=addr, ok=False, at=time.time())
+            self._lan_result(addr, False)
             raise ApiError(str(e), 502) from None
-        if addr == self._lan_address():
-            self.lan_seen.update(address=addr, ok=True, at=time.time())
+        self._lan_result(addr, True)
         log.info("Local link to %s works (%s ms)%s", addr, out["ms"], " and read the controller" if read else "")
         return out
 
@@ -952,12 +969,18 @@ class App:
         if op == "set":
             try:
                 ok = self.lanshow.adjust(tab, pattern=num("pattern", *lanlink.PATTERNS) if "pattern" in b else None,
-                                           sensitivity=num("sensitivity", *lanlink.SENSITIVITY) if "sensitivity" in b else None)
+                                           sensitivity=num("sensitivity", *lanlink.SENSITIVITY) if "sensitivity" in b else None,
+                                           color=b["color"] if "color" in b else None)
             except ValueError as e:
                 raise ApiError(str(e)) from None
             return {"running": ok}
         if op == "stop":
             self.lanshow.stop(tab, "stopped")
+            # 4.1.4: hand the lights back here, not only when the stream has
+            # wound down (which waits at most 3 s), so Stop answers after the
+            # schedule is back.
+            if self.ctrl is not None and self._our_show():
+                self.ctrl.stop_music()
             return {"running": False}
         if op != "start":
             raise ApiError("Unknown music step.")
@@ -968,34 +991,46 @@ class App:
         if not addr:
             raise ApiError("Enter the controller's address on your home network first (Music › Music from this computer).", 409)
         pattern, sens = num("pattern", *lanlink.PATTERNS), num("sensitivity", *lanlink.SENSITIVITY)
+        try:
+            color = lanlink.check_color(b.get("color", "#FF0000"))      # for the "Single Color" patterns (4.2)
+        except ValueError as e:
+            raise ApiError(str(e)) from None
         minutes = b.get("minutes", 0)
         if isinstance(minutes, bool) or not isinstance(minutes, int) or not 0 <= minutes <= 360:
             raise ApiError("Minutes must be from 0 (until stopped) to 360.")
         fresh = not self.lanshow.running()
         if fresh:
+            # 4.1.4: the page's button is off during another show; the server
+            # says no too, or stopping this one would also end a show night.
+            other = c.other_show_on(by="lan:")
+            if other:
+                raise ApiError(f"{other} is on. Stop it first (Music \u203a Music show).", 409)
+            sid = secrets.token_hex(4)
             try:
-                c.start_music(minutes or None, by="lan")
+                c.start_music(minutes or None, by=f"lan:{sid}")
             except ValueError as e:
                 raise ApiError(str(e), 409) from None
+        else:
+            sid = None
         try:
-            self.lanshow.start(addr, pattern, sens, tab, wanted=self._our_show,
-                               clock=lambda: self.cfg.loc.now() if self.cfg else datetime.now())
+            self.lanshow.start(addr, pattern, sens, tab, wanted=(lambda: self._our_show(sid)) if sid else self._our_show,
+                               clock=lambda: self.cfg.loc.now() if self.cfg else datetime.now(), sid=sid, color=color)
         except (lanlink.LinkError, ValueError) as e:
-            if fresh and self._our_show():
+            if fresh and self._our_show(sid):
                 c.stop_music()
             raise ApiError(str(e), 502 if isinstance(e, lanlink.LinkError) else 400) from None
         if fresh:
-            c.note(f"Music from this computer: started (music pattern {pattern}, sensitivity {sens}).")
+            c.note(f"Music from this computer: started ({lanlink.PATTERN_NAMES[pattern]}, sensitivity {sens}).")
         return self.musiclink_status()
 
-    def _musiclink_ended(self, why: str):
+    def _musiclink_ended(self, why: str, sid: str | None = None):
         c = self.ctrl
         if c is None:
             return
         text = {"stopped": "stopped", "idle": "the listening page stopped sending sound",
                 "lost": "the connection to the controller was lost", "app": "the music show ended"}.get(why, why)
         c.note(f"Music from this computer: {text}.")
-        if why != "app" and self._our_show():
+        if why != "app" and self._our_show(sid):       # only this show: never a newer one
             c.stop_music()
 
     def ai_pattern(self, prompt) -> dict:

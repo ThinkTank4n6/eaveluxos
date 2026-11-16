@@ -57,14 +57,15 @@ class Frames(unittest.TestCase):
         self.assertEqual(t, L.time_payload(datetime(2026, 11, 15, 12, 50, 15)))
         _, _, m = L.parse(bytes.fromhex(REAL["music"]))[0][0]
         self.assertEqual(m, L.music_payload(2, 1, 8))
-        self.assertEqual(L.read_music(m), {"source": 2, "pattern": 1, "sensitivity": 8, "levels": [0] * 16})
+        self.assertEqual(L.read_music(m), {"source": 2, "pattern": 1, "color": "#FF0000", "sensitivity": 8,
+                                           "levels": [0] * 16})
         _, cmd, lv = L.parse(bytes.fromhex(REAL["levels"]))[0][0]
         self.assertEqual(cmd, L.CMD_LEVELS)
         self.assertEqual(L.read_music(lv)["levels"], [0, 0, 0, 1, 24, 0, 0, 0, 0, 9, 7, 0, 0, 0, 0, 0])
         body = lambda k: L.parse(bytes.fromhex(REAL[k]))[0][0][2]
         self.assertEqual(body("off"), L.request(L.SUB_POWER, b"\x00"))
         self.assertEqual(body("on"), L.request(L.SUB_POWER, b"\x01"))
-        self.assertEqual(body("leave"), L.request(L.SUB_MODE, bytes([L.MODE_NORMAL])))
+        self.assertEqual(body("leave"), L.request(L.SUB_SHOW, bytes([14])), "show saved pattern 14 (4.2.1)")
 
     def test_greeting_is_new_each_time(self):
         seen = {L.greeting() for _ in range(20)}
@@ -151,7 +152,7 @@ class LinkAndStream(unittest.TestCase):
 
     def test_stream_sends_levels_settings_and_keepalives(self):
         ended = []
-        st = L.Streamer(on_end=ended.append, idle=0.6, link_factory=self.make)
+        st = L.Streamer(on_end=lambda *a: ended.append(a[0]), idle=0.6, link_factory=self.make)
         st.start("127.0.0.1", 3, 9, "tab1")
         self.assertTrue(st.running())
         st.feed([10] * 16, "tab1")
@@ -162,18 +163,18 @@ class LinkAndStream(unittest.TestCase):
         with self.assertRaises(L.LinkError):
             st.start("127.0.0.1", 3, 9, "other tab")
         first = L.read_music(self.ctl.frames(L.CMD_REQUEST)[0][2])
-        self.assertEqual(first, {"source": 1, "pattern": 3, "sensitivity": 9, "levels": [0] * 16})
+        self.assertEqual(first, {"source": 1, "pattern": 3, "color": "#FF0000", "sensitivity": 9, "levels": [0] * 16})
         self.assertTrue(wait_for(lambda: not st.running(), 3), "quiet page: ends by itself")
         self.assertEqual(ended, ["idle"])
-        self.assertEqual(self.ctl.frames(L.CMD_REQUEST)[-1][2], L.request(L.SUB_MODE, bytes([L.MODE_NORMAL])),
-                         "leaves music mode at the end, like the Trimlight app")
+        self.assertFalse([b for _, _, b in self.ctl.frames(L.CMD_REQUEST) if b[:1] == bytes([L.SUB_SHOW])],
+                         "never sends 04 0e (show saved pattern 14) at the end (4.2.1)")
         gaps = self.ctl.frames(L.CMD_LEVELS)
         self.assertGreater(len(gaps), 3)
         self.assertEqual(self.ctl.errors, [], "every frame checked out")
 
     def test_stop_and_wanted(self):
         ended = []
-        st = L.Streamer(on_end=ended.append, link_factory=self.make)
+        st = L.Streamer(on_end=lambda *a: ended.append(a[0]), link_factory=self.make)
         st.start("127.0.0.1", 0, 5, "t")
         self.assertTrue(st.stop("t"))
         self.assertFalse(st.running())
@@ -187,7 +188,7 @@ class LinkAndStream(unittest.TestCase):
         flaky = fake_lan.FakeController(close_after=4)
         self.addCleanup(flaky.close)
         ended = []
-        st = L.Streamer(on_end=ended.append, link_factory=lambda h: L.Link(h, flaky.port, timeout=0.5))
+        st = L.Streamer(on_end=lambda *a: ended.append(a[0]), link_factory=lambda h: L.Link(h, flaky.port, timeout=0.5))
         st.start("127.0.0.1", 0, 5, "t")
         for _ in range(60):
             st.feed([5] * 16, "t")
@@ -267,7 +268,7 @@ class AppEndpoints(unittest.TestCase):
         subs = lambda: [b[0] for _, _, b in self.ctl.frames(L.CMD_REQUEST)][:2]
         self.assertTrue(wait_for(lambda: len(subs()) == 2))
         self.assertEqual(subs(), [L.SUB_TIME, L.SUB_MUSIC], "opens like the Trimlight app: clock, then music")
-        self.assertEqual(c.music.get("by"), "lan")
+        self.assertTrue(c.music.get("by").startswith("lan:"))
         self.assertTrue(self.app.musiclink({"op": "levels", "tab": "p1", "levels": [50] * 16})["running"])
         self.assertTrue(wait_for(lambda: any(L.read_music(b)["levels"] == [50] * 16 for _, _, b in self.ctl.frames(L.CMD_LEVELS))))
         with self.assertRaises(ApiError):
@@ -315,6 +316,82 @@ class AppEndpoints(unittest.TestCase):
         from eaveluxos import server
         self.assertIn('st["lan"] = app.lan_home()', Path(server.__file__).read_text(encoding="utf-8"))
 
+    def test_5_no_show_from_this_computer_over_another_show(self):
+        """4.1.4 review #5."""
+        from eaveluxos.server import ApiError
+        app, ctl = self.app, self.ctl
+        app.musiclink_address("127.0.0.1")
+        app.ctrl.start_music(30)                                  # the Music show button
+        self.addCleanup(app.ctrl.stop_music)
+        with self.assertRaises(ApiError) as cm:
+            app.musiclink({"op": "start", "tab": "p", "pattern": 0, "sensitivity": 8})
+        self.assertEqual(cm.exception.code, 409)
+        self.assertIsNone(app.ctrl.music.get("by"), "the button's show is untouched")
+        self.assertEqual(ctl.connections, 0)
+        app.ctrl.stop_music()
+        app.musiclink({"op": "start", "tab": "p", "pattern": 0, "sensitivity": 8})
+        self.assertIsNone(app.ctrl.other_show_on(by="lan:"), "its own show doesn't count")
+        app.musiclink({"op": "stop", "tab": "p"})
+        self.assertTrue(wait_for(lambda: app.ctrl.music is None))
+
+    def test_6_a_late_probe_never_overwrites_a_newer_answer(self):
+        """4.1.4 review #6: one probe at a time, and a slow probe that finishes
+        after Test connection doesn't replace its answer."""
+        import socket as S
+        app = self.app
+        app.musiclink_address("127.0.0.1")
+        real = S.create_connection
+        calls = []
+
+        def slow(addr, timeout=None, *a, **k):
+            if addr[1] == L.TCP_PORT and len(calls) < 1:
+                calls.append(addr)
+                time.sleep(0.6)
+                raise OSError("probe timed out")              # this old probe says "not answering"
+            return real(addr, timeout, *a, **k)
+        S.create_connection = slow
+        self.addCleanup(setattr, S, "create_connection", real)
+        app.lan_home()
+        app.lan_home()                                         # a second status while it runs
+        self.assertEqual(len(calls), 1, "one probe at a time")
+        app.musiclink_test()                                   # Test connection: answering
+        self.assertTrue(app.lan_home()["ok"])
+        time.sleep(1.0)                                        # the old probe finishes, too late
+        self.assertTrue(app.lan_home()["ok"], "the newer answer stands")
+
+    def test_7_the_end_of_an_old_show_never_stops_a_new_one(self):
+        """4.1.4 review #7: Stop hands the lights back itself, and a stream
+        that winds down late only ever ends its own show."""
+        app = self.app
+        app.musiclink_address("127.0.0.1")
+        app.musiclink({"op": "start", "tab": "p", "pattern": 0, "sensitivity": 8})
+        old = app.ctrl.music["by"]
+        app.musiclink({"op": "stop", "tab": "p"})
+        self.assertIsNone(app.ctrl.music, "back on the schedule when Stop answers")
+        app.musiclink({"op": "start", "tab": "p", "pattern": 1, "sensitivity": 8})
+        new = app.ctrl.music["by"]
+        self.assertNotEqual(old, new)
+        app._musiclink_ended("idle", old.split(":")[1])     # the old stream's late goodbye
+        self.assertEqual(app.ctrl.music and app.ctrl.music["by"], new, "the new show keeps going")
+        app.musiclink({"op": "stop", "tab": "p"})
+        self.assertIsNone(app.ctrl.music)
+
+    def test_42_color_through_the_app(self):
+        from eaveluxos.server import ApiError
+        app = self.app
+        app.musiclink_address("127.0.0.1")
+        st = app.musiclink_status()
+        self.assertEqual(st["names"][15], "Christmas")
+        with self.assertRaises(ApiError):
+            app.musiclink({"op": "start", "tab": "c", "pattern": 1, "sensitivity": 8, "color": "pink"})
+        app.musiclink({"op": "start", "tab": "c", "pattern": 1, "sensitivity": 8, "color": "#00FF00"})
+        self.assertTrue(wait_for(lambda: any((L.read_music(b) or {}).get("color") == "#00FF00"
+                                             for _, _, b in self.ctl.frames(L.CMD_REQUEST))))
+        app.musiclink({"op": "set", "tab": "c", "color": "#FFFFFF"})
+        self.assertTrue(wait_for(lambda: any((L.read_music(b) or {}).get("color") == "#FFFFFF"
+                                             for _, _, b in self.ctl.frames(L.CMD_REQUEST))))
+        app.musiclink({"op": "stop", "tab": "c"})
+
     def test_roles(self):
         from eaveluxos import server
         self.assertIn("/api/musiclink", server.EDITOR_POSTS)
@@ -353,11 +430,13 @@ console.log(JSON.stringify(out));"""
         self.assertGreater(max(o["boost"]), max(o["bass"]))
 
     def test_page(self):
+        """(4.1.4 review #10: the input level is kept in memory while listening.)"""
         js = (ROOT / "eaveluxos" / "static" / "app.js").read_text(encoding="utf-8")
         html = (ROOT / "eaveluxos" / "static" / "index.html").read_text(encoding="utf-8")
         self.assertLess(html.index("bands.js"), html.index("app.js"))
         for s in ("linkPanel($('#linkbox'))", "api('musiclink', { body: { op: 'levels'", "if (LINK.busy) return;",
-                  "getDisplayMedia", "op: 'stop', tab: LINK.tab }, keepalive: true"):
+                  "getDisplayMedia", "op: 'stop', tab: LINK.tab }, keepalive: true",
+                  "Bands.levels(fd, LINK.edges, LINK.gain)", "LINK.gain = v;"):
             self.assertIn(s, js)
 
 
@@ -402,16 +481,15 @@ class CaptureTool(unittest.TestCase):
         self.assertIn("### Decoded Trimlight messages", out)
         self.assertIn("↔", out, "printed as UTF-8 even where the console isn't (Windows, 4.1.0)")
         self.assertIn("set the controller's clock | 2026-11-15 12:50:15 (Sun)", out)
-        self.assertIn("music settings | input: the controller's own input (Auxiliary IN); music pattern 1; sensitivity 8", out)
+        self.assertIn("music settings | input: the controller's own input (Auxiliary IN); music pattern 2 "
+                      "(Single Color Rhythm Spectrum); color #FF0000; sensitivity 8", out)
         self.assertIn("sound levels (and 4 more", out)
         self.assertEqual(out.count("| keep-alive |"), 1, "the retransmitted keep-alive is shown once")
         self.assertIn("keep-alive answer", out)
-        for words in ("back to normal (out of music mode)", "| lights off |", "| lights on |"):
+        for words in ("show saved pattern #14", "| lights off |", "| lights on |"):
             self.assertIn(words, out)
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 try:
@@ -507,7 +585,7 @@ class Browser(unittest.TestCase):
             pg.wait_for_selector("#linkbars")
             ok = wait_for(lambda: any(any(L.read_music(b)["levels"]) for _, _, b in ctl.frames(L.CMD_LEVELS)), 8)
             self.assertTrue(ok, "the controller got sound levels from the browser")
-            self.assertEqual(app.ctrl.music.get("by"), "lan")
+            self.assertTrue(app.ctrl.music.get("by").startswith("lan:"))
             self.assertTrue(pg.is_disabled("[data-moodgo]") or not pg.query_selector("[data-moodgo]"))
             pg.click("#linkbox [data-lkstop]")
             self.assertTrue(wait_for(lambda: app.ctrl.music is None, 5), "Stop hands the lights back")
@@ -526,3 +604,196 @@ class Browser(unittest.TestCase):
         self.assertIsNone(app.ctrl.music, "nothing started")
         self.assertEqual(errors, [])
         self.assertEqual(ctl.errors, [])
+
+
+class ReviewFixes414(unittest.TestCase):
+    """4.1.3 code review, fixed in 4.1.4."""
+
+    def test_1_slow_keepalive_answers_never_hold_up_the_levels(self):
+        """Busy Wi-Fi: the keep-alive answer comes 1.5 s late. The levels kept
+        flowing at about 9 a second (they froze while it waited)."""
+        import socket
+        ctl = fake_lan.FakeController()
+        self.addCleanup(ctl.close)
+        real = socket.socket.sendall
+        ack = L.MAGIC + b"\x0b\x00\x00\x01\x00"
+
+        def slow(sock, data, *a):
+            if data == ack:
+                time.sleep(1.5)
+            return real(sock, data, *a)
+        socket.socket.sendall = slow
+        self.addCleanup(setattr, socket.socket, "sendall", real)
+        every = L.PING_EVERY
+        L.PING_EVERY = 1.0
+        self.addCleanup(setattr, L, "PING_EVERY", every)
+        st = L.Streamer(link_factory=lambda h: L.Link(h, ctl.port, timeout=3.0))
+        st.start("127.0.0.1", 0, 8, "t")
+        self.addCleanup(st.stop)
+        t0 = time.monotonic()
+        before = st.sent                  # counted where they're sent: the test controller itself
+        while time.monotonic() - t0 < 4:  # pauses while it holds an answer back
+            st.feed([30] * 16, "t")
+            time.sleep(0.05)
+        got = st.sent - before
+        self.assertGreater(got, 28, f"only {got} level frames in 4 s")
+        self.assertTrue(st.running(), "slow answers aren't a lost connection")
+        self.assertGreater(len(ctl.frames(L.CMD_PING)), 2, "keep-alives still went out")
+
+    def test_1b_no_answers_at_all_is_a_lost_connection(self):
+        mute = fake_lan.FakeController(answer_pings=1)        # answers the first, then goes quiet
+        self.addCleanup(mute.close)
+        saved = (L.PING_EVERY, L.ANSWER_WITHIN)
+        L.PING_EVERY, L.ANSWER_WITHIN = 0.2, 0.8
+        self.addCleanup(lambda: (setattr(L, "PING_EVERY", saved[0]), setattr(L, "ANSWER_WITHIN", saved[1])))
+        ended = []
+        st = L.Streamer(on_end=lambda *a: ended.append(a[0]),
+                        link_factory=lambda h: L.Link(h, mute.port, timeout=0.5))
+        st.start("127.0.0.1", 0, 8, "t")
+        for _ in range(100):
+            if not st.running():
+                break
+            st.feed([5] * 16, "t")
+            time.sleep(0.05)
+        self.assertTrue(wait_for(lambda: not st.running(), 5))
+        self.assertEqual(ended, ["lost"])
+        self.assertIn("stopped answering", st.status()["error"])
+
+    def test_2_two_pages_starting_at_once_make_one_show(self):
+        """Two starts while the controller is slow to answer: both used to
+        connect, and the first thread kept streaming the second page's
+        levels on its own connection."""
+        import threading
+        slow = fake_lan.FakeController(greet_delay=0.6)
+        self.addCleanup(slow.close)
+        st = L.Streamer(link_factory=lambda h: L.Link(h, slow.port, timeout=2.0))
+        self.addCleanup(st.stop)
+        out = {}
+
+        def go(tab):
+            try:
+                st.start("127.0.0.1", 0, 8, tab)
+                out[tab] = "ok"
+            except L.LinkError as e:
+                out[tab] = str(e)
+        ts = [threading.Thread(target=go, args=(t,)) for t in ("a", "b")]
+        for t in ts:
+            t.start()
+            time.sleep(0.1)
+        for t in ts:
+            t.join(5)
+        self.assertEqual(sorted(out.values()).count("ok"), 1, out)
+        self.assertIn("another page", [v for v in out.values() if v != "ok"][0])
+        time.sleep(0.5)
+        self.assertEqual(slow.connections, 1, "only one connection to the controller")
+        self.assertEqual(threading.active_count() - sum(1 for t in threading.enumerate() if t.name != "music-link"),
+                         1, "one stream thread")
+
+    def test_3_unknown_bytes_from_the_controller_are_skipped(self):
+        """Anything the controller sends that this app doesn't know (a newer
+        firmware's status message, a damaged frame) used to count as a lost
+        connection; after a few, the show ended."""
+        noisy = fake_lan.FakeController(noise=True)
+        self.addCleanup(noisy.close)
+        every = L.PING_EVERY
+        L.PING_EVERY = 0.2
+        self.addCleanup(setattr, L, "PING_EVERY", every)
+        ended = []
+        st = L.Streamer(on_end=lambda *a: ended.append(a[0]),
+                        link_factory=lambda h: L.Link(h, noisy.port, timeout=1.0))
+        self.addCleanup(st.stop)
+        st.start("127.0.0.1", 0, 8, "t")
+        t0 = time.monotonic()
+        while time.monotonic() - t0 < 2.5:
+            st.feed([9] * 16, "t")
+            time.sleep(0.05)
+        self.assertTrue(st.running(), ended)
+        self.assertEqual(noisy.connections, 1, "no reconnecting")
+        self.assertEqual(ended, [])
+
+    def test_3b_skipping_finds_the_next_message(self):
+        ack = L.MAGIC + b"\x0b\x00\x00\x01\x00"
+        stream = fake_lan.FakeController.NOISE + ack + b"garbage" + ack
+        with self.assertRaises(L.LinkError):
+            L.parse(stream, final=True)                        # strict, for the capture tool and tests
+        msgs, rest = L.parse(stream, resync=True)
+        self.assertEqual([m[:2] for m in msgs if m[0] != "junk"], [("short", L.CMD_PING)] * 2)
+        self.assertTrue(any(m[0] == "junk" for m in msgs))
+        self.assertEqual(rest, b"")
+        for cut in range(1, len(stream)):                     # arriving in pieces finds the same answers
+            a, r1 = L.parse(stream[:cut], resync=True)
+            b, r2 = L.parse(r1 + stream[cut:], resync=True)
+            self.assertEqual([m for m in a + b if m[0] != "junk"], [("short", L.CMD_PING, b"\x00")] * 2, cut)
+
+    def test_4_only_home_network_device_addresses(self):
+        for ok in ("10.168.168.35", "172.16.0.9", "172.31.255.1", "192.168.1.50"):
+            self.assertEqual(L.check_address(ok), ok)
+        os.environ.pop("EAVELUXOS_LAN_TEST", None)
+        for bad in ("0.0.0.0", "0.1.2.3", "127.0.0.1", "169.254.1.1", "240.0.0.1", "224.0.0.251",
+                    "255.255.255.255", "192.168.1.255", "100.64.0.1", "172.32.0.1", "8.8.8.8"):
+            with self.assertRaises(L.LinkError, msg=bad):
+                L.check_address(bad)
+
+    def test_9_capture_tool_rebuilds_across_rollover_and_overlaps(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("sc414", ROOT / "tools" / "music-capture" / "summarize_capture.py")
+        sc = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(sc)
+        data = bytes(range(200))
+        start = 2 ** 32 - 50                                         # sequence numbers roll over 50 bytes in
+
+        def pkt(off, ln, t):
+            return sc.Packet(t, "a", "b", "TCP", 1, 2, data[off:off + ln], "PA", (start + off) % 2 ** 32)
+        got, _ = sc.reassemble([pkt(0, 80, 1), pkt(80, 60, 2), pkt(60, 50, 3), pkt(140, 60, 4)])
+        self.assertEqual(got, data, "a re-send overlapping two pieces adds nothing twice")
+        got, _ = sc.reassemble([pkt(0, 80, 1), pkt(120, 80, 2)])
+        self.assertEqual(got, data[:80], "a hole ends the stream instead of gluing the far side on")
+
+
+class MusicColors42(unittest.TestCase):
+    """4.2: the 18 music patterns by name, and the color of the "Single
+    Color" ones (a fourth capture: the bytes followed the app's color bar)."""
+    # Single Color Energy (6) in blue, from that capture
+    BLUE = "5350544543480400001ab81d311a77a29668fcacd795c6b8df3ffdf1fdeafff8968e02c1f7fdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfd"
+
+    def test_real_color_frame(self):
+        raw = bytes.fromhex(self.BLUE)
+        _, cmd, body = L.parse(raw, final=True)[0][0]
+        self.assertEqual(L.read_music(body)["color"], "#6B73FF")
+        self.assertEqual(L.read_music(body)["pattern"], 5)
+        self.assertEqual(body, L.music_payload(2, 5, 10, color="#6b73ff"))
+        self.assertEqual(L.frame(cmd, body, key=raw[26]), raw)
+
+    def test_names_and_single_colors(self):
+        self.assertEqual(len(L.PATTERN_NAMES), 18)
+        self.assertEqual(L.PATTERNS, (0, 17))
+        self.assertEqual(L.PATTERN_NAMES[15], "Christmas")
+        self.assertEqual(L.SINGLE_COLOR, (1, 3, 5, 7, 9, 11, 13))
+        for bad in (18, -1):
+            with self.assertRaises(ValueError):
+                L.music_payload(1, bad, 5)
+        for bad in ("red", "#12345", "#GGGGGG", (256, 0, 0), (1, 2), (True, 0, 0)):
+            with self.assertRaises(ValueError, msg=bad):
+                L.check_color(bad)
+        self.assertEqual(L.check_color("00ff00"), (0, 255, 0))
+
+    def test_stream_carries_the_color(self):
+        ctl = fake_lan.FakeController()
+        self.addCleanup(ctl.close)
+        st = L.Streamer(link_factory=lambda h: L.Link(h, ctl.port, timeout=1.0))
+        self.addCleanup(st.stop)
+        st.start("127.0.0.1", 5, 8, "t", color="#00FF00")
+        st.feed([20] * 16, "t")
+        self.assertTrue(wait_for(lambda: any(L.read_music(b)["color"] == "#00FF00" for _, _, b in ctl.frames(L.CMD_LEVELS))))
+        st.adjust("t", color="#0000FF")
+        self.assertTrue(wait_for(lambda: any(L.read_music(b)["color"] == "#0000FF" for _, _, b in ctl.frames(L.CMD_REQUEST))))
+        self.assertEqual(st.status()["color"], "#0000FF")
+
+    def test_page(self):
+        js = (ROOT / "eaveluxos" / "static" / "app.js").read_text(encoding="utf-8")
+        for s in ("(st.single || []).includes(o.pattern)", 'id="lkcolor"', "color: o.color", "op: 'set', tab: LINK.tab, color: t.value"):
+            self.assertIn(s, js)
+
+
+if __name__ == "__main__":
+    unittest.main()

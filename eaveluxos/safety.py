@@ -4,15 +4,21 @@
 own calendar timers, so the lights still come on and go off if this computer
 or the internet goes down.
 
-How it stays safe
+How it stays safe (4.2.1, after a pattern save through Trimlight's cloud
+left a controller unreadable, error 12006, and a reset lost its patterns)
+- It never saves patterns. Each night uses a pattern already saved on the
+  controller with the same name; a night whose pattern isn't there is
+  skipped and listed. Only calendar entries are written, and only its own
+  (their ids are recorded in data/safety.json).
+- It writes only when the controller is settled: two readings at least
+  SETTLE seconds apart must match (patterns, calendar, daily timers), and
+  never within HOLD seconds of a music show or the local link.
 - Before every write, the controller's full state is saved to
   data/controller-backups/ (last 20 kept).
-- It only ever creates, changes or deletes calendar entries and saved
-  patterns that it made itself (their ids are recorded in data/safety.json).
-  Entries and patterns made in the Trimlight app are never touched.
 - After writing, it reads the controller back and checks every entry. On any
-  mismatch it deletes what it wrote and reports the problem; the lights then
-  simply run without a safety net.
+  mismatch, or if Trimlight's cloud can't read the controller (12006), it
+  takes back what it wrote and halts: no more writes until it is turned off
+  and on again.
 - While the app runs, it still drives the lights live. Between scheduled
   windows it leaves the controller in Timer mode (instead of Off) so the
   copied timers can take over if the app stops.
@@ -29,6 +35,7 @@ import json
 import logging
 import os
 import threading
+import time as _time
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
@@ -43,25 +50,34 @@ def _is_auto(e) -> bool:
     return str((e or {}).get("name", "")).startswith(PREFIX)
 
 
-def _stuck_message(stuck: dict) -> str:
-    return (f"Trimlight gave the backup timer's new pattern \u201c{stuck.get('name')}\u201d number {stuck.get('id')}, which "
-            "one of your own patterns already has, so Trimlight can't read the controller until one of them is "
-            f"removed. In the Trimlight Edge app (on your home Wi-Fi), delete the pattern named \u201c{stuck.get('name')}\u201d. "
-            "Your own pattern isn't touched. The backup timer carries on by itself once the controller reads normally.")
-
-
-def _resync(api, dev, now):
-    f = getattr(api, "resync", None)
-    if f:
-        f(dev, now)
-
-
 class CalendarConflict(ValueError):
     """The Trimlight app's own calendar timers cover the coming nights."""
+
+
+class Halt(ValueError):
+    """Something looked wrong on the controller: stop writing until the
+    backup timer is turned off and on again (4.2.1)."""
+
+
+class Waiting(Exception):
+    """The controller isn't settled yet; try again in `seconds`."""
+    def __init__(self, msg, seconds):
+        super().__init__(msg)
+        self.seconds = seconds
+
+
+def fingerprint(detail: dict) -> str:
+    """What must stay the same between two readings before a write: the
+    patterns (numbers and names), calendar entries and daily timers."""
+    eff = sorted([e.get("id"), str(e.get("name", ""))] for e in detail.get("effects", []) or [])
+    blob = json.dumps({"e": eff, "c": detail.get("calendar") or [], "d": detail.get("daily") or []},
+                      sort_keys=True, default=str)
+    return hashlib.sha256(blob.encode()).hexdigest()[:16]
 _CAL_KEYS = ("effectId", "startDate", "endDate", "startTime", "endTime")
-MAX_EFFECTS = 60
 MAX_CALENDAR = 60
 PREFIX = "Auto "
+SETTLE = 120      # seconds between the two matching readings before a write
+HOLD = 900        # no writes this long after a music show or local-link use
 
 
 def _cal_overlaps(c: dict, days: list) -> bool:
@@ -124,7 +140,9 @@ class SafetyNet:
             self.state = {}
         self.state.setdefault("devices", {})
         self.retry_at = 0.0
-        self.repaired = False
+        self.hold_until = 0.0
+        self.clock = _time.time      # tests replace it
+        self.settle = SETTLE
 
     # ---------------------------------------------------------------- state
     def _dev(self, dev_id: str) -> dict:
@@ -137,6 +155,32 @@ class SafetyNet:
         tmp = self.path.with_suffix(".tmp")
         tmp.write_text(json.dumps(self.state, indent=2), encoding="utf-8")
         os.replace(tmp, self.path)
+
+    # ---------------------------------------------------------------- guards
+    def hold(self, seconds: float = HOLD):
+        """No writes for `seconds` (a music show or the local link is busy
+        with the controller)."""
+        with self.lock:
+            self.hold_until = max(self.hold_until, self.clock() + seconds)
+
+    def held(self) -> bool:
+        return self.clock() < self.hold_until
+
+    @property
+    def halted(self) -> dict | None:
+        return self.state.get("halted")
+
+    def _halt(self, why: str):
+        with self.lock:
+            self.state["halted"] = {"at": datetime.now().isoformat(timespec="minutes"), "why": why}
+            for d in self.state["devices"].values():
+                d["ok"] = False
+            self._save()
+
+    def clear_halt(self):
+        with self.lock:
+            if self.state.pop("halted", None) is not None:
+                self._save()
 
     def ready(self, dev_id: str, today: date) -> bool:
         """True when this controller holds a verified copy covering today and
@@ -159,7 +203,7 @@ class SafetyNet:
             if not d:
                 return
             keep = {k: v for k, v in (d.get("effects") or {}).items() if v in lib and _is_auto(lib[v])}
-            if keep != d.get("effects") or "stuck" in d or d.get("unconfirmed"):
+            if keep != (d.get("effects") or {}) or "stuck" in d or d.get("unconfirmed"):
                 d["effects"] = keep
                 d.pop("stuck", None)
                 d["unconfirmed"] = []          # a good read since our last save: none of ours is the cause
@@ -182,10 +226,14 @@ class SafetyNet:
                 self._save()
                 return None
             cal = {str(c.get("id")): c for c in detail.get("calendar", []) or []}
-            lib = {e.get("id") for e in detail.get("effects", []) or []}
+            lib = {e.get("id"): str(e.get("name", "")) for e in detail.get("effects", []) or []}
             changed = [cid for cid, p in written.items()
                        if cid not in cal or any(cal[cid].get(k) != p[k] for k in _CAL_KEYS)]
-            gone = [i for i in d.get("written_effects", []) if i not in lib]
+            # A pattern gone, or its number now holding another pattern (a
+            # reset renumbers them): the copy would show the wrong lights.
+            names = d.get("written_names") or {}
+            gone = [i for i in d.get("written_effects", []) if i not in lib
+                    or (str(i) in names and lib[i].strip().lower() != names[str(i)].strip().lower())]
             if not (changed or gone):
                 return None
             msg = "The timer copy on the controller was changed outside this app, so it's being copied again."
@@ -196,7 +244,8 @@ class SafetyNet:
 
     def summary(self) -> dict:
         with self.lock:
-            out = {k: {x: v.get(x) for x in ("ok", "message", "last_sync", "last_sync_label", "covers_until", "entries", "conflicts", "backup")}
+            out = {k: {x: v.get(x) for x in ("ok", "message", "last_sync", "last_sync_label", "covers_until", "entries",
+                                             "conflicts", "backup", "skipped")}
                    for k, v in self.state["devices"].items()}
             for v in out.values():   # a copy held back by the Trimlight app's own timers isn't armed
                 v["ok"] = bool(v["ok"] and not v["conflicts"])
@@ -246,6 +295,8 @@ class SafetyNet:
         return hashlib.sha256(blob.encode()).hexdigest()[:16]
 
     def due(self, dev_ids, h: str, today: date, now_ts: float) -> bool:
+        if self.halted or self.held():
+            return False
         with self.lock:
             for dev in dev_ids:
                 d = self.state["devices"].get(dev) or {}
@@ -282,27 +333,53 @@ class SafetyNet:
         return name
 
     def sync(self, api, cfg, dev_ids, now: datetime, note=lambda m, lvl=logging.INFO: None):
+        if self.halted:
+            return False
         entries, slots = self.plan(cfg, now, getattr(api, "clock_offset_min", 0))
         h = self.plan_hash(entries, slots)
-        failed = False
+        failed, wait = False, None
         for dev in dev_ids:
-            self.repaired = False
+            if self.halted:
+                break                    # one controller looked wrong: touch no other either
+            if self.held():
+                wait = max(wait or 0, self.hold_until - self.clock() + 1)
+                continue
             try:
                 self._sync_one(api, dev, entries, slots, now, cfg.safety["days"])
                 with self.lock:
                     d = self._dev(dev)
-                    msg = f"{len(d['calendar'])} nights copied to the controller."
+                    n = len(d.get("entries") or [])
+                    msg = f"{n} night{'s' if n != 1 else ''} copied to the controller."
+                    if d.get("skipped"):
+                        msg += (f" Not copied: nights showing {', '.join(chr(8220) + x + chr(8221) for x in d['skipped'])}, "
+                                "because the controller has no saved pattern with that name. The backup timer never saves "
+                                "patterns itself: save one under the same name in the Trimlight app, then choose Update now.")
                     if d.get("conflicts"):
                         msg += (" Not used yet: the Trimlight app's own timers would also run when the controller is "
                                 "left in Timer mode. Turn them off (see below), then choose Update now.")
-                    d.update(ok=True, hash=h, synced_on=now.date().isoformat(), last_sync=now.isoformat(timespec="minutes"),
+                    d.update(ok=n > 0, hash=h, synced_on=now.date().isoformat(), last_sync=now.isoformat(timespec="minutes"),
                              last_sync_label=now.strftime("%b %d, %I:%M %p").replace(" 0", " "),
                              covers_until=(now.date() + timedelta(days=cfg.safety["days"] - 1)).isoformat(),
                              message=msg)
                     self._save()
-                note(f"Backup timer updated: {len(entries)} night(s) copied to the controller."
+                note(f"Backup timer updated: {n} night(s) copied to the controller."
+                     + (f" Skipped (no saved pattern with that name): {', '.join(d['skipped'])}." if d.get("skipped") else "")
                      + (" It stays off until the Trimlight app's own timers are turned off." if d.get("conflicts") else ""),
                      logging.WARNING if d.get("conflicts") else logging.INFO)
+            except Waiting as e:
+                wait = max(wait or 0, e.seconds)
+                with self.lock:          # an armed copy stays armed meanwhile
+                    d = self._dev(dev)
+                    if not d.get("ok"):
+                        d["message"] = str(e)
+                        self._save()
+            except Halt as e:
+                failed = True
+                self._halt(str(e))
+                with self.lock:
+                    self._dev(dev).update(ok=False, hash=None, message=str(e))
+                    self._save()
+                note(f"Backup timer stopped itself: {e} Turn it off and on again to try again.", logging.WARNING)
             except CalendarConflict as e:
                 # Not a failure to retry every 30 minutes (each retry reads the
                 # controller and writes a backup, pushing older backups out):
@@ -319,86 +396,47 @@ class SafetyNet:
                     note(f"Backup timer not armed: {e}", logging.WARNING)
             except (TrimlightError, ValueError) as e:
                 failed = True
+                if isinstance(e, TrimlightError) and e.unreadable:
+                    why = ("Trimlight's cloud can't read the controller (code 12006), so the backup timer won't write "
+                           "to it. Open the Trimlight Edge app on your home Wi-Fi so it syncs the controller.")
+                    self._halt(why)
+                    with self.lock:
+                        self._dev(dev).update(ok=False, hash=None, message=why)
+                        self._save()
+                    note(f"Backup timer stopped itself: {why} Turn it off and on again to try again.", logging.WARNING)
+                    continue
                 with self.lock:
                     d = self._dev(dev)
                     d.update(ok=False, hash=None, message=str(e), last_sync=now.isoformat(timespec="minutes"),
                              last_sync_label=now.strftime("%b %d, %I:%M %p").replace(" 0", " "))
                     self._save()
                 note(f"Backup timer not updated: {e}", logging.WARNING)
-            if self.repaired:
-                note("Trimlight couldn't read the controller because two of the backup timer's patterns had the same "
-                     "number; they were removed and it reads normally again.", logging.WARNING)
-        import time as _t
-        self.retry_at = _t.time() + (1800 if failed else 0)
+        self.retry_at = self.clock() + (1800 if failed else (wait or 0))
         return not failed
-
-    def _user_effect_ids(self, dev: str) -> set:
-        """Pattern ids that were on the controller before this app ever wrote
-        to it (the -original backup): never deleted by a repair."""
-        try:
-            det = json.loads((self.backup_dir / f"{dev}-original.json").read_text(encoding="utf-8"))
-            return {e.get("id") for e in det.get("effects", []) or []}
-        except (OSError, ValueError, AttributeError):
-            return set()
 
     def _read(self, api, dev: str, now: datetime) -> dict:
         """Read the controller. If Trimlight's cloud can't read its copy of it
-        (two patterns with the same number: a save that the cloud numbered
-        twice), delete the patterns this app saved there and read again.
-
-        Only patterns this app saved since the last successful read
-        ("unconfirmed") can be the cause, so only those are deleted. If the
-        copy broke some other way (or while this app wasn't running), nothing
-        is deleted: a number this app once had may belong to the owner's
-        pattern by now, and names can't be read to tell."""
-        try:
-            det = api.get_device(dev, now)
-            self._prune(dev, det)
-            return det
-        except TrimlightError as e:
-            if not e.unreadable:
-                raise
-            first = e
-        with self.lock:
-            st = self._dev(dev)
-            stuck = st.get("stuck")
-            mine = sorted((set(st.get("unconfirmed") or []) & set(st["effects"].values())) - self._user_effect_ids(dev), key=str)
-        if stuck:
-            # Our new pattern shares a number with one of the owner's: deleting
-            # by number could remove theirs, so only they can fix it.
-            raise ValueError(_stuck_message(stuck)) from None
-        if not mine:
-            raise first
-        log.warning("Trimlight can't read the controller; removing the safety net's own patterns %s to repair it.", mine)
-        todo = list(mine)
-        for _ in range(3):   # a duplicate number needs one delete per copy (a pair: two)
-            for eid in todo:
-                try:
-                    api.effect_delete(dev, eid)
-                except TrimlightError as e:
-                    log.warning("Couldn't delete pattern %s while repairing: %s", eid, e)
-            _resync(api, dev, now)
-            try:
-                det = api.get_device(dev, now, resync=False)
-            except TrimlightError as e:
-                if not e.unreadable:
-                    raise
-                continue
-            lib = {x.get("id") for x in det.get("effects", [])}
-            todo = [eid for eid in mine if eid in lib]
-            if todo:
-                continue        # readable again, but a copy of ours is still there
-            self._prune(dev, det)
-            self.repaired = True
-            log.warning("Repaired: Trimlight can read the controller again.")
-            return det
-        raise first
+        (12006), the error goes up and the backup timer halts: it no longer
+        deletes patterns by number to repair it (4.2.1), since after a reset
+        a number can belong to any pattern."""
+        det = api.get_device(dev, now)
+        self._prune(dev, det)
+        return det
 
     def _sync_one(self, api, dev: str, entries, slots, now: datetime, days: int = 7):
         entries, slots = for_device(entries, slots, dev)
         det = self._read(api, dev, now)
+        fp, t = fingerprint(det), self.clock()
         with self.lock:
             st = self._dev(dev)
+            calm = st.get("calm") or {}
+            if calm.get("fp") != fp:
+                st["calm"] = {"fp": fp, "at": t}
+                self._save()
+            since = t - st["calm"]["at"]
+            if since < self.settle:
+                raise Waiting("Checking that the controller is settled before writing to it "
+                              f"(about {int(self.settle - since) // 60 + 1} min).", self.settle - since + 1)
             st["backup"] = self._backup(dev, det)
         lib = {e.get("id"): e for e in det.get("effects", [])}
         cal = {c.get("id"): c for c in det.get("calendar", [])}
@@ -422,12 +460,6 @@ class SafetyNet:
                     owned_cal.remove(cid)
                 except TrimlightError:
                     pass
-            for k, eid in list(owned_eff.items()):
-                try:
-                    api.effect_delete(dev, eid)
-                    owned_eff.pop(k)
-                except TrimlightError:
-                    pass
             names = {e.get("id"): e.get("name") for e in det.get("effects", [])}
             what = ", ".join(sorted({str(names.get(cal[i].get("effectId")) or "a pattern") for i in user_cal}))
             with self.lock:
@@ -440,72 +472,32 @@ class SafetyNet:
                 "nights. Those timers already run the lights without this computer. To use the safety net instead, "
                 "delete them in the Trimlight Edge app (your schedule here is unaffected), then choose Update now.")
 
-        # 1. patterns the entries need
-        ids = {}
-        new_needed = sum(1 for k, (e, _) in slots.items() if e.kind != "saved" and k not in owned_eff)
-        dropping = sum(1 for k in owned_eff if k not in slots)
-        if len(lib) - dropping + new_needed > MAX_EFFECTS:
-            raise ValueError(f"The controller's pattern library is too full ({len(lib)}/{MAX_EFFECTS}). "
-                             "Delete a few patterns in the Trimlight app or shorten the backup timer.")
-        def persist_effects():
-            with self.lock:
-                st["effects"] = dict(owned_eff)
-                self._save()
-
-        for k in [k for k in owned_eff if k not in slots]:   # free slots first
-            api.effect_delete(dev, owned_eff[k])
-            owned_eff.pop(k)
-            persist_effects()
-        taken = set(lib)
+        # 1. the patterns the nights need: only ones already on the controller.
+        # Saving patterns through Trimlight's cloud can number two the same,
+        # which leaves the controller unreadable (12006); so it never saves.
+        byname = {}
+        for e in lib.values():
+            nm = str(e.get("name", "")).strip().lower()
+            if nm and not _is_auto(e):
+                byname.setdefault(nm, e)
+        ids, skipped = {}, []
         for k, (eff, levels) in slots.items():
-            if eff.kind == "saved":
-                want = (eff.saved_name or "").strip().lower()
-                found = next((e for e in lib.values() if (eff.saved_id is not None and e.get("id") == eff.saved_id)
-                              or str(e.get("name", "")).strip().lower() == want), None)
-                if not found:
-                    raise ValueError(f"\u201c{eff.label}\u201d isn't saved on the controller any more.")
-                ids[k] = found["id"]
+            want = ((eff.saved_name if eff.kind == "saved" else None) or eff.label or "").strip().lower()
+            found = byname.get(want)
+            if found is None and eff.kind == "saved" and not eff.saved_name and eff.saved_id in lib:
+                found = lib[eff.saved_id]
+            if found is None and k in owned_eff and eff.kind != "saved" \
+                    and _same_effect(lib[owned_eff[k]], {**eff.payload, **levels}):
+                found = lib[owned_eff[k]]    # an unchanged copy an older version saved
+            if found is None:
+                if eff.label not in skipped:
+                    skipped.append(eff.label)
                 continue
-            payload = {**eff.payload, **levels, "name": (PREFIX + eff.label)[:30]}
-            if k in owned_eff and _same_effect(lib[owned_eff[k]], payload):
-                ids[k] = owned_eff[k]
-                continue
-            payload["id"] = owned_eff.get(k, -1)
-            new = payload["id"] == -1
-            r = api.save_effect(dev, payload) or {}
-            if r.get("id") is None:
-                raise ValueError(f"The controller didn't confirm saving \u201c{eff.label}\u201d.")
-            if new and r["id"] in taken:
-                # Trimlight numbered a new pattern with a number already in
-                # use, which leaves its copy of the controller unreadable.
-                if r["id"] in set(owned_eff.values()) - self._user_effect_ids(dev):
-                    # Both copies are ours: delete them and read again.
-                    with self.lock:
-                        st["effects"] = {**owned_eff, k: r["id"]}
-                        st["unconfirmed"] = sorted(set(st.get("unconfirmed") or []) | {r["id"]})
-                        self._save()
-                    self._read(api, dev, now)
-                    raise ValueError("Trimlight gave a new pattern a number that was already in use, so the safety "
-                                     "net removed it and stopped. It will try again later.")
-                # It shares the number with one of the owner's patterns. A
-                # delete by number might remove theirs, so it can't be undone
-                # from here: say exactly which one to delete in the Trimlight app.
-                stuck = {"id": r["id"], "name": payload["name"]}
-                with self.lock:
-                    st["stuck"] = stuck
-                    self._save()
-                log.warning("Trimlight numbered the new pattern %r %s, a number one of the owner's patterns has.",
-                            payload["name"], r["id"])
-                raise ValueError(_stuck_message(stuck))
-            ids[k] = owned_eff[k] = r["id"]
-            taken.add(r["id"])
-            with self.lock:   # saved, not yet seen in a good read: the only kind a repair may delete
-                st["unconfirmed"] = sorted(set(st.get("unconfirmed") or []) | {r["id"]})
-            persist_effects()  # record ownership right away, so a failure later can't orphan it
-            if new:
-                # Let the cloud catch up before the next new pattern: saving
-                # two in a row can get both the same number.
-                _resync(api, dev, now)
+            ids[k] = found["id"]
+        entries = [e for e in entries if e["slot"] in ids]
+        with self.lock:
+            st["skipped"] = skipped
+            self._save()
 
         # 2. calendar entries: reuse our ids, then free ones; never touch the user's
         free = [i for i in range(MAX_CALENDAR) if i not in cal]
@@ -555,7 +547,7 @@ class SafetyNet:
         # 3. read back and verify every entry
         det2 = self._read(api, dev, now)
         cal2 = {c.get("id"): c for c in det2.get("calendar", [])}
-        lib2 = {e.get("id") for e in det2.get("effects", [])}
+        lib2 = {e.get("id"): str(e.get("name", "")) for e in det2.get("effects", [])}
         bad = []
         for cid, p in written:
             c = cal2.get(cid)
@@ -566,10 +558,12 @@ class SafetyNet:
             with self.lock:   # what the live check compares against later
                 st["written"] = {str(cid): {k: p[k] for k in _CAL_KEYS} for cid, p in written}
                 st["written_effects"] = sorted(set(ids.values()))
+                st["written_names"] = {str(i): lib2[i] for i in st["written_effects"]}
+                st["calm"] = {"fp": fingerprint(det2), "at": self.clock() - self.settle}   # our own write is settled
                 self._save()
         if bad or missing_eff:
             self._take_back(api, dev, owned_set, persist_calendar)
-            raise ValueError("The controller's timers didn't read back as written, so the copy was removed "
+            raise Halt("The controller's timers didn't read back as written, so the copy was removed "
                              f"({len(bad)} entr{'y' if len(bad) == 1 else 'ies'} differed). The app keeps running the lights.")
 
     @staticmethod
@@ -586,6 +580,7 @@ class SafetyNet:
     def remove(self, api, dev_ids, now: datetime, note=lambda m, lvl=logging.INFO: None) -> bool:
         """Turn the safety net off: delete only what it created. False if
         something couldn't be removed yet (it's retried later)."""
+        self.clear_halt()          # off and on again is how a halt is cleared
         ok = True
         for dev in dev_ids:
             with self.lock:

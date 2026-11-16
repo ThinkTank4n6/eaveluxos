@@ -7,7 +7,8 @@ EaveLuxOS 4.1 uses them for **Music from this computer** (see
 `eaveluxos/lanlink.py` and the Manual).
 
 A second capture the same day showed the lights on and off and leaving
-Music. A new capture is still useful to learn how many music patterns there
+Music; later ones showed the 18 music patterns, their color (for the Single
+Color ones), and a live pattern preview (request 0x0d). A new capture is still useful to learn how many music patterns there
 are, or to see what changed if a firmware update breaks **Test connection**.
 
 ## What you need
@@ -65,9 +66,10 @@ Since 4.1 it also puts Trimlight's own messages back together and decodes
 them under **Decoded Trimlight messages**: the greeting, keep-alives, "set
 the controller's clock", "everything the controller holds" (with the names
 in it), "music settings" (input, music pattern, sensitivity), "sound
-levels", "lights off" / "lights on" and "back to normal (out of music
-mode)", with anything not yet understood shown as "request 0x…" or "mode
-0x… (not known yet)" and its bytes. Those unknown requests are what a new capture is for.
+levels", "lights off" / "lights on", "show saved pattern #N", "delete saved
+pattern #N", "port N pixels", "new/save pattern #N" and "pattern
+preview", with anything not yet understood shown as "request 0x…" and its
+bytes. Those unknown requests are what a new capture is for.
 
 **Tip for the marks:** use the clock of the device that records (the phone,
 with PCAPdroid). The November capture's notes were about 30 seconds behind

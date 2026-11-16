@@ -315,6 +315,8 @@ class SafetyLiveCheckTests(unittest.TestCase):
             s = copy.deepcopy(DEFAULT_SETTINGS)
             s["location"].update(latitude=39.95, longitude=-75.17)
             s["rules"] = [{"name": "Night", "on": "sunset", "off": "22:00", "effect": "warm_white"}]
+            F.STATE["dev"]["effects"] = F.STATE["dev"]["effects"] + [{"id": 5, "name": "Warm white", "category": 1, "mode": 0,
+                                                                      "speed": 100, "brightness": 200, "pixels": []}]
             s["safety"] = {"enabled": True, "days": 3}
             cfg = build_config(s, {"client_id": F.CID, "client_secret": F.SECRET})
             api = TrimlightAPI(F.CID, F.SECRET, base_url=os.environ["TRIMLIGHT_API_BASE"])
@@ -355,6 +357,8 @@ class SafetyPartialWriteTests(unittest.TestCase):
             s = copy.deepcopy(DEFAULT_SETTINGS)
             s["location"].update(latitude=39.95, longitude=-75.17)
             s["rules"] = [{"name": "Night", "on": "sunset", "off": "22:00", "effect": "warm_white"}]
+            F.STATE["dev"]["effects"] = F.STATE["dev"]["effects"] + [{"id": 5, "name": "Warm white", "category": 1, "mode": 0,
+                                                                      "speed": 100, "brightness": 200, "pixels": []}]
             s["safety"] = {"enabled": True, "days": 4}
             cfg = build_config(s, {"client_id": F.CID, "client_secret": F.SECRET})
 

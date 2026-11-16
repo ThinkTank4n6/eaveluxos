@@ -41,10 +41,15 @@ jobs:
       # Defender's behavior guesses flag apps built with it ("executes commands
       # from an attacker"). If the compile fails, the ready-made one is used.
       - if: runner.os == 'Windows'
+        id: launcher
         continue-on-error: true
         env:
           PYINSTALLER_COMPILE_BOOTLOADER: "1"
         run: python -m pip install --force-reinstall --no-deps --no-binary pyinstaller pyinstaller==6.11.1
+      # 4.1.4: say so on the run's page when it fell back, so Defender's false
+      # alarm can't quietly come back.
+      - if: runner.os == 'Windows' && steps.launcher.outcome == 'failure'
+        run: echo "::warning title=PyInstaller launcher::Building the launcher from source failed; this release uses the ready-made one, which Microsoft Defender may flag."
       - run: python packaging/build.py
       - uses: actions/upload-artifact@v6
         with:

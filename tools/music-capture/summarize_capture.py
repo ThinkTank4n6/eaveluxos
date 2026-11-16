@@ -278,6 +278,12 @@ def mark_for(ts: float, marks):
 import hashlib  # noqa: E402
 
 SOURCES = {1: "levels sent by the app (phone microphone)", 2: "the controller's own input (Auxiliary IN)"}
+# The Trimlight app's music patterns, numbered from 1 as it shows them (4.2).
+PATTERN_NAMES = ("Full Color Rhythm Spectrum", "Single Color Rhythm Spectrum", "Full Color Rhythm Twinkle",
+                 "Single Color Rhythm Twinkle", "Gradient Energy", "Single Color Energy", "Gradient Pulse",
+                 "Single Color Pulse", "Full Color Ejection Forward", "Single Color Ejection Forward",
+                 "Full Color Ejection Backward", "Single Color Ejection Backward", "Full Color VuMeter",
+                 "Single Color VuMeter", "Independence Day", "Christmas", "HeatBeat", "Party")
 
 
 def sptech_messages(data: bytes):
@@ -310,16 +316,30 @@ def sptech_messages(data: bytes):
 
 def reassemble(items):
     """A one-way TCP stream's bytes, in sequence order, without repeats;
-    [(offset, time)] says when each part arrived."""
-    segs = {}
-    for p in items:
-        if p.seq >= 0 and p.payload:
-            segs.setdefault(p.seq, p)
-    data, times = b"", []
-    for seq in sorted(segs):
-        times.append((len(data), segs[seq].ts))
-        data += segs[seq].payload
-    return data, times
+    [(offset, time)] says when each part arrived.
+
+    4.1.4: sequence numbers are counted from the first packet's, modulo 2**32
+    (they roll over), and a re-sent piece that overlaps others differently
+    only adds the bytes not already there. A hole (a packet the capture
+    missed) ends the stream there, rather than gluing the far side on."""
+    segs = [p for p in sorted(items, key=lambda p: p.ts) if p.seq >= 0 and p.payload]
+    if not segs:
+        return b"", []
+    base = segs[0].seq
+    order = sorted(segs, key=lambda p: ((p.seq - base) % 2**32, p.ts))
+    data, times = bytearray(), []
+    for p in order:
+        rel = (p.seq - base) % 2**32
+        if rel > 2**31:                       # from before the first packet: a late re-send
+            continue
+        end = rel + len(p.payload)
+        if end <= len(data):
+            continue                          # all of it is already there
+        if rel > len(data):
+            break                             # a hole: what follows can't be put in place
+        times.append((len(data), p.ts))
+        data += p.payload[len(data) - rel:]
+    return bytes(data), times
 
 
 def describe(kind, cmd, body, from_controller: bool):
@@ -348,12 +368,24 @@ def describe(kind, cmd, body, from_controller: bool):
         if sub == 0x02 and len(d) == 1 and d[0] in (0, 1):
             return ("lights " + ("on" if d[0] else "off"), "")
         if sub == 0x04 and len(d) == 1:
-            return ("back to normal (out of music mode)" if d[0] == 0x0E else f"mode 0x{d[0]:02x} (not known yet)", "")
+            return (f"show saved pattern #{d[0]}", "")
+        if sub == 0x05 and len(d) == 1:
+            return (f"delete saved pattern #{d[0]}", "")
+        if sub == 0x0A and len(d) == 6:
+            return (f"port {d[0] + 1} pixels", f"{d[1] << 8 | d[2]} to {d[3] << 8 | d[4]}, {'on' if d[5] else 'off'}")
+        if sub in (0x0E, 0x0F) and len(d) >= 32:
+            name = d[1:26].split(b"\0")[0].decode("ascii", "replace")
+            return (("new" if sub == 0x0F else "save") + f" pattern #{d[0]} \u201c{name}\u201d",
+                    f"mode {d[27]}, speed {d[28]}, brightness {d[29]}")
+        if sub == 0x0D and len(d) >= 3:
+            return ("pattern preview", f"mode {d[0]}, speed {d[1]}, brightness {d[2]}")
         if sub == 0x0C and len(d) >= 7:
             src = SOURCES.get(d[0], f"input {d[0]}")
             if cmd == 0x0A:
                 return ("sound levels", " ".join(str(v) for v in d[7:23]))
-            return ("music settings", f"input: {src}; music pattern {d[1]}; sensitivity {d[6]}")
+            name = f" ({PATTERN_NAMES[d[1]]})" if d[1] < len(PATTERN_NAMES) else ""
+            return ("music settings", f"input: {src}; music pattern {d[1] + 1}{name}; "
+                                      f"color #{d[2]:02X}{d[3]:02X}{d[4]:02X}; sensitivity {d[6]}")
         return (f"request 0x{sub:02x}", f"{len(d)} bytes: {d[:24].hex(' ')}{' …' if len(d) > 24 else ''}")
     return (f"command 0x{cmd:02x}", f"{len(body)} bytes: {body[:24].hex(' ')}")
 

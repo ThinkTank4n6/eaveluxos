@@ -1,7 +1,7 @@
 # EaveLuxOS
 ### The Intelligent Lighting Control Platform
 
-By **Christopher A. Tankelewicz (ThinkTank4n6)** · MIT License · version 4.1.3
+By **Christopher A. Tankelewicz (ThinkTank4n6)** · MIT License · version 4.2.1
 
 EaveLuxOS currently works with **Trimlight Edge** permanent-lighting controllers.
 Its scheduling, mapping and design tools are built to grow to other brands.
@@ -99,8 +99,13 @@ owner and are used here only to say which hardware EaveLuxOS works with.*
   and this app leaves the lights to the controller's music mode instead of
   switching them back to the schedule mid-song.
 - **Optional backup timer:** copies the next nights into the controller's own
-  timers, so the lights still run if the computer is off. It backs up the
-  controller first, verifies every write, and never touches your own timers.
+  timers, so the lights still run if the computer is off. It uses the
+  patterns already saved on the controller and never saves its own, writes
+  only when the controller is settled and no music show is near, backs it up
+  first, verifies every write, stops itself if anything looks wrong, and never
+  touches your own timers.
+- **Search features** from the top of every page: type "backup" or "eagles"
+  and it opens that panel.
 - **Stores everything in a local SQLite database,** with version history and
   one-click restore. Nothing has to live on the controller.
 - **A guided hardware test** (`python3 main.py hwtest`) checks what only your
