@@ -891,7 +891,9 @@ def _celebrations(gd, effects: dict) -> dict:
             raise ConfigError(str(e)) from None
         eff = t.get("effect")
         if eff not in effects:
-            continue                     # _game_rules reports it
+            # Review #5 (4.3.6): with game-day lights off, _game_rules doesn't
+            # look, so a team whose pattern is gone would silently never celebrate.
+            raise ConfigError(f"Game day '{c['name']}': choose a pattern for its celebrations.")
         mp = t.get("min_points", CELEBRATE_POINTS[c["league"]])
         if not isinstance(mp, int) or isinstance(mp, bool) or not 1 <= mp <= 10:
             raise ConfigError(f"{c['name']}: celebrate scores of 1 to 10 points or more.")

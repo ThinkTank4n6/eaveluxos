@@ -286,7 +286,7 @@ class App:
         self.lan_lock = threading.Lock()     # guards lan_seen (4.1.4)
         self.local_busy = threading.Lock()   # one local-mode job at a time (4.3.1)
         self.lan_io = threading.Lock()       # one connection to the controller at a time (4.3.6)
-        self._local_seen = (0.0, None)       # the last read, shared by panels opened together
+        self._local_seen = (0.0, None, None)  # the last read (time, state, address), shared by panels opened together
         self._port_base = {}         # controller id -> 0 or 1 (how it numbers its ports)
         self._port_write_base = {}   # controller id -> 0 or 1 when the cloud takes other numbers than it shows (4.0.3)
         self._bulbs = None           # last bulb count read from the controller (zones without a House map total)
@@ -883,7 +883,7 @@ class App:
             self.safety.hold()        # no backup-timer writes next to these
         return localmode.Local(addr, now=self.controller_now, backup=lambda det: self.safety._backup(dev, det),
                                lock=self.ctrl.apply_lock if self.ctrl else None, busy=self.local_busy,
-                               io=self.lan_io), dev
+                               io=self.lan_io, blocked=self.lanshow.running), dev
 
     def controller_now(self):
         """The time the controller should hold: reading it over the home
@@ -893,7 +893,7 @@ class App:
         return self.now() + timedelta(minutes=self.clock_offset())
 
     def _after_local_write(self, dev: str):
-        self._local_seen = (0.0, None)
+        self._local_seen = (0.0, None, None)
         """The controller changed without the cloud: forget what was read
         through it, and ask the controller to send Trimlight's cloud a fresh
         copy (a read for the cloud, not a write to the controller)."""
@@ -909,28 +909,33 @@ class App:
         threading.Thread(target=nudge, daemon=True).start()
 
     def local_state(self, fresh: bool = False) -> dict:
-        if self.lanshow.running():
-            raise ApiError("A music show from this computer is using the connection to the controller. "
-                           "Stop it to read the controller.", 409)
-        loc, dev = self.local(write=False)
-        t, st = self._local_seen
-        if fresh or st is None or time.time() - t > 5:   # two panels opened together share one read (4.3.6)
-            try:
-                st = loc.read()
-            except localmode.LocalError as e:
-                raise ApiError(str(e), 502) from None
-            self._local_seen = (time.time(), st)
+        loc, dev, st = self._local_read(fresh)
         return {"address": loc.host, "device": dev, "ports": st["ports"],
                 "patterns": [{"id": p["id"], "name": p["name"], "mode": p["mode"], "speed": p["speed"],
                               "brightness": p["brightness"],
                               "colors": [[c, col] for c, col, on in p["slots"] if c and on]} for p in st["patterns"]]}
 
+    def _local_read(self, fresh: bool = False):
+        """(Local, device, what the controller holds), read now or a read from
+        the last 5 seconds of the same controller."""
+        if self.lanshow.running():
+            raise ApiError("A music show from this computer is using the connection to the controller. "
+                           "Stop it to read the controller.", 409)
+        loc, dev = self.local(write=False)
+        t, st, key = self._local_seen
+        if fresh or st is None or time.time() - t > 5 or key != loc.host:   # two panels opened together share one read (4.3.6)
+            try:
+                st = loc.read()
+            except localmode.LocalError as e:
+                raise ApiError(str(e), 502) from None
+            self._local_seen = (time.time(), st, loc.host)    # review #3: only for this address
+        return loc, dev, st
+
     def local_backup(self) -> dict:
         """Save what the controller holds now as a backup (Local mode › Back
         up now, 4.3.6), listed under Pattern backups and downloadable."""
-        loc, dev = self.local(write=False)
-        st = self.local_state(fresh=True)
-        name = self.safety._backup(dev, localmode.as_backup(self._local_seen[1]))
+        loc, dev, st = self._local_read(fresh=True)     # review #2 (4.3.6): this very read, not a shared one
+        name = self.safety._backup(dev, localmode.as_backup(st))
         log.info("Backed up the controller over the home network: %s (%d patterns)", name, len(st["patterns"]))
         return {"file": name, "patterns": len(st["patterns"])}
 
@@ -1042,7 +1047,7 @@ class App:
         if self.local_busy.locked():
             raise ApiError("A change to the controller over the home network is running. Try again when it's done.", 409)
         self.safety.hold()      # no backup-timer writes next to local-link use (4.2.1)
-        if not self.lan_io.acquire(timeout=30):
+        if not self.lan_io.acquire(timeout=20):
             raise ApiError("The connection to the controller is busy. Try again in a moment.", 409)
         try:
             with lanlink.Link(addr) as link:
@@ -1119,29 +1124,37 @@ class App:
         minutes = b.get("minutes", 0)
         if isinstance(minutes, bool) or not isinstance(minutes, int) or not 0 <= minutes <= 360:
             raise ApiError("Minutes must be from 0 (until stopped) to 360.")
-        fresh = not self.lanshow.running()
-        if fresh:
-            # 4.1.4: the page's button is off during another show; the server
-            # says no too, or stopping this one would also end a show night.
-            other = c.other_show_on(by="lan:")
-            if other:
-                raise ApiError(f"{other} is on. Stop it first (Music \u203a Music show).", 409)
-            sid = secrets.token_hex(4)
-            try:
-                c.start_music(minutes or None, by=f"lan:{sid}")
-            except ValueError as e:
-                raise ApiError(str(e), 409) from None
-        else:
-            sid = None
+        # Review #1 (4.3.6): start only when no read or change holds the
+        # connection (the controller answers one at a time), and before the
+        # app steps aside for the show.
+        if not self.lan_io.acquire(timeout=20):
+            raise ApiError("The connection to the controller is busy. Try again in a moment.", 409)
         try:
-            self.lanshow.start(addr, pattern, sens, tab, wanted=(lambda: self._our_show(sid)) if sid else self._our_show,
-                               clock=self.controller_now, sid=sid, color=color)
-        except (lanlink.LinkError, ValueError) as e:
-            if fresh and self._our_show(sid):
-                c.stop_music()
-            raise ApiError(str(e), 502 if isinstance(e, lanlink.LinkError) else 400) from None
-        if fresh:
-            c.note(f"Music from this computer: started ({lanlink.PATTERN_NAMES[pattern]}, sensitivity {sens}).")
+            fresh = not self.lanshow.running()
+            if fresh:
+                # 4.1.4: the page's button is off during another show; the server
+                # says no too, or stopping this one would also end a show night.
+                other = c.other_show_on(by="lan:")
+                if other:
+                    raise ApiError(f"{other} is on. Stop it first (Music \u203a Music show).", 409)
+                sid = secrets.token_hex(4)
+                try:
+                    c.start_music(minutes or None, by=f"lan:{sid}")
+                except ValueError as e:
+                    raise ApiError(str(e), 409) from None
+            else:
+                sid = None
+            try:
+                self.lanshow.start(addr, pattern, sens, tab, wanted=(lambda: self._our_show(sid)) if sid else self._our_show,
+                                   clock=self.controller_now, sid=sid, color=color)
+            except (lanlink.LinkError, ValueError) as e:
+                if fresh and self._our_show(sid):
+                    c.stop_music()
+                raise ApiError(str(e), 502 if isinstance(e, lanlink.LinkError) else 400) from None
+            if fresh:
+                c.note(f"Music from this computer: started ({lanlink.PATTERN_NAMES[pattern]}, sensitivity {sens}).")
+        finally:
+            self.lan_io.release()
         return self.musiclink_status()
 
     def _musiclink_ended(self, why: str, sid: str | None = None):

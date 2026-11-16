@@ -371,6 +371,59 @@ class Reliability436(ServerBase):
         self.assertIn("so patterns can\\u2019t be put back yet", js)
 
 
+class ReviewFixes436(ServerBase):
+    """The 4.3.6 review (tests/repro_show_vs_read.py is #1)."""
+
+    def test_1_a_show_waits_for_a_read(self):
+        import threading
+        done, seen = threading.Event(), []
+        self.app.lanshow.start = lambda *a, **k: seen.append(done.is_set())
+        self.app.lan_io.acquire()
+        t = threading.Thread(target=self.app.musiclink, args=({"op": "start", "tab": "t1", "pattern": 0, "sensitivity": 8},))
+        t.start()
+        t.join(0.3)
+        done.set()
+        self.app.lan_io.release()
+        t.join(5)
+        self.assertEqual(seen, [True])
+        self.app.ctrl.stop_music()
+
+    def test_1_no_read_once_a_show_has_the_connection(self):
+        loc, _ = self.app.local(write=False)
+        loc.blocked = lambda: True
+        with self.assertRaises(LocalError) as cm:
+            loc.read()
+        self.assertIn("music show", str(cm.exception))
+        self.assertFalse(self.app.lan_io.locked())
+
+    def test_2_back_up_now_saves_its_own_read(self):
+        from eaveluxos import restore
+        self.app._after_local_write = lambda dev: None
+        real = self.app._local_read
+
+        def read(fresh=False):
+            r = real(fresh)
+            self.app._local_seen = (0.0, None, None)        # a change elsewhere clears the shared read
+            return r
+        self.app._local_read = read
+        r = self.app.local_backup()
+        det = restore.read_backup(self.app.safety.backup_dir, r["file"])
+        self.assertEqual(len(det["effects"]), 9)
+
+    def test_3_a_new_address_reads_again(self):
+        self.app.local_state()
+        self.app._local_seen = (self.app._local_seen[0], {"ports": [], "patterns": []}, "10.0.0.99")
+        self.assertEqual(len(self.app.local_state()["patterns"]), 9)
+
+    def test_5_a_celebration_without_its_pattern_is_reported(self):
+        from tests.test_celebrate435 import settings
+        from eaveluxos.schedule import ConfigError, build_config
+        s = settings(enabled=False, celebrate_enabled=True)
+        s["gameday"]["teams"][0]["effect"] = "gone"
+        with self.assertRaises(ConfigError):
+            build_config(s, {"client_id": "x", "client_secret": "y"})
+
+
 class SampleFilesReachGitHub(unittest.TestCase):
     """4.3.4: ".gitignore" kept tests/data off GitHub, so its tests failed there."""
 

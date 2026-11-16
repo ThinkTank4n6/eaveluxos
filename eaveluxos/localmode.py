@@ -87,7 +87,7 @@ def _check(before: dict, after: dict, *, added=None, removed=None, port=None):
 
 class Local:
     def __init__(self, host: str, now=datetime.now, backup=None, link_factory=L.Link, gap: float = GAP,
-                 lock=None, busy=None, io=None):
+                 lock=None, busy=None, io=None, blocked=None):
         """backup(detail): saves the controller as read first. lock: the
         command lock, held for each change and its read-back, released
         between changes, so a scheduled on/off never waits for a long job."""
@@ -102,6 +102,7 @@ class Local:
         # answer one connection at a time; two panels reading at once (Local
         # mode and Pattern backups) left one with "didn't answer".
         self.io = io
+        self.blocked = blocked            # a music show from this computer holds its own connection
 
     def _job(self):
         import contextlib
@@ -123,8 +124,13 @@ class Local:
         """Connect, greet, and have a keep-alive answered before anything
         else (4.3.6: as Test connection does, which read the controller when
         a plain read didn't)."""
-        if self.io is not None and not self.io.acquire(timeout=30):
+        if self.io is not None and not self.io.acquire(timeout=20):   # review #4: a page never waits a minute
             raise LocalError("The connection to the controller is busy. Try again in a moment.")
+        if self.blocked is not None and self.blocked():
+            # Checked with the connection held: a show can't start in between (4.3.6).
+            if self.io is not None:
+                self.io.release()
+            raise LocalError("A music show from this computer is using the connection to the controller. Stop it first.")
         link = None
         try:
             link = self.link_factory(self.host).open()

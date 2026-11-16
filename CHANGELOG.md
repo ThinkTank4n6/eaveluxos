@@ -1,5 +1,24 @@
 # Changelog
 
+## 4.3.7: review fixes (one connection to the controller)
+
+- **Fixed (most important):** reads and changes over the home network took
+  turns on the connection, but starting **Music from this computer** didn't.
+  A show started while a panel was reading opened a second connection, which
+  the controller doesn't answer, so the show could fail with "didn't answer".
+  A show now waits its turn too (before the app steps aside for it), and a
+  read or change checks for a show once it has the connection. (Reproduced in
+  `tests/repro_show_vs_read.py`.)
+- **Fixed:** **Back up now** saved the most recent shared read rather than
+  its own; a change elsewhere at that moment could make it fail.
+- **Fixed:** a read shared between panels (5 seconds) could be of the
+  previous controller right after its address was changed.
+- Waiting for the connection gives up after 20 seconds (was 30), so a page
+  never waits about a minute.
+- **Fixed:** with only score celebrations on, a team whose pattern had been
+  deleted silently never celebrated. Saving now says to choose its pattern,
+  as game-day lights already did.
+
 ## 4.3.6: local mode reads reliably, and Back up now
 
 - **Fixed:** Pattern backups could say "Couldn't read the controller: The
