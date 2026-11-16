@@ -454,6 +454,42 @@ class FirstRead439(WithController):
         self.assertIn("Trimlight Edge app is open", str(cm.exception))
 
 
+class Mislabeled4310(unittest.TestCase):
+    """Nov 16, 2026, 3:13 PM: the controller answered a read with 1,940 bytes
+    whose length said 1,855, while Trimlight's cloud couldn't parse it (12006)."""
+
+    def mislabeled(self):
+        body = L.state_payload([(1, 600)] * 4, [L.pattern_record(i, f"P{i}", 0, 1, 2, []) for i in range(1, 10)],
+                               tail=b"\x00" * 249)
+        f = bytearray(L.frame(L.CMD_REQUEST, body))
+        f[8:10] = (len(body) - 58).to_bytes(2, "big")
+        return bytes(f), body
+
+    def test_read_as_the_length_its_check_fits(self):
+        f, body = self.mislabeled()
+        msgs, rest = L.parse(f + L.frame(L.CMD_PING, b"\x01"), resync=True)
+        self.assertEqual([(m[0], m[2]) for m in msgs][0], ("frame", body))
+        self.assertEqual(rest, b"")
+        self.assertEqual(len(L.read_state(body)["patterns"]), 9)
+
+    def test_waits_while_more_may_come(self):
+        f, _ = self.mislabeled()
+        self.assertEqual(L.parse(f[:-40], resync=True), ([], f[:-40]))
+
+    def test_an_unreadable_one_is_kept_for_a_look(self):
+        d = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, d, True)
+        old, L.DUMP_DIR = L.DUMP_DIR, d
+        self.addCleanup(setattr, L, "DUMP_DIR", old)
+        for _ in range(7):
+            L.save_unread("10.0.0.5", b"\xAB" * 200)
+        self.assertEqual(len(list(d.glob("lan-unread-*.bin"))), L.DUMPS_KEPT)
+
+    def test_backups_keep_the_raw_answer(self):
+        st = L.read_state(FACTORY)
+        self.assertEqual(as_backup(st)["controller_raw"], FACTORY.hex())
+
+
 class SampleFilesReachGitHub(unittest.TestCase):
     """4.3.4: ".gitignore" kept tests/data off GitHub, so its tests failed there."""
 

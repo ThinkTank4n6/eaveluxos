@@ -273,6 +273,7 @@ class App:
         self.started = start
         self.store = Store(base)
         self.safety = SafetyNet(self.store.dir)
+        lanlink.DUMP_DIR = self.store.dir      # unreadable messages from the controller are kept (4.3.10)
         self.updates = updates.UpdateChecker(self.store.dir)   # "a new version is out"
         self.alerts = alerts.Alerts(self.store.dir, probe=self.alert_probe)   # phone alerts (ntfy)
         self.gameday = gameday.GameDays(self.store.dir, on_change=self.rebuild)  # game-day lights

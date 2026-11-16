@@ -52,7 +52,8 @@ def as_backup(st: dict) -> dict:
                         "brightness": p["brightness"],
                         "pixels": [{"index": i, "count": c, "color": int(col[1:], 16), "disable": not on}
                                    for i, (c, col, on) in enumerate(p["slots"])]})
-    return {"source": "home network (local mode)", "ports": [dict(x) for x in st["ports"]], "effects": effects}
+    return {"source": "home network (local mode)", "ports": [dict(x) for x in st["ports"]], "effects": effects,
+            "controller_raw": st.get("raw", "")}
 
 
 def _essence(p: dict) -> tuple:

@@ -57,6 +57,7 @@ import socket
 import threading
 import time
 from datetime import datetime
+from pathlib import Path
 
 log = logging.getLogger("eaveluxos.lanlink")
 
@@ -86,6 +87,12 @@ SEND_EVERY = 0.11                         # seconds between level frames (the ap
 PING_EVERY = 5.0
 ANSWER_WITHIN = 15.0                      # no keep-alive answer for this long: the connection is gone (4.1.4)
 MAX_FRAME = 64 * 1024
+# 4.3.10: messages the app couldn't read are saved here (the data folder) so
+# they can be looked at; the server sets it. Nov 16: the controller answered a
+# read with 1,940 bytes whose check didn't match, while Trimlight's cloud
+# couldn't parse its data either (12006).
+DUMP_DIR = None
+DUMPS_KEPT = 5
 
 
 class LinkError(Exception):
@@ -165,11 +172,48 @@ def parse(buf: bytes, final: bool = False, short: bool = True, resync: bool = Fa
             out.append(("short", cmd, buf[i + 10:i + 10 + ln]))
             i += 10 + ln
             continue
+        if n - i >= 27 + ln and resync:
+            # 4.3.10: a length that doesn't match the bytes (as on Nov 16) —
+            # find the length the controller's own check fits, if any.
+            k, digest = buf[i + 26], buf[i + 10:i + 26]
+            nxt = buf.find(MAGIC, i + 27)
+            if nxt < 0 and not final and n - i < 27 + ln + 512:
+                break                     # more of it may still be on the way
+            end = n if nxt < 0 else nxt
+            for alt in range(end - i - 27, max(-1, ln - 512), -1):
+                body = bytes(b ^ k for b in buf[i + 27:i + 27 + alt])
+                if alt != ln and hashlib.md5(body).digest() == digest:
+                    log.warning("A message from the controller said %d bytes but held %d; read as %d.", ln, alt, alt)
+                    out.append(("frame", cmd, body))
+                    i += 27 + alt
+                    break
+            else:
+                i = skip(i, "A message from the controller didn't check out (damaged or not understood).")
+            continue
         if final or n - i >= 27 + ln:
             i = skip(i, "A message from the controller didn't check out (damaged or not understood).")
             continue
         break
     return out, buf[i:]
+
+
+def save_unread(host: str, raw: bytes):
+    """Keep a copy of a message the app couldn't read (4.3.10), for a look
+    later: data/lan-unread-<time>.bin, the last few only. It holds what the
+    controller sent (its patterns and timers), nothing else."""
+    if DUMP_DIR is None:
+        return
+    try:
+        d = Path(DUMP_DIR)
+        d.mkdir(parents=True, exist_ok=True)
+        name = d / f"lan-unread-{datetime.now():%Y%m%d-%H%M%S-%f}.bin"
+        name.write_bytes(raw)
+        old = sorted(d.glob("lan-unread-*.bin"))[:-DUMPS_KEPT]
+        for f in old:
+            f.unlink(missing_ok=True)
+        log.warning("Saved the message the controller at %s sent that couldn't be read: %s", host, name.name)
+    except OSError:
+        pass
 
 
 def greeting() -> bytes:
@@ -302,7 +346,9 @@ def read_state(body: bytes) -> dict:
     ports = [{"port": i + 1, "start": int.from_bytes(d[3 + 4 * i:5 + 4 * i], "big"),
               "end": int.from_bytes(d[5 + 4 * i:7 + 4 * i], "big")} for i in range(4)]
     pats = [read_record(d[HEAD + RECORD * k:HEAD + RECORD * (k + 1)]) for k in range(n)]
-    return {"head": d[:3].hex(" "), "ports": ports, "patterns": pats}
+    # raw: everything it sent, kept with backups (4.3.10) so the parts not
+    # decoded yet (its timers) can be looked at.
+    return {"head": d[:3].hex(" "), "ports": ports, "patterns": pats, "raw": body.hex()}
 
 
 def state_payload(ports, patterns, head=b"\x01\x00\x00", tail=b"\x00" * 37) -> bytes:
@@ -437,6 +483,8 @@ class Link:
         for m in msgs:
             if m[0] == "junk":
                 self.skipped += len(m[2])
+                if len(m[2]) >= 100:
+                    save_unread(self.host, m[2])
                 if not self.warned:
                     self.warned = True
                     log.warning("The controller at %s sent %d bytes this app doesn't understand (skipped): %s",

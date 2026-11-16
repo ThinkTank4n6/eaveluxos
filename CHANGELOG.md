@@ -1,5 +1,20 @@
 # Changelog
 
+## 4.3.10: reading a controller whose own data is off
+
+- **Fixed:** on Nov 16 at 3:13 PM the controller answered a read with 1,940
+  bytes whose length field said 1,855 (58 bytes short), so the check failed
+  and local mode reported "The controller didn't answer". The same afternoon
+  Trimlight's cloud couldn't parse the controller's data (12006: "unable to
+  identify effect boundary"). The extra bytes fit the 14 calendar timers the
+  backup timer wrote and then tried to take back through the cloud, which
+  could no longer reach the controller. When a length doesn't match, the app
+  now finds the length the controller's own check fits and reads that.
+- Messages the app still can't read are saved in the data folder
+  (lan-unread-*.bin, the last 5) for a look, and local backups (Back up now,
+  and before every change) keep the controller's whole answer, including the
+  timers this app doesn't decode yet.
+
 ## 4.3.9: backup timer paused; full review and a browser sweep
 
 - **The backup timer is paused for everyone.** Every time Trimlight's cloud
