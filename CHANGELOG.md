@@ -1,5 +1,16 @@
 # Changelog
 
+## 4.3.12: a controller that goes quiet while storing
+
+- **Fixed:** on Nov 16 at 4:06 PM putting back "American Flag" stopped with
+  "the connection failed: The controller didn't answer". Right after taking a
+  pattern, the controller can stop answering on that connection for a while.
+  Local mode now asks again on a fresh connection after a pause (before and
+  after a change), waits longer for a change to show (up to 7 seconds), and
+  only then decides; a pattern found already saved isn't sent twice. If it
+  still doesn't answer, it stops as before and says to close the Trimlight
+  Edge app.
+
 ## 4.3.11: the Windows test
 
 - **Fixed:** GitHub's Windows test of 4.3.10 failed ("4 != 5"): Windows'

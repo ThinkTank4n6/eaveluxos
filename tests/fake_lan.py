@@ -31,6 +31,7 @@ class FakeController:
         self.ignore = set()
         self.needs_ping = False
         self.silent_reads = 0            # don't answer this many clock requests
+        self.quiet_after_save = 0        # this many times: apply a save, then go quiet on that connection
         self.late_reads = 0              # after each change, this many reads still show the old state
         self.drop_saves = 0              # lose this many pattern saves (both halves)
         self._shown = None               # what late reads show
@@ -64,7 +65,7 @@ class FakeController:
 
     def _serve(self, c):
         buf, frames = b"", 0
-        pinged = False
+        pinged = mute = False
         with self.lock:
             self.active += 1
             self.most_active = max(self.most_active, self.active)
@@ -92,6 +93,12 @@ class FakeController:
                         pinged = True
                     if self.needs_ping and not pinged and kind == "frame" and cmd == L.CMD_REQUEST:
                         continue
+                    if mute:
+                        continue                 # this connection has gone quiet
+                    if (self.quiet_after_save and kind == "frame" and cmd == L.CMD_REQUEST
+                            and body[:1] == bytes([L.SUB_PATTERN_SAVE])):
+                        self.quiet_after_save -= 1
+                        mute = True              # 4.3.12: takes the save, then answers nothing more here
                     try:
                         self._answer(c, kind, cmd, body)
                     except OSError:

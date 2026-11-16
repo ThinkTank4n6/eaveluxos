@@ -506,6 +506,27 @@ class Mislabeled4310(unittest.TestCase):
         self.assertEqual(as_backup(st)["controller_raw"], FACTORY.hex())
 
 
+class GoesQuiet4312(WithController):
+    """Nov 16, 2026, 4:06 PM: "Local restore stopped at 'American Flag': the
+    connection failed: The controller didn't answer." """
+
+    def test_asked_again_on_a_fresh_connection(self):
+        self.ctl.quiet_after_save = 1
+        r = self.loc.restore(Patterns.BACKUP, [10, 11])
+        self.assertEqual(r["restored"], ["American Flag", "Dolly"])
+        saves = [b[3] for _, _, b in self.ctl.frames(L.CMD_REQUEST) if b[0] == L.SUB_PATTERN_SAVE]
+        self.assertEqual(saves, [10, 11], "found already saved: not sent twice")
+
+    def test_still_stops_when_it_stays_quiet(self):
+        self.ctl.quiet_after_save = 5
+        self.ctl.silent_reads = 99
+        with self.assertRaises(LocalError) as cm:
+            self.loc.restore(Patterns.BACKUP, [10, 11])
+        self.assertIn("didn't answer", str(cm.exception))
+        self.assertLessEqual(sum(1 for _, _, b in self.ctl.frames(L.CMD_REQUEST) if b[0] == L.SUB_PATTERN_SAVE), 1,
+                             "never a second pattern")
+
+
 class SampleFilesReachGitHub(unittest.TestCase):
     """4.3.4: ".gitignore" kept tests/data off GitHub, so its tests failed there."""
 

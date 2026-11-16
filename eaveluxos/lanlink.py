@@ -403,6 +403,7 @@ class Link:
         self.skipped, self.warned = 0, False     # bytes not understood (4.1.4)
 
     def open(self) -> "Link":
+        self.buf = b""                    # also when opening again (4.3.12)
         try:
             self.sock = socket.create_connection((self.host, self.port), timeout=self.timeout)
         except OSError as e:

@@ -189,6 +189,21 @@ class Local:
             self.backup(as_backup(st))
         return st
 
+    def _again(self, link, what):
+        """Do what(), and if the controller doesn't answer, once more on a
+        fresh connection after a pause (4.3.12: on Nov 16 the controller went
+        quiet right after a pattern was put back, and the restore stopped
+        with "The controller didn't answer")."""
+        try:
+            return what()
+        except L.LinkError as e:
+            log.info("The controller didn't answer (%s); trying once more on a fresh connection.", e)
+            link.close()
+            time.sleep(self.gap * 3)
+            link.open()
+            link.ping()
+            return what()
+
     def _change(self, link, before, send, **expect) -> dict:
         """Send one change and check it by reading the controller back.
 
@@ -197,14 +212,17 @@ class Local:
         afterward worked: the controller can need longer to store a change.
         So a read that doesn't match yet is repeated after a pause, and a
         change that left the controller exactly as it was (it didn't take,
-        nothing else moved) is sent once more. Anything else still stops."""
+        nothing else moved) is sent once more. Anything else still stops.
+        4.3.12: a controller that goes quiet is asked again on a fresh
+        connection, before and after the change."""
+        read = lambda: self._again(link, lambda: link.state(self.now()))
         with self.lock:
             try:
-                send()
+                self._again(link, send)
                 after = None
-                for pause in (self.gap, self.gap * 2):
+                for pause in (self.gap, self.gap * 2, self.gap * 4):
                     time.sleep(pause)
-                    after = link.state(self.now())
+                    after = read()
                     try:
                         _check(before, after, **expect)
                         break
@@ -216,12 +234,12 @@ class Local:
                     except LocalError:
                         raise why from None                       # something changed, but not as sent: stop
                     log.info("A change didn't take on the controller; sending it once more.")
-                    send()
+                    self._again(link, send)
                     time.sleep(self.gap * 2)
-                    after = link.state(self.now())
+                    after = read()
                     _check(before, after, **expect)
             except L.LinkError as e:
-                raise LocalError(f"the connection failed: {e}") from None
+                raise LocalError(f"the connection failed: {e}.{ONE_AT_A_TIME}") from None
         time.sleep(0.05)              # give a waiting scheduled on/off a turn at the lock
         return after
 
