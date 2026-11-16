@@ -197,6 +197,23 @@ def parse(buf: bytes, final: bool = False, short: bool = True, resync: bool = Fa
     return out, buf[i:]
 
 
+def salvage(buf: bytes, sub: int):
+    """A frame in buf whose MD5 fits some length it actually holds (shorter
+    or longer than its length field says), with a body starting with sub."""
+    at = buf.find(MAGIC)
+    while at >= 0:
+        if len(buf) - at > 27:
+            k, digest = buf[at + 26], buf[at + 10:at + 26]
+            nxt = buf.find(MAGIC, at + 27)
+            end = len(buf) if nxt < 0 else nxt
+            for alt in range(end - at - 27, 2, -1):
+                body = bytes(b ^ k for b in buf[at + 27:at + 27 + alt])
+                if body[:1] == bytes([sub]) and hashlib.md5(body).digest() == digest:
+                    return body
+        at = buf.find(MAGIC, at + 1)
+    return None
+
+
 def save_unread(host: str, raw: bytes):
     """Keep a copy of a message the app couldn't read (4.3.10), for a look
     later: data/lan-unread-<time>.bin, the last few only. It holds what the
@@ -516,8 +533,24 @@ class Link:
         """Set the clock (as the Trimlight app does on opening) and get back
         what the controller holds."""
         self._send(frame(CMD_REQUEST, time_payload(now)))
-        m = self._wait(lambda m: m[0] == "frame" and m[2][:1] == bytes([SUB_TIME]), timeout=max(self.timeout, 6))
-        return m[2]
+        want = lambda m: m[0] == "frame" and m[2][:1] == bytes([SUB_TIME])
+        try:
+            return self._wait(want, timeout=max(self.timeout, 6))[2]
+        except LinkError as e:
+            # 4.3.13: Nov 16, 4:43 PM, Pattern backups: "didn't answer", and
+            # nothing saved. An answer whose length field says more than it
+            # holds waits for bytes that never come. Look for one whose own
+            # check fits a length it does hold, and keep what came either way.
+            body = salvage(self.buf, SUB_TIME)
+            if body is not None:
+                log.warning("The controller's answer said more bytes than it sent; read as %d.", len(body))
+                self.buf = b""
+                return body
+            log.warning("No usable answer to a read from %s: %d bytes came%s", self.host, len(self.buf),
+                        f" ({self.buf[:40].hex(' ')})" if self.buf else "")
+            if len(self.buf) >= 100:
+                save_unread(self.host, self.buf)
+            raise e
 
     def state(self, now: datetime) -> dict:
         return read_state(self.read_all(now))

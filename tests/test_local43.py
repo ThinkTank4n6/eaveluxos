@@ -527,6 +527,21 @@ class GoesQuiet4312(WithController):
                              "never a second pattern")
 
 
+class Overstated4313(WithController):
+    """Nov 16, 2026, 4:43 PM: Pattern backups kept saying "didn't answer"
+    and nothing was saved: an answer whose length says more than it holds."""
+
+    def test_read_anyway(self):
+        self.ctl.overstate = 40
+        self.assertEqual(len(self.loc.read()["patterns"]), 9)
+
+    def test_message_has_one_period(self):
+        self.ctl.silent_reads = 9
+        with self.assertRaises(LocalError) as cm:
+            self.loc.read()
+        self.assertNotIn("..", str(cm.exception))
+
+
 class SampleFilesReachGitHub(unittest.TestCase):
     """4.3.4: ".gitignore" kept tests/data off GitHub, so its tests failed there."""
 

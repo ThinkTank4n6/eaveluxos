@@ -1,5 +1,17 @@
 # Changelog
 
+## 4.3.13: an answer that says it's longer than it is
+
+- **Fixed:** on Nov 16 at 4:43 PM Pattern backups kept saying "Couldn't read
+  the controller: The controller didn't answer", with no warning in the log
+  and nothing saved. The likely cause: the controller's answer said it was
+  longer than what it sent (the same kind of mismatch as at 3:13 PM, the
+  other way round), so the app waited for bytes that never came. When a read
+  times out, the app now looks for an answer whose own check fits the bytes
+  that did come and reads that; otherwise it logs how much came and saves it
+  (lan-unread-*.bin) for a look.
+- The message no longer has two periods ("answer..").
+
 ## 4.3.12: a controller that goes quiet while storing
 
 - **Fixed:** on Nov 16 at 4:06 PM putting back "American Flag" stopped with

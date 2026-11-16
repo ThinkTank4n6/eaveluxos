@@ -167,7 +167,7 @@ class Local:
                 return link.state(self.now())
             except L.LinkError as e:
                 if attempt == 2:
-                    raise LocalError(f"Couldn't read the controller: {e}.{ONE_AT_A_TIME}") from None
+                    raise LocalError(f"Couldn't read the controller: {str(e).rstrip('.')}.{ONE_AT_A_TIME}") from None
             finally:
                 self._close(link)
             time.sleep(1)
@@ -180,7 +180,7 @@ class Local:
             try:
                 st = link.state(self.now())
             except L.LinkError as e:
-                raise LocalError(f"Couldn't read the controller first, so nothing was changed: {e}.{ONE_AT_A_TIME}") from None
+                raise LocalError(f"Couldn't read the controller first, so nothing was changed: {str(e).rstrip('.')}.{ONE_AT_A_TIME}") from None
         ids = [p["id"] for p in st["patterns"]]
         if len(ids) != len(set(ids)):
             raise LocalError("Two patterns on the controller share a number, so nothing was changed. "
@@ -239,7 +239,7 @@ class Local:
                     after = read()
                     _check(before, after, **expect)
             except L.LinkError as e:
-                raise LocalError(f"the connection failed: {e}.{ONE_AT_A_TIME}") from None
+                raise LocalError(f"the connection failed: {str(e).rstrip('.')}.{ONE_AT_A_TIME}") from None
         time.sleep(0.05)              # give a waiting scheduled on/off a turn at the lock
         return after
 

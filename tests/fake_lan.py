@@ -31,6 +31,7 @@ class FakeController:
         self.ignore = set()
         self.needs_ping = False
         self.silent_reads = 0            # don't answer this many clock requests
+        self.overstate = 0               # say this many bytes more than the state answer holds
         self.quiet_after_save = 0        # this many times: apply a save, then go quiet on that connection
         self.late_reads = 0              # after each change, this many reads still show the old state
         self.drop_saves = 0              # lose this many pattern saves (both halves)
@@ -137,7 +138,10 @@ class FakeController:
                         payload = self._shown
                     else:
                         self._shown = payload
-                c.sendall(L.frame(L.CMD_REQUEST, payload))
+                f = bytearray(L.frame(L.CMD_REQUEST, payload))
+                if self.overstate:            # a length field saying more than it holds (4.3.13)
+                    f[8:10] = (len(payload) + self.overstate).to_bytes(2, "big")
+                c.sendall(bytes(f))
         elif kind == "frame" and cmd == L.CMD_REQUEST and self.holds is not None and body[0] not in self.ignore:
             sub, d = body[0], body[3:]
             with self.lock:
