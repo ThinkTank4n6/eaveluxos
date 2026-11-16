@@ -693,11 +693,19 @@ class App:
         return {gameday.team_key(t["league"], t["team"]) for t in self.game_teams()}
 
     def game_teams(self) -> list[dict]:
+        """Teams whose schedules are checked: every team while game-night
+        colors are on, and teams with celebrations while those are on (4.3.5:
+        two switches; celebrations need the game days too)."""
         gd = self.store.settings.get("gameday") or {}
-        if not (isinstance(gd, dict) and gd.get("enabled")):
+        if not isinstance(gd, dict):
+            return []
+        lights, party = bool(gd.get("enabled")), gameday.celebrations_on(gd)
+        if not (lights or party):
             return []
         out = []
         for t in gd.get("teams") or []:
+            if not lights and not (isinstance(t, dict) and t.get("celebrate")):
+                continue
             try:
                 out.append(gameday.check_team(t))
             except gameday.GameDayError:
@@ -757,7 +765,7 @@ class App:
                         best = {"name": h["name"], "date": first}
             out["holiday"] = best
         gd = self.store.settings.get("gameday") or {}
-        if gd.get("enabled"):
+        if gd.get("enabled") or gameday.celebrations_on(gd):
             for t in self.gameday.summary(self.game_teams(), today):
                 if t["next"] and (out["game"] is None or t["next"][0] < out["game"]["date"]):
                     out["game"] = {"name": t["name"], "date": t["next"][0]}

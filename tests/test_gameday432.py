@@ -131,7 +131,7 @@ class LateGames433(unittest.TestCase):
 class Screen(unittest.TestCase):
     def test_7_says_why_nothing_was_checked(self):
         js = (Path(__file__).resolve().parent.parent / "eaveluxos" / "static" / "app.js").read_text(encoding="utf-8")
-        self.assertIn("Not checked while game-day lights are off", js)
+        self.assertIn("Not checked while this team has neither game-day lights nor celebrations on", js)
 
 
 if __name__ == "__main__":

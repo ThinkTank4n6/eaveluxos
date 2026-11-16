@@ -1,5 +1,16 @@
 # Changelog
 
+## 4.3.5: score celebrations have their own switch
+
+- **Celebrate scores** is now its own switch, separate from **Use game-day
+  lights**: celebrations work with game-day lights off (flashing over your
+  normal schedule), and game-day lights work without celebrations. Before,
+  celebrations only ran while game-day lights were on.
+- Each team still has **Celebrate this team's scores**. A team's schedule is
+  checked when it has game-day lights or celebrations on.
+- Settings from before keep working as they were (the one switch ran both).
+- The folded panel's summary says which are on ("lights + celebrations").
+
 ## 4.3.4: tests pass on GitHub again
 
 - **Fixed:** the tests' sample controller files (tests/data, new in 4.3.0)

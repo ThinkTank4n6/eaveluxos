@@ -110,7 +110,9 @@ const SUMS = {
     return onOff(h.enabled && (n || h.country), [S.status?.holiday ? `today: ${S.status.holiday.name}` : nx ? `next: ${nx.name}, ${shortDay(nx.date)}` : '',
       n ? plural(n, 'holiday') : '', h.country ? `public holidays (${h.country.code})` : ''].filter(Boolean).join(' · ')); },
   game: () => { const g = S.settings.gameday || {}, nx = S.status?.coming?.game;
-    return onOff(g.enabled && (g.teams || []).length, nx ? `next: ${nx.name}, ${shortDay(nx.date)}` : (g.teams || []).map(t => t.name).join(', ')); },
+    const party = (g.celebrate_enabled ?? !!g.enabled) && (g.teams || []).some(t => t.celebrate);
+    const what = [g.enabled ? 'lights' : '', party ? 'celebrations' : ''].filter(Boolean).join(' + ');
+    return onOff((g.enabled || party) && (g.teams || []).length, `${what}${nx ? ` · next: ${nx.name}, ${shortDay(nx.date)}` : ''}`); },
   away: () => { const a = S.settings.away || {}; return a.enabled ? `On until ${a.until || '…'}` : 'Off'; },
   weather: () => { const w = S.settings.weather || {}, n = (S.settings.weather_rules || []).length; return onOff(w.enabled && n, plural(n, 'rule')); },
   wxalerts: () => { const w = S.settings.weather_alerts || {}; return onOff(w.enabled, plural((w.groups || []).length, 'kind') + ' of warning'); },
@@ -1716,19 +1718,23 @@ async function gamePanel(box) {
   const effs = Object.entries(s.effects || {});
   const info = k => g.teams.find(t => t.key === k) || {};
   const day = d => new Date(d + 'T12:00').toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+  // 4.3.5: two separate switches. Settings from before had one for both.
+  const party = gd.celebrate_enabled ?? !!gd.enabled;
   box.innerHTML = `<h2>Game-day lights</h2>
-    <p class="note">Your team\u2019s colors on the nights they play, instead of the usual pattern (even during a holiday season). Game dates come from ESPN\u2019s public schedule; if it can\u2019t be reached, your normal schedule runs.</p>
-    <label class="check"><input type="checkbox" id="gdon" ${gd.enabled ? 'checked' : ''} ${ro ? 'disabled' : ''}> <b>Use game-day lights</b></label>
+    <p class="note">Two separate things, each with its own switch. Game dates and scores come from ESPN\u2019s public schedule; if it can\u2019t be reached, your normal schedule runs.</p>
+    <label class="check"><input type="checkbox" id="gdon" ${gd.enabled ? 'checked' : ''} ${ro ? 'disabled' : ''}> <span><b>Use game-day lights</b><br><span class="small muted">Your team\u2019s colors on the nights they play, instead of the usual pattern (even during a holiday season).</span></span></label>
+    <label class="check"><input type="checkbox" id="gdparty" ${party ? 'checked' : ''} ${ro ? 'disabled' : ''}> <span><b>Celebrate scores</b><br><span class="small muted">Flash the team\u2019s colors for a few seconds when they score, then back to what was on. Works whether or not game-day lights are on; tick each team below.</span></span></label>
     ${(gd.teams || []).map((t, i) => { const inf = info(`${t.league}-${t.team}`); return `<div class="panel stack" style="background:var(--surface2);padding:12px">
       <div class="panel-head"><b>${esc(t.name || t.team.toUpperCase())}</b><span class="small muted">${esc((g.leagues[t.league] || t.league))}</span>${ro ? '' : `<button class="small ghost danger" data-gddel="${i}">Remove</button>`}</div>
-      <div class="row"><label class="field" style="flex:2;min-width:150px">Pattern<select data-gdeff="${i}" ${ro ? 'disabled' : ''}>${effs.map(([k, e]) => `<option value="${esc(k)}" ${t.effect === k ? 'selected' : ''}>${esc(e.label || k)}</option>`).join('')}</select></label>
+      <div class="row"><label class="field" style="flex:2;min-width:150px">Team colors (pattern)<select data-gdeff="${i}" ${ro ? 'disabled' : ''}>${effs.map(([k, e]) => `<option value="${esc(k)}" ${t.effect === k ? 'selected' : ''}>${esc(e.label || k)}</option>`).join('')}</select></label>
         <label class="field" style="flex:1;min-width:110px">On<input type="text" data-gdon="${i}" value="${esc(t.on || 'sunset')}" ${ro ? 'disabled' : ''}></label>
         <label class="field" style="flex:1;min-width:110px">Off<input type="text" data-gdoff="${i}" value="${esc(t.off || '23:00')}" ${ro ? 'disabled' : ''}></label></div>
-      <label class="check small"><input type="checkbox" data-gdcel="${i}" ${t.celebrate ? 'checked' : ''} ${ro ? 'disabled' : ''}> Celebrate scores: flash these colors when they score${t.league === 'nfl' ? ' (field goals and touchdowns)' : t.league === 'nba' ? ' (3-pointers; baskets are too frequent)' : ''}</label>
+      <p class="small muted" style="margin:0">On and Off are for game-day lights. ${gd.enabled ? '' : '<b>Game-day lights are off.</b>'}</p>
+      <label class="check small"><input type="checkbox" data-gdcel="${i}" ${t.celebrate ? 'checked' : ''} ${ro ? 'disabled' : ''}> Celebrate this team\u2019s scores${party ? '' : ' <span class="muted">(Celebrate scores is off above)</span>'}${t.league === 'nfl' ? ' (field goals and touchdowns)' : t.league === 'nba' ? ' (3-pointers; baskets are too frequent)' : ''}</label>
       ${inf.live && inf.live.state === 'missing' ? `<p class="small warn">Not on ESPN’s scoreboard today under “${esc(inf.live.code)}”, so scores can’t be followed. Check the team code (the letters in the team’s address on espn.com).</p>`
         : inf.live ? `<p class="small"><b>${inf.live.state === 'in' ? 'Live' : inf.live.state === 'post' ? 'Final' : 'Today'}</b>: ${esc(t.name || t.team.toUpperCase())} ${inf.live.score}${inf.live.vs ? ` – ${esc(inf.live.vs)} ${inf.live.them ?? ''}` : ''} ${inf.live.detail ? '· ' + esc(inf.live.detail) : ''}</p>` : ''}
-      <p class="small ${inf.error && !inf.known ? 'warn' : 'muted'}">${inf.next && inf.next.length ? 'Next games: ' + inf.next.map(day).map(esc).join(', ') : inf.error ? 'Schedule not available yet: ' + esc(inf.error) : inf.known ? 'No more games this season.' : !gd.enabled ? 'Not checked while game-day lights are off: tick Use game-day lights above.' : 'Schedule not checked yet (within a minute of turning game-day lights on).'}</p></div>`; }).join('')}
-    ${(gd.teams || []).some(t => t.celebrate) ? `<div class="row"><label class="row small">Celebrate for<select id="gdsec" style="width:auto" ${ro ? 'disabled' : ''}>${[10, 15, 20, 30, 45, 60].map(n => `<option value="${n}" ${(gd.celebrate_seconds || 15) === n ? 'selected' : ''}>${n} seconds</option>`).join('')}</select></label>
+      <p class="small ${inf.error && !inf.known ? 'warn' : 'muted'}">${inf.next && inf.next.length ? 'Next games: ' + inf.next.map(day).map(esc).join(', ') : inf.error ? 'Schedule not available yet: ' + esc(inf.error) : inf.known ? 'No more games this season.' : !gd.enabled && !(party && t.celebrate) ? 'Not checked while this team has neither game-day lights nor celebrations on.' : 'Schedule not checked yet (within a minute of turning it on).'}</p></div>`; }).join('')}
+    ${party && (gd.teams || []).some(t => t.celebrate) ? `<div class="row"><label class="row small">Celebrate for<select id="gdsec" style="width:auto" ${ro ? 'disabled' : ''}>${[10, 15, 20, 30, 45, 60].map(n => `<option value="${n}" ${(gd.celebrate_seconds || 15) === n ? 'selected' : ''}>${n} seconds</option>`).join('')}</select></label>
       <label class="check small"><input type="checkbox" id="gdonly" ${gd.celebrate_only_when_on !== false ? 'checked' : ''} ${ro ? 'disabled' : ''}> Only while the lights are on</label></div>
       <p class="note">Live scores come from ESPN’s free scoreboard, checked every 20 seconds during the game. It runs a little behind live TV, so the lights celebrate shortly after you see the score.</p>` : ''}
     ${ro ? '' : `<div class="row"><select id="gdpick"><option value="">Add a team\u2026</option>${g.presets.map(p => `<option value="${esc(p.id)}">${esc(p.name)} (${esc(g.leagues[p.league])})</option>`).join('')}<option value="other">Another team\u2026</option></select>
@@ -1741,11 +1747,17 @@ async function gamePanel(box) {
   box.onchange = e => {
     const t = e.target, ds = t.dataset, n = clone(S.settings);
     n.gameday = n.gameday || { enabled: false, teams: [] };
-    if (t.id === 'gdon') { n.gameday.enabled = t.checked; return busy(null, () => save(n, t.checked ? 'Game-day lights on' : 'Game-day lights off')).catch(() => { t.checked = !t.checked; }); }
+    if (t.id === 'gdon') {
+      if (n.gameday.celebrate_enabled === undefined) n.gameday.celebrate_enabled = !!n.gameday.enabled;   // keep celebrations as they were
+      n.gameday.enabled = t.checked; return busy(null, () => save(n, t.checked ? 'Game-day lights on' : 'Game-day lights off')).catch(() => { t.checked = !t.checked; });
+    }
+    if (t.id === 'gdparty') { n.gameday.celebrate_enabled = t.checked; return busy(null, () => save(n, t.checked ? 'Score celebrations on' : 'Score celebrations off')).catch(() => { t.checked = !t.checked; }); }
     if (t.id === 'gdpick') { $('#gdother').hidden = t.value !== 'other'; return; }
     if (t.id === 'gdsec') { n.gameday.celebrate_seconds = +t.value; return busy(null, () => save(n)).catch(() => {}); }
     if (t.id === 'gdonly') { n.gameday.celebrate_only_when_on = t.checked; return busy(null, () => save(n)).catch(() => {}); }
-    if (ds.gdcel !== undefined) { n.gameday.teams[+ds.gdcel].celebrate = t.checked; return busy(null, () => save(n, t.checked ? 'Celebrations on' : 'Celebrations off')).catch(() => { t.checked = !t.checked; }); }
+    if (ds.gdcel !== undefined) { n.gameday.teams[+ds.gdcel].celebrate = t.checked;
+      if (t.checked && n.gameday.celebrate_enabled === undefined) n.gameday.celebrate_enabled = true;
+      return busy(null, () => save(n, t.checked ? `Celebrations on for ${n.gameday.teams[+ds.gdcel].name}` : 'Celebrations off for that team')).catch(() => { t.checked = !t.checked; }); }
     const i = ds.gdeff ?? ds.gdon ?? ds.gdoff; if (i === undefined) return;
     const team = n.gameday.teams[+i];
     if (ds.gdeff !== undefined) team.effect = t.value;
@@ -1782,7 +1794,7 @@ async function gamePanel(box) {
     team.effect = team.effect || Object.keys(n.effects)[0];
     team.on = 'sunset'; team.off = '23:00';
     n.gameday.teams = [...(n.gameday.teams || []), team];
-    n.gameday.enabled = true;
+    if (!n.gameday.enabled && !(n.gameday.celebrate_enabled ?? false)) n.gameday.enabled = true;   // a first team: game-day lights on
     busy(b, () => save(n, `${team.name} added`)).catch(() => {});
   };
 }

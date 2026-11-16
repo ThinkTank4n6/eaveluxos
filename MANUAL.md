@@ -1,7 +1,7 @@
 # EaveLuxOS: User Manual
 ### The Intelligent Lighting Control Platform
 
-Version 4.3.4 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
+Version 4.3.5 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
 
 > **Downloaded the ready-made app? You can skip most of the setup.**
 > The downloads on the project's GitHub **Releases** page
@@ -1042,9 +1042,18 @@ colors. Turn **Use game-day lights** off to pause it without losing the teams.
 
 #### Score celebrations
 
-Tick **Celebrate scores** under a team, and when that team scores during a
-game, the lights flash its colors (moving fast) for a few seconds, then go
-back to whatever was on.
+Score celebrations have their **own switch** (since 4.3.5), separate from
+**Use game-day lights**: use either one, both, or neither.
+
+1. Tick **Celebrate scores** at the top of the panel.
+2. Under each team you want, tick **Celebrate this team's scores**.
+
+When that team scores during a game, the lights flash its team colors
+(moving fast) for a few seconds, then go back to whatever was on: the game
+night's colors, or your normal schedule when game-day lights are off. The
+team still needs to be on the list (for its colors and its schedule); its On
+and Off times only matter for game-day lights. Settings from before 4.3.5,
+when one switch ran both, keep working as they were.
 
 - **Celebrate for** sets the length (10 to 60 seconds; 15 to start).
 - **Only while the lights are on** (on to start) skips daytime games, so the

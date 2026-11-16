@@ -33,6 +33,7 @@
     { t: 'Import timers from the Trimlight app', w: 'Schedule', v: 'schedule', h: 'Rules', k: 'import timers daily calendar trimlight' },
     { t: 'Holidays', w: 'Schedule', v: 'schedule', f: 'holidays', k: 'christmas halloween july fourth thanksgiving public holiday' },
     { t: 'Game-day lights', w: 'Schedule', v: 'schedule', f: 'game', k: 'sports team football baseball nfl nba nhl mlb eagles score win touchdown' },
+    { t: 'Celebrate scores', w: 'Schedule', v: 'schedule', f: 'game', k: 'score goal touchdown flash celebration party live' },
     { t: 'Away mode', w: 'Schedule', v: 'schedule', f: 'away', k: 'vacation away random times travel' },
     // Alerts
     { t: 'Weather', w: 'Alerts', v: 'alerts', f: 'weather', k: 'rain snow temperature wind weather rules' },

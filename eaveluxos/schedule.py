@@ -871,8 +871,9 @@ CELEBRATE_POINTS = {"nfl": 3, "mlb": 1, "nhl": 1, "nba": 3}
 def _celebrations(gd, effects: dict) -> dict:
     """Score celebrations (3.16): team key -> {"name", "league", "team",
     "effect", "seconds", "min_points"} for teams with celebrations on."""
-    from .gameday import GameDayError, check_team, team_key
-    if not isinstance(gd, dict) or not gd.get("enabled") or not isinstance(gd.get("teams"), list):
+    from .gameday import GameDayError, celebrations_on, check_team, team_key
+    # 4.3.5: their own switch, apart from game-night colors.
+    if not isinstance(gd, dict) or not celebrations_on(gd) or not isinstance(gd.get("teams"), list):
         return {}
     try:
         seconds = int(gd.get("celebrate_seconds", 15))

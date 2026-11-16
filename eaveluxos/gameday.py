@@ -47,6 +47,15 @@ ESPN_TZ = ZoneInfo("America/New_York")
 RETRY = 2 * 3600
 PRIORITY = 250
 
+
+def celebrations_on(gd) -> bool:
+    """Score celebrations have their own switch since 4.3.5, apart from
+    game-night colors. Settings from before have only one: it ran both."""
+    if not isinstance(gd, dict):
+        return False
+    v = gd.get("celebrate_enabled")
+    return bool(gd.get("enabled")) if v is None else bool(v)
+
 # Ready-made teams (Philadelphia first), with team colors for a one-tap pattern.
 PRESETS = [
     {"id": "nfl-phi", "name": "Eagles", "league": "nfl", "team": "phi", "colors": ["#004C54", "#FFFFFF", "#A5ACAF"]},
