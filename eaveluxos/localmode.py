@@ -36,6 +36,13 @@ class LocalError(Exception):
     pass
 
 
+# 4.3.9: on Nov 16 a read right after Back up now got no answer while the
+# Trimlight app was likely open for its sync; the controller seems to answer
+# one connection at a time.
+ONE_AT_A_TIME = (" If the Trimlight Edge app is open on a phone or tablet, close it fully (the controller seems to "
+                 "answer one connection at a time), wait a few seconds and try again.")
+
+
 def as_backup(st: dict) -> dict:
     """The controller as read over the home network, in the shape of a cloud
     backup, so Pattern backups can list it and put patterns back from it."""
@@ -159,7 +166,7 @@ class Local:
                 return link.state(self.now())
             except L.LinkError as e:
                 if attempt == 2:
-                    raise LocalError(f"Couldn't read the controller: {e}") from None
+                    raise LocalError(f"Couldn't read the controller: {e}.{ONE_AT_A_TIME}") from None
             finally:
                 self._close(link)
             time.sleep(1)
@@ -167,8 +174,12 @@ class Local:
     def _start(self, link) -> dict:
         try:
             st = link.state(self.now())
-        except L.LinkError as e:
-            raise LocalError(f"Couldn't read the controller first, so nothing was changed: {e}") from None
+        except L.LinkError:
+            time.sleep(1)                    # 4.3.9: once more, as read() does
+            try:
+                st = link.state(self.now())
+            except L.LinkError as e:
+                raise LocalError(f"Couldn't read the controller first, so nothing was changed: {e}.{ONE_AT_A_TIME}") from None
         ids = [p["id"] for p in st["patterns"]]
         if len(ids) != len(set(ids)):
             raise LocalError("Two patterns on the controller share a number, so nothing was changed. "

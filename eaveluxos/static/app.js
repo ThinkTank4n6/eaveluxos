@@ -2193,8 +2193,14 @@ async function locationEditor(box) {
   };
   tzInfo();
   $('#ltz', box).onchange = tzInfo;
-  const search = () => busy($('#lgo', box), async () => {
-    const r = await api('geocode?q=' + encodeURIComponent($('#lq', box).value));
+  const search = () => {
+    if ($('#lq', box).value.trim().length < 2) {          // 4.3.9: no request (and no error) for an empty box
+      $('#lres', box).innerHTML = '<p class="muted small">Type a town or ZIP code first.</p>'; $('#lq', box).focus(); return;
+    }
+    return realSearch();
+  };
+  const realSearch = () => busy($('#lgo', box), async () => {
+    const r = await api('geocode?q=' + encodeURIComponent($('#lq', box).value.trim()));
     $('#lres', box).innerHTML = r.length ? r.map((x, i) => `<button type="button" data-pick="${i}">${esc([x.name, x.region, x.country].filter(Boolean).join(', '))} <span class="muted small">${x.lat}, ${x.lon}</span></button>`).join('')
       : '<p class="muted small">No places found. Try the nearest larger town.</p>';
     $('#lres', box).onclick = e => { const b = e.target.closest('[data-pick]'); if (!b) return; const x = r[+b.dataset.pick];
@@ -4036,6 +4042,13 @@ async function safetyPanel(box) {
   try { st = await api('safety'); } catch (e) { box.innerHTML = `<p class="muted">${esc(e.message)}</p>`; return; }
   const devs = Object.values(st.devices || {});
   const conflicts = devs.flatMap(d => d.conflicts || []);
+  if (st.paused) {
+    // 4.3.9: paused for everyone; see safety.py PAUSED.
+    box.innerHTML = `<div class="panel-head"><h2>Backup timer</h2><span class="pill">Paused</span></div>
+      <p class="callout warn small"><b>Paused in this version.</b> Every time Trimlight\u2019s cloud stopped being able to read a controller (code 12006) so far, it came within minutes of the backup timer writing its calendar timers through the cloud. Until that is understood, it writes nothing to your controller.</p>
+      <p class="note">Your lights keep running from this app as usual. Without this computer or the internet they stay as they were last set.${st.enabled ? ' Your choice to use it is kept for when it returns.' : ''}</p>`;
+    return;
+  }
   box.innerHTML = `<div class="panel-head"><h2>Backup timer</h2><label class="check"><input type="checkbox" id="sfon" ${st.enabled ? 'checked' : ''}> On</label></div>
     <p class="note">Copies the next nights into the controller's own timers, so the lights still come on and go off if this computer or the internet is down.
       The app keeps running the lights as usual. It never saves patterns: each night uses a pattern already saved on the controller under the same name, and a night whose pattern isn't there is skipped.

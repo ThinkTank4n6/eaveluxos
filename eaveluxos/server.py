@@ -41,6 +41,7 @@ from zoneinfo import available_timezones
 from . import alerts, autostart, catalog, community, gameday, holidays, lanlink, localmode, restore, scores, sharecode, updates, winfirewall
 from .api import TrimlightAPI, TrimlightError, port_base
 from .controller import Controller
+from . import safety
 from .safety import SafetyNet
 from .schedule import CELEBRATE_POINTS, ConfigError, Effect, SetupNeeded, add_real, build_config, color_gamma, tz_info
 from .store import Conflict, Store, check_password, hash_password, needs_rehash
@@ -670,7 +671,7 @@ class App:
     def safety_status(self) -> dict:
         sf = self.store.settings.get("safety", {}) or {}
         out = {"enabled": bool(sf.get("enabled")), "days": int(sf.get("days", 7) or 7), "devices": self.safety.summary(),
-               "plan": [], "halted": self.safety.halted, "held": self.safety.held()}
+               "plan": [], "halted": self.safety.halted, "held": self.safety.held(), "paused": safety.PAUSED}
         if self.cfg:
             entries, _ = self.safety.plan(self.cfg, self.cfg.loc.now(), self.clock_offset())
             out["plan"] = [{"date": f"{e['month']:02d}-{e['day']:02d}", "on": "%02d:%02d" % tuple(e["start"]),
@@ -2425,6 +2426,11 @@ def make_server(app: App, host: str, port: int):
                     # Only blame the keys when Trimlight actually answered.
                     if getattr(e, "kind", "api") == "network":
                         raise ApiError(f"Couldn't check these with Trimlight. {e}", 502)
+                    if getattr(e, "code", None) == 10002:
+                        # 4.3.9: say what to check, not just the code.
+                        raise ApiError("Trimlight didn't accept this Client ID and Client Secret (code 10002). Copy both "
+                                       "again from Trimlight's API credentials page, exactly as shown, and check that this "
+                                       "computer's date and time are right (Trimlight checks them too).", 400)
                     raise ApiError(f"Trimlight didn't accept these: {e}", 400)
                 app.store.save_secrets(client_id=cid, client_secret=sec)
                 app.rebuild(creds_changed=True)

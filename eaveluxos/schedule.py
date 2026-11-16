@@ -1068,7 +1068,9 @@ def build_config(raw: dict, secrets: dict, need_secrets: bool = True, gamedates:
             raise ConfigError("Away mode shifts times by 5 to 60 minutes.")
         away = {"enabled": True, "until": until, "minutes": minutes, "seed": str(aw.get("seed") or "eaveluxos")[:64]}
     sf = raw.get("safety", {}) or {}
-    safety = {"enabled": bool(sf.get("enabled", False)), "days": max(1, min(14, int(sf.get("days", 7))))}
+    from .safety import PAUSED
+    safety = {"enabled": bool(sf.get("enabled", False)) and not PAUSED, "wanted": bool(sf.get("enabled", False)),
+              "days": max(1, min(14, int(sf.get("days", 7))))}
 
     svc = raw.get("service", {})
     cid = (os.environ.get("TRIMLIGHT_CLIENT_ID") or secrets.get("client_id") or "").strip()

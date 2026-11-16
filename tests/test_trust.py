@@ -161,7 +161,7 @@ class MacTrustTests(unittest.TestCase):
                 with mock.patch.object(trust, "_extra_bundles", return_value=[str(self.ca)]):
                     st, r = setup()
                 self.assertEqual(st, 400)
-                self.assertIn("Trimlight didn't accept these", r["error"])
+                self.assertIn("Trimlight didn't accept", r["error"])          # 4.3.9: worded to say what to check
         finally:
             srv.shutdown()
             srv.server_close()

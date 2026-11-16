@@ -141,13 +141,18 @@ class Safety(unittest.TestCase):
         self.assertTrue(self.net.sync(self.api, self.cfg, ["TL-EDGE-01"], self.now))
         d = F.STATE["dev"]
         mine = [c for c in d["calendar"] if c["id"] != 0]
-        # 5 days, and Dec 31 has two stretches (3.6): "Night" from sunset until
-        # "Late" takes over at 20:00, then "Late" until midnight.
-        self.assertEqual(len(mine), 6)
+        # 5 days. Dec 31 has two stretches (3.6): "Night" from sunset until
+        # "Late" takes over at 20:00, then "Late" until midnight. The controller
+        # takes one timer per date (4.3.9): the longer, "Late", is copied.
+        self.assertEqual(len(mine), 5)
         self.assertIn(self.user_cal, d["calendar"])
-        dec31 = sorted((c for c in mine if c["startDate"] == {"month": 12, "day": 31}), key=lambda c: c["startTime"]["hours"])
-        self.assertEqual([c["endTime"] for c in dec31], [{"hours": 20, "minutes": 0}, {"hours": 23, "minutes": 59}])  # tail trimmed
-        self.assertEqual(dec31[1]["startTime"], {"hours": 20, "minutes": 0})
+        dec31 = [c for c in mine if c["startDate"] == {"month": 12, "day": 31}]
+        self.assertEqual(len(dec31), 1)
+        self.assertEqual((dec31[0]["startTime"], dec31[0]["endTime"]),
+                         ({"hours": 20, "minutes": 0}, {"hours": 23, "minutes": 59}))           # tail trimmed
+        sm = self.net.summary()["TL-EDGE-01"]
+        self.assertEqual(len(sm["not_copied"]), 1)
+        self.assertIn("Only one timer per day", sm["message"])
         self.assertFalse([e for e in d["effects"] if str(e.get("name", "")).startswith("Auto ")])   # none saved (4.2.1)
         self.assertEqual({c["effectId"] for c in mine}, {5, 3})          # the controller's own "Warm White", "CHRISTMAS"
         for e in self.user_effects:
@@ -160,7 +165,7 @@ class Safety(unittest.TestCase):
         n_eff = len(F.STATE["dev"]["effects"])
         self.net.sync(self.api, self.cfg, ["TL-EDGE-01"], self.now.replace(day=30))
         self.assertEqual(len(F.STATE["dev"]["effects"]), n_eff)
-        self.assertEqual(len([c for c in F.STATE["dev"]["calendar"] if c["id"] != 0]), 6)
+        self.assertEqual(len([c for c in F.STATE["dev"]["calendar"] if c["id"] != 0]), 5)
 
     def test_bad_readback_rolls_back(self):
         F.STATE["corrupt_calendar"] = True

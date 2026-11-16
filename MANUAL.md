@@ -1,7 +1,7 @@
 # EaveLuxOS: User Manual
 ### The Intelligent Lighting Control Platform
 
-Version 4.3.8 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
+Version 4.3.9 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
 
 > **Downloaded the ready-made app? You can skip most of the setup.**
 > The downloads on the project's GitHub **Releases** page
@@ -1416,6 +1416,12 @@ copying the next few nights into the controller's **own timers**.
    The app asks you to confirm first and says what it will and won't do.
 3. After about two minutes (it waits until the controller is settled) it
    says **Armed: 7 nights copied to the controller**.
+
+**One timer per day.** Trimlight's calendar takes one timer per date, so
+when a day has more than one stretch (a morning and an evening rule), the
+backup timer copies one: stretches with the same pattern become one from the
+first on to the last off; otherwise the longest is copied, and the others are
+listed under **Not copied**.
 
 **Save each night's pattern on the controller first.** Since version 4.2.1
 the backup timer never saves patterns. Each night uses a pattern that is

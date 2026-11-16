@@ -67,6 +67,32 @@ class Waiting(Exception):
         self.seconds = seconds
 
 
+def one_per_day(entries: list) -> tuple[list, list]:
+    """At most one calendar timer per date (4.3.9). The controller won't take
+    two on the same date ("The calendar schedules cannot be crossed", code
+    12000, Nov 13, 2026); the Trimlight app's own timers are avoided for the
+    same reason. Two stretches with the same pattern become one from the
+    first on to the last off; otherwise the longest stays. Returns (kept,
+    dropped)."""
+    by_day: dict = {}
+    for e in entries:
+        by_day.setdefault((e["month"], e["day"]), []).append(e)
+    kept, dropped = [], []
+    for day in by_day.values():
+        if len(day) == 1:
+            kept.append(day[0])
+            continue
+        mins = lambda e: (e["end"][0] * 60 + e["end"][1]) - (e["start"][0] * 60 + e["start"][1])
+        if len({e["slot"] for e in day}) == 1:
+            first, last = min(day, key=lambda e: e["start"]), max(day, key=lambda e: e["end"])
+            kept.append({**first, "end": last["end"]})
+            continue
+        best = max(day, key=mins)
+        kept.append(best)
+        dropped += [e for e in day if e is not best]
+    return kept, dropped
+
+
 def fingerprint(detail: dict) -> str:
     """What must stay the same between two readings before a write: the
     patterns (numbers and names), calendar entries and daily timers."""
@@ -77,6 +103,12 @@ def fingerprint(detail: dict) -> str:
 _CAL_KEYS = ("effectId", "startDate", "endDate", "startTime", "endTime")
 MAX_CALENDAR = 60
 PREFIX = "Auto "
+# 4.3.9: paused. Every "can't read the controller" (12006) so far came within
+# minutes of the backup timer writing calendar timers through Trimlight's
+# cloud: Nov 13 17:22 -> 17:26, Nov 15 17:52 -> 17:56, Nov 16 13:46 -> 13:50.
+# Until that is understood it writes nothing; turned on, it stays off and
+# says why. (Its own entries are still removed as before.)
+PAUSED = True
 SETTLE = 120      # seconds between the two matching readings before a write
 READBACK_PAUSES = (0, 5, 20)   # seconds before each read-back (4.3.8: the cloud's copy can lag behind)
 HOLD = 900        # no writes this long after a music show or local-link use
@@ -248,7 +280,7 @@ class SafetyNet:
     def summary(self) -> dict:
         with self.lock:
             out = {k: {x: v.get(x) for x in ("ok", "message", "last_sync", "last_sync_label", "covers_until", "entries",
-                                             "conflicts", "backup", "skipped")}
+                                             "conflicts", "backup", "skipped", "not_copied")}
                    for k, v in self.state["devices"].items()}
             for v in out.values():   # a copy held back by the Trimlight app's own timers isn't armed
                 v["ok"] = bool(v["ok"] and not v["conflicts"])
@@ -353,6 +385,9 @@ class SafetyNet:
                     d = self._dev(dev)
                     n = len(d.get("entries") or [])
                     msg = f"{n} night{'s' if n != 1 else ''} copied to the controller."
+                    if d.get("not_copied"):
+                        msg += (" Only one timer per day fits on the controller (Trimlight's calendar won't take two on "
+                                f"one date), so the longest was copied; not copied: {', '.join(d['not_copied'])}.")
                     if d.get("skipped"):
                         msg += (f" Not copied: nights showing {', '.join(chr(8220) + x + chr(8221) for x in d['skipped'])}, "
                                 "because the controller has no saved pattern with that name. The backup timer never saves "
@@ -498,12 +533,16 @@ class SafetyNet:
                 continue
             ids[k] = found["id"]
         entries = [e for e in entries if e["slot"] in ids]
+        entries, dropped = one_per_day(entries)
         with self.lock:
             st["skipped"] = skipped
+            st["not_copied"] = sorted({f"{e['label']} {e['start'][0]:02d}:{e['start'][1]:02d}"
+                                       f"\u2013{e['end'][0]:02d}:{e['end'][1]:02d}" for e in dropped})
             self._save()
 
         # 2. calendar entries: reuse our ids, then free ones; never touch the user's
-        free = [i for i in range(MAX_CALENDAR) if i not in cal]
+        # 4.3.9: from 1, as the Trimlight app numbers its own; 0 only last.
+        free = [i for i in list(range(1, MAX_CALENDAR)) + [0] if i not in cal]
         pool = owned_cal + free
         if len(entries) > len(pool):
             raise ValueError("Not enough free calendar entries on the controller. Delete some in the Trimlight app.")

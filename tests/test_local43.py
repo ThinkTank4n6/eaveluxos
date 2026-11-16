@@ -442,6 +442,18 @@ class SlowController438(WithController):
         self.assertEqual(L.read_record(self.ctl.holds["patterns"][10])["name"], "American Flag")
 
 
+class FirstRead439(WithController):
+    def test_a_job_reads_once_more_before_giving_up(self):
+        self.ctl.silent_reads = 1
+        self.assertEqual(self.loc.save(custom(0, "Porch", [(2, 0xFFB46B)])), 10)
+
+    def test_says_what_to_check(self):
+        self.ctl.silent_reads = 4
+        with self.assertRaises(LocalError) as cm:
+            self.loc.save(custom(0, "Porch", [(2, 0xFFB46B)]))
+        self.assertIn("Trimlight Edge app is open", str(cm.exception))
+
+
 class SampleFilesReachGitHub(unittest.TestCase):
     """4.3.4: ".gitignore" kept tests/data off GitHub, so its tests failed there."""
 

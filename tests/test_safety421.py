@@ -161,3 +161,22 @@ class Panel(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OnePerDay(unittest.TestCase):
+    """4.3.9 (tests/repro_calendar_same_day.py)."""
+
+    def e(self, day, s, t, slot):
+        return {"month": 11, "day": day, "start": s, "end": t, "slot": slot, "label": slot}
+
+    def test_same_pattern_joins(self):
+        from eaveluxos.safety import one_per_day
+        kept, dropped = one_per_day([self.e(16, [6, 0], [7, 0], "a"), self.e(16, [17, 0], [23, 0], "a")])
+        self.assertEqual((kept[0]["start"], kept[0]["end"], dropped), ([6, 0], [23, 0], []))
+
+    def test_different_patterns_keep_the_longest(self):
+        from eaveluxos.safety import one_per_day
+        kept, dropped = one_per_day([self.e(16, [6, 0], [6, 48], "sec"), self.e(16, [16, 44], [23, 0], "fall"),
+                                     self.e(17, [16, 44], [23, 0], "fall")])
+        self.assertEqual([k["slot"] for k in kept], ["fall", "fall"])
+        self.assertEqual([d["slot"] for d in dropped], ["sec"])

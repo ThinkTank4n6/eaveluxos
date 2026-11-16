@@ -179,7 +179,12 @@ def run(store, data_dir: Path, ask=input, say=print, sleep=time.sleep, now=lambd
             rep.add("Port 0-0 refused", "SKIP")
 
         # 8. controller's own timer (safety net) ---------------------------------
-        if yes("Test the controller's own timer (the backup timer)? Takes about 5 minutes."):
+        # 4.3.9: not through the cloud while the backup timer is paused (its
+        # calendar writes preceded every 12006).
+        from .safety import PAUSED
+        if PAUSED:
+            rep.add("Controller timer (backup timer)", "SKIP", "paused since 4.3.9")
+        elif yes("Test the controller's own timer (the backup timer)? Takes about 5 minutes."):
             if any(x.get("enable") for x in det.get("daily", [])):
                 say("Note: the Trimlight app's daily timers are on; they may also run during this test.")
             # 4.3: one of the controller's own patterns, not a new one saved

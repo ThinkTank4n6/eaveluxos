@@ -1,5 +1,35 @@
 # Changelog
 
+## 4.3.9: backup timer paused; full review and a browser sweep
+
+- **The backup timer is paused for everyone.** Every time Trimlight's cloud
+  stopped being able to read a controller (code 12006), it came within
+  minutes of the backup timer writing calendar timers through the cloud:
+  Nov 13 17:22 to 17:26, Nov 15 17:52 to 17:56, Nov 16 13:46 to 13:50. Until
+  that is understood it writes nothing; the panel says so, a choice to use it
+  is kept for when it returns, and the hardware test skips its timer step.
+- **Local mode:** a change now reads the controller once more before giving
+  up ("Couldn't read the controller first ... didn't answer", Nov 16), and the
+  message says to close the Trimlight Edge app if it's open: the controller
+  seems to answer one connection at a time.
+- **Fixed (most important): the backup timer wrote two timers on one date.**
+  Trimlight's calendar won't take two timers on the same date ("The calendar
+  schedules cannot be crossed", code 12000, Nov 13), and the backup timer
+  already avoided the Trimlight app's own timers for that reason, but with a
+  morning and an evening rule it wrote two of its own on every date. That is
+  why it has never armed on a real controller: on Nov 15 and 16 all 14
+  timers for 7 nights "differed" and it stopped itself. Now one timer per
+  date: two stretches with the same pattern become one, otherwise the longest
+  is copied and the others are listed as not copied. (Reproduced in
+  `tests/repro_calendar_same_day.py`.)
+- Its timers are numbered from 1, as the Trimlight app numbers its own.
+- A rejected Client ID and Secret (code 10002) now says what to check,
+  including this computer's date and time.
+- Setup › Location & time no longer sends an empty place-name search.
+- A browser sweep of every page (desktop and phone width) with every panel
+  open, pressing every button and changing and restoring every checkbox and
+  list, found no page errors and no layout overflow besides these.
+
 ## 4.3.8: from the first real use of local mode and the backup timer
 
 - **Backup timer:** on Nov 16 it wrote its 14 calendar timers and stopped

@@ -48,5 +48,55 @@ class ReadRetry(unittest.TestCase):
         self.assertIn("(last copied ${esc(d.last_sync_label)})", js)
 
 
+class Review439(unittest.TestCase):
+    def js(self):
+        return (Path(__file__).resolve().parent.parent / "eaveluxos" / "static" / "app.js").read_text(encoding="utf-8")
+
+    def test_no_search_for_an_empty_place(self):
+        self.assertIn("Type a town or ZIP code first.", self.js())
+
+    def test_rejected_keys_say_what_to_check(self):
+        src = (Path(__file__).resolve().parent.parent / "eaveluxos" / "server.py").read_text(encoding="utf-8")
+        self.assertIn("computer's date and time are right (Trimlight checks them too)", src)
+
+    def test_timers_numbered_from_1(self):
+        src = (Path(__file__).resolve().parent.parent / "eaveluxos" / "safety.py").read_text(encoding="utf-8")
+        self.assertIn("list(range(1, MAX_CALENDAR)) + [0]", src)
+
+
+class Paused439(unittest.TestCase):
+    """4.3.9: every 12006 came within minutes of the backup timer's calendar
+    writes (Nov 13 17:22->17:26, Nov 15 17:52->17:56, Nov 16 13:46->13:50)."""
+
+    def setUp(self):
+        import eaveluxos.safety as S
+        self.S = S
+        S.PAUSED = True
+        self.addCleanup(setattr, S, "PAUSED", False)
+
+    def test_turned_on_it_stays_off(self):
+        import copy
+        from eaveluxos.schedule import build_config
+        from eaveluxos.store import DEFAULT_SETTINGS
+        s = copy.deepcopy(DEFAULT_SETTINGS)
+        s["location"].update(latitude=39.95, longitude=-75.16)
+        s["safety"] = {"enabled": True, "days": 7}
+        cfg = build_config(s, {"client_id": "x", "client_secret": "y"})
+        self.assertFalse(cfg.safety["enabled"])
+        self.assertTrue(cfg.safety["wanted"])
+
+    def test_the_hardware_test_skips_the_timer(self):
+        src = (Path(__file__).resolve().parent.parent / "eaveluxos" / "hwtest.py").read_text(encoding="utf-8")
+        self.assertIn('"paused since 4.3.9"', src)
+
+    def test_the_panel_says_so(self):
+        js = (Path(__file__).resolve().parent.parent / "eaveluxos" / "static" / "app.js").read_text(encoding="utf-8")
+        self.assertIn("Paused in this version.", js)
+
+    def test_shipped_paused(self):
+        src = (Path(__file__).resolve().parent.parent / "eaveluxos" / "safety.py").read_text(encoding="utf-8")
+        self.assertIn("\nPAUSED = True\n", src)
+
+
 if __name__ == "__main__":
     unittest.main()
