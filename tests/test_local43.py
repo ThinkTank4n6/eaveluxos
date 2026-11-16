@@ -318,6 +318,59 @@ class ReviewFixes431(ServerBase):
             self.loc.save(custom(0, "A name much too long for it", [(1, 0xFF0000)]))
 
 
+class Reliability436(ServerBase):
+    """4.3.6: Pattern backups said "The controller didn't answer" while Test
+    connection read the controller fine."""
+
+    def test_a_keep_alive_comes_first(self):
+        self.ctl.needs_ping = True
+        self.assertEqual(len(self.loc.read()["patterns"]), 9)
+
+    def test_panels_opened_together_share_one_connection(self):
+        import threading
+        out, errs = [], []
+
+        def read():
+            try:
+                out.append(self.app.local_state(fresh=True))
+            except Exception as e:          # noqa: BLE001
+                errs.append(e)
+        ts = [threading.Thread(target=read) for _ in range(3)]
+        [t.start() for t in ts]
+        [t.join() for t in ts]
+        self.assertEqual((len(out), errs), (3, []))
+        self.assertEqual(self.ctl.most_active, 1, "one connection at a time")
+        n = len([1 for _, _, b in self.ctl.frames(L.CMD_REQUEST) if b[0] == L.SUB_TIME])
+        self.app.local_state()
+        self.assertEqual(len([1 for _, _, b in self.ctl.frames(L.CMD_REQUEST) if b[0] == L.SUB_TIME]), n,
+                         "a read seconds ago is shared")
+
+    def test_tries_once_more(self):
+        self.ctl.silent_reads = 1
+        self.assertEqual(len(self.loc.read()["patterns"]), 9)
+
+    def test_not_during_a_show_from_this_computer(self):
+        from eaveluxos.server import ApiError
+        self.app.lanshow.running = lambda: True
+        with self.assertRaises(ApiError) as cm:
+            self.app.local_state()
+        self.assertIn("music show", str(cm.exception))
+
+    def test_back_up_now(self):
+        from eaveluxos import restore
+        r = self.app.local_backup()
+        self.assertEqual(r["patterns"], 9)
+        listed = restore.list_backups(self.app.safety.backup_dir)
+        self.assertIn(r["file"], [b["file"] for b in listed])
+        det = restore.read_backup(self.app.safety.backup_dir, r["file"])
+        self.assertEqual(len(restore.patterns_in(det)), 9)
+
+    def test_screen(self):
+        js = (ROOT / "eaveluxos" / "static" / "app.js").read_text(encoding="utf-8")
+        self.assertIn("data-lcbackup", js)
+        self.assertIn("so patterns can\\u2019t be put back yet", js)
+
+
 class SampleFilesReachGitHub(unittest.TestCase):
     """4.3.4: ".gitignore" kept tests/data off GitHub, so its tests failed there."""
 

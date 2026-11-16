@@ -1,7 +1,7 @@
 # EaveLuxOS: User Manual
 ### The Intelligent Lighting Control Platform
 
-Version 4.3.5 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
+Version 4.3.6 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
 
 > **Downloaded the ready-made app? You can skip most of the setup.**
 > The downloads on the project's GitHub **Releases** page
@@ -1634,6 +1634,9 @@ the owner's own patterns.
    computer** uses.
 3. The panel lists the ports and every pattern saved on the controller, with
    its number and colors, read from the controller itself.
+4. **Back up now** saves those patterns and ports on this computer (in the
+   controller-backups folder, listed under Pattern backups) and downloads a
+   copy. Do it before changing patterns in the Trimlight app, too.
 
 What goes over the home network:
 

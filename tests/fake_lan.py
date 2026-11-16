@@ -29,6 +29,9 @@ class FakeController:
         self.noise = noise
         self.holds = holds
         self.ignore = set()
+        self.needs_ping = False
+        self.silent_reads = 0            # don't answer this many clock requests          # 4.3.6: no answer to a request before a keep-alive
+        self.active = self.most_active = 0
         self.off_reads_zero = False      # report a port that is off as 0-0
         self.tidies_slots = False        # store unused color slots as 00 00 00 00 01
         self.greet, self.answer_pings, self.close_after = greet, answer_pings, close_after
@@ -57,6 +60,10 @@ class FakeController:
 
     def _serve(self, c):
         buf, frames = b"", 0
+        pinged = False
+        with self.lock:
+            self.active += 1
+            self.most_active = max(self.most_active, self.active)
         c.settimeout(5)
         try:
             while not self.stopping:
@@ -77,6 +84,10 @@ class FakeController:
                 for kind, cmd, body in msgs:
                     with self.lock:
                         self.got.append((kind, cmd, body))
+                    if kind == "frame" and cmd == L.CMD_PING:
+                        pinged = True
+                    if self.needs_ping and not pinged and kind == "frame" and cmd == L.CMD_REQUEST:
+                        continue
                     try:
                         self._answer(c, kind, cmd, body)
                     except OSError:
@@ -86,6 +97,8 @@ class FakeController:
                         if self.close_after and frames >= self.close_after:
                             return
         finally:
+            with self.lock:
+                self.active -= 1
             c.close()
 
     def _answer(self, c, kind, cmd, body):
@@ -97,6 +110,8 @@ class FakeController:
             if self.answer_pings is not True:     # a number: answer that many, then go quiet
                 self.answer_pings -= 1
             c.sendall((self.NOISE if self.noise else b"") + L.MAGIC + b"\x0b\x00\x00\x01\x00")
+        elif kind == "frame" and cmd == L.CMD_REQUEST and body[:1] == bytes([L.SUB_TIME]) and self.silent_reads:
+            self.silent_reads -= 1
         elif kind == "frame" and cmd == L.CMD_REQUEST and body[:1] == bytes([L.SUB_TIME]):
             if self.holds is None:
                 c.sendall(L.frame(L.CMD_REQUEST, L.request(L.SUB_TIME, DUMP)))

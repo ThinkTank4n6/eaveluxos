@@ -285,6 +285,8 @@ class App:
         self.lan_seen = {"address": None, "ok": None, "at": 0.0, "checking": False, "gen": 0}  # answering there? (4.1.2)
         self.lan_lock = threading.Lock()     # guards lan_seen (4.1.4)
         self.local_busy = threading.Lock()   # one local-mode job at a time (4.3.1)
+        self.lan_io = threading.Lock()       # one connection to the controller at a time (4.3.6)
+        self._local_seen = (0.0, None)       # the last read, shared by panels opened together
         self._port_base = {}         # controller id -> 0 or 1 (how it numbers its ports)
         self._port_write_base = {}   # controller id -> 0 or 1 when the cloud takes other numbers than it shows (4.0.3)
         self._bulbs = None           # last bulb count read from the controller (zones without a House map total)
@@ -880,7 +882,8 @@ class App:
         if write:
             self.safety.hold()        # no backup-timer writes next to these
         return localmode.Local(addr, now=self.controller_now, backup=lambda det: self.safety._backup(dev, det),
-                               lock=self.ctrl.apply_lock if self.ctrl else None, busy=self.local_busy), dev
+                               lock=self.ctrl.apply_lock if self.ctrl else None, busy=self.local_busy,
+                               io=self.lan_io), dev
 
     def controller_now(self):
         """The time the controller should hold: reading it over the home
@@ -890,6 +893,7 @@ class App:
         return self.now() + timedelta(minutes=self.clock_offset())
 
     def _after_local_write(self, dev: str):
+        self._local_seen = (0.0, None)
         """The controller changed without the cloud: forget what was read
         through it, and ask the controller to send Trimlight's cloud a fresh
         copy (a read for the cloud, not a write to the controller)."""
@@ -904,16 +908,31 @@ class App:
                 log.info("Couldn't ask the controller to update Trimlight's cloud: %s", e)
         threading.Thread(target=nudge, daemon=True).start()
 
-    def local_state(self) -> dict:
+    def local_state(self, fresh: bool = False) -> dict:
+        if self.lanshow.running():
+            raise ApiError("A music show from this computer is using the connection to the controller. "
+                           "Stop it to read the controller.", 409)
         loc, dev = self.local(write=False)
-        try:
-            st = loc.read()
-        except localmode.LocalError as e:
-            raise ApiError(str(e), 502) from None
+        t, st = self._local_seen
+        if fresh or st is None or time.time() - t > 5:   # two panels opened together share one read (4.3.6)
+            try:
+                st = loc.read()
+            except localmode.LocalError as e:
+                raise ApiError(str(e), 502) from None
+            self._local_seen = (time.time(), st)
         return {"address": loc.host, "device": dev, "ports": st["ports"],
                 "patterns": [{"id": p["id"], "name": p["name"], "mode": p["mode"], "speed": p["speed"],
                               "brightness": p["brightness"],
                               "colors": [[c, col] for c, col, on in p["slots"] if c and on]} for p in st["patterns"]]}
+
+    def local_backup(self) -> dict:
+        """Save what the controller holds now as a backup (Local mode › Back
+        up now, 4.3.6), listed under Pattern backups and downloadable."""
+        loc, dev = self.local(write=False)
+        st = self.local_state(fresh=True)
+        name = self.safety._backup(dev, localmode.as_backup(self._local_seen[1]))
+        log.info("Backed up the controller over the home network: %s (%d patterns)", name, len(st["patterns"]))
+        return {"file": name, "patterns": len(st["patterns"])}
 
     def local_ports(self, ports) -> dict:
         loc, dev = self.local()
@@ -1023,6 +1042,8 @@ class App:
         if self.local_busy.locked():
             raise ApiError("A change to the controller over the home network is running. Try again when it's done.", 409)
         self.safety.hold()      # no backup-timer writes next to local-link use (4.2.1)
+        if not self.lan_io.acquire(timeout=30):
+            raise ApiError("The connection to the controller is busy. Try again in a moment.", 409)
         try:
             with lanlink.Link(addr) as link:
                 ms = link.ping()
@@ -1033,6 +1054,8 @@ class App:
         except lanlink.LinkError as e:
             self._lan_result(addr, False)
             raise ApiError(str(e), 502) from None
+        finally:
+            self.lan_io.release()
         self._lan_result(addr, True)
         log.info("Local link to %s works (%s ms)%s", addr, out["ms"], " and read the controller" if read else "")
         return out
@@ -2128,7 +2151,7 @@ def make_server(app: App, host: str, port: int):
             if path == "/api/backups":                 # controller backups to restore patterns from (3.15)
                 return restore.list_backups(app.safety.backup_dir)
             if path == "/api/local":                    # Administrators: the controller over the home network (4.3)
-                return app.local_state()
+                return app.local_state(q.get("fresh") == "1")
             if path == "/api/backups/patterns":
                 try:
                     det = restore.read_backup(app.safety.backup_dir, q.get("file", ""))
@@ -2258,6 +2281,8 @@ def make_server(app: App, host: str, port: int):
                 return app.restore_patterns(b.get("file"), b.get("ids"))
             if path == "/api/local/ports":          # Administrators (4.3)
                 return app.local_ports(b.get("ports"))
+            if path == "/api/local/backup":         # Administrators (4.3.6)
+                return app.local_backup()
             if path == "/api/local/delete":         # Administrators (4.3)
                 return app.local_delete(b.get("id"), b.get("name"))
             if path == "/api/textpattern":         # Editors: describe a pattern in words (3.18)

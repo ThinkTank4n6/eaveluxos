@@ -2638,11 +2638,13 @@ async function backupPanel(box, d) {
     box.innerHTML = '<h2>Pattern backups</h2><p class="callout small">Since 4.3 patterns are put back over your home network, never through Trimlight\u2019s cloud. Enter the controller\u2019s address in <b>Local mode</b> above first.</p>';
     return;
   }
-  let live;
-  try { live = await api('local'); } catch (e) { if (box.dataset.tok === tok) box.innerHTML = `<h2>Pattern backups</h2><p class="callout warn small">${esc(e.message)}</p>`; return; }
+  // 4.3.6: if the controller can't be read just now, the backups are still
+  // listed (and can be downloaded); putting back waits until it can be read.
+  let live = null, liveErr = '';
+  try { live = await api('local'); } catch (e) { liveErr = e.message; }
   if (box.dataset.tok !== tok) return;
-  const have = new Set(live.patterns.map(e => String(e.name || '').trim().toLowerCase()));
-  d = { ...d, error: null };
+  const have = new Set((live ? live.patterns : []).map(e => String(e.name || '').trim().toLowerCase()));
+  d = { ...d, error: live ? null : liveErr };
   if (!list.length) {
     box.innerHTML = '<h2>Pattern backups</h2><p class="muted small">No backups of this controller yet. One is taken before every change the backup timer makes (Setup › Lights & controller).</p>';
     return;
@@ -2650,6 +2652,7 @@ async function backupPanel(box, d) {
   const pick = S.bkFile && list.some(b => b.file === S.bkFile) ? S.bkFile : list[0].file;
   box.innerHTML = `<h2>Pattern backups</h2>
     <p class="note">Put patterns back on the controller, for example after a factory reset or deleting one by mistake. It only adds: patterns already on the controller are left alone. It works over your home network, one pattern at a time, reading the controller back after each and stopping at the first difference. A pattern gets its old number when that\u2019s free, so timers made in the Trimlight app find it again.</p>
+    ${liveErr ? `<p class="callout warn small">Couldn\u2019t read the controller just now (${esc(liveErr)}), so patterns can\u2019t be put back yet. The backups are listed below. Open Local mode and tap Read again, then come back.</p>` : ''}
     <label class="field">Backup<select id="bkfile">${list.map(b => `<option value="${esc(b.file)}" ${b.file === pick ? 'selected' : ''}>${esc(b.label)} (${b.patterns} patterns)</option>`).join('')}</select></label>
     <div id="bklist"><p class="muted small">Loading…</p></div>`;
   const load = async file => {
@@ -2685,7 +2688,7 @@ async function backupPanel(box, d) {
    put back and deleted only this way, never through Trimlight's cloud; ports
    too when the address is known. */
 const lanAddr = () => ((S.settings || {}).lan || {}).address || '';
-async function localPanel(box) {
+async function localPanel(box, fresh = false) {
   if (!box) return;
   const addr = lanAddr();
   const head = `<h2>Local mode (home network)</h2>
@@ -2697,12 +2700,13 @@ async function localPanel(box) {
   else {
     box.innerHTML = head + '<div id="lcbody"><p class="muted small">Reading the controller\u2026</p></div>';
     try {
-      const st = await api('local');
+      const st = await api('local' + (fresh ? '?fresh=1' : ''));
       $('#lcbody', box).innerHTML = `<p class="small">Ports: ${st.ports.map(p => `${p.port}: ${p.start}\u2013${p.end}`).join(' \u00b7 ')}</p>
         <h3 style="margin:8px 0 4px">On the controller now (${st.patterns.length})</h3>
         <div class="list">${st.patterns.map(p => `<div class="item"><div class="grow"><b>${esc(p.name)}</b> <span class="small muted">#${p.id}</span>
           <div>${swatches(p.colors.map(c => c[1]), 10)}</div></div><button class="small ghost danger" data-lcdel="${p.id}" data-name="${esc(p.name)}">Delete</button></div>`).join('') || '<p class="muted small">No saved patterns.</p>'}</div>
-        <div class="row" style="margin-top:8px"><button class="small ghost" data-lcread>Read again</button></div>`;
+        <div class="row" style="margin-top:8px"><button class="small ghost" data-lcread>Read again</button>
+          <button class="small" data-lcbackup>Back up now</button><span class="small muted">Saves these patterns and ports on this computer (listed under Pattern backups).</span></div>`;
     } catch (e) { $('#lcbody', box).innerHTML = `<p class="callout warn small">${esc(e.message)}</p><div><button class="small ghost" data-lcread>Try again</button></div>`; }
   }
   box.onclick = async e => {
@@ -2710,7 +2714,14 @@ async function localPanel(box) {
     if (ds.lcsave !== undefined) return busy(b, async () => { await api('musiclink/address', { body: { address: $('#lcaddr', box).value.trim() } }); S.settings = await api('settings'); toast('Saved'); localPanel(box); }).catch(() => {});
     if (ds.lcfind !== undefined) return busy(b, async () => { const r = await api('musiclink/find', { body: {} });
       if (r.found.length) { $('#lcaddr', box).value = r.found[0]; toast(r.found.length === 1 ? 'Found it. Tap Save.' : `Found ${r.found.length}: ${r.found.join(', ')}`); } else toast('No controller answered. Enter its address instead.', true); }).catch(() => {});
-    if (ds.lcread !== undefined) return localPanel(box);
+    if (ds.lcread !== undefined) return localPanel(box, true);
+    if (ds.lcbackup !== undefined) return busy(b, () => api('local/backup', { body: {} })).then(async r => {
+      toast(`Backed up ${r.patterns} pattern${r.patterns === 1 ? '' : 's'}`);
+      const data = await api('safety/backup?file=' + encodeURIComponent(r.file));
+      const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
+      const a = document.createElement('a'); a.href = url; a.download = r.file; a.click(); setTimeout(() => URL.revokeObjectURL(url), 5000);
+      const bk = $('#bkbox'); if (bk && S.lightDevObj) backupPanel(bk, S.lightDevObj);
+    }).catch(() => {});
     if (ds.lcdel !== undefined) {
       if (!await confirmBox(`Delete \u201c${ds.name}\u201d from the controller?`, `It is removed from the controller's own library (the Trimlight app's list) over your home network. Timers in the Trimlight app that use it stop showing it. A backup of the controller is taken first, so it can be put back from Pattern backups.`, 'Delete', true)) return;
       return busy(b, () => api('local/delete', { body: { id: +ds.lcdel, name: ds.name } })).then(() => { toast(`Deleted \u201c${ds.name}\u201d`); S.devices = null; localPanel(box); }).catch(() => {});
@@ -2727,6 +2738,7 @@ VIEWS.lights = async (opts = {}) => {
   if (!devs.length) return alone('<p class="callout">No controllers on this account.</p>');
   S.lightDev = devs.some(d => d.id === S.lightDev) ? S.lightDev : (devs.find(d => d.selected) || devs[0]).id;
   const d = devs.find(x => x.id === S.lightDev);
+  S.lightDevObj = d;
   const ports = [0, 1, 2, 3].map(i => { const p = (d.ports || []).find(x => x.id === i) || { id: i, start: 0, end: 0 }; return { ...p, off: !!p.unused || !(p.start > 0 && p.end > 0) }; });
   // Ports that read "bulbs 1-600" are how the controller reports a port that
   // was never set up; most homes have nothing plugged in there (3.18.1).

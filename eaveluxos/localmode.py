@@ -87,7 +87,7 @@ def _check(before: dict, after: dict, *, added=None, removed=None, port=None):
 
 class Local:
     def __init__(self, host: str, now=datetime.now, backup=None, link_factory=L.Link, gap: float = GAP,
-                 lock=None, busy=None):
+                 lock=None, busy=None, io=None):
         """backup(detail): saves the controller as read first. lock: the
         command lock, held for each change and its read-back, released
         between changes, so a scheduled on/off never waits for a long job."""
@@ -98,6 +98,10 @@ class Local:
         # busy: a lock held for a whole job, so two jobs (two pages, or ports
         # and a restore) never interleave their changes (review #4, 4.3.1).
         self.busy = busy
+        # io: held while a connection is open. 4.3.6: the controller seems to
+        # answer one connection at a time; two panels reading at once (Local
+        # mode and Pattern backups) left one with "didn't answer".
+        self.io = io
 
     def _job(self):
         import contextlib
@@ -116,19 +120,43 @@ class Local:
         return held()
 
     def _open(self):
+        """Connect, greet, and have a keep-alive answered before anything
+        else (4.3.6: as Test connection does, which read the controller when
+        a plain read didn't)."""
+        if self.io is not None and not self.io.acquire(timeout=30):
+            raise LocalError("The connection to the controller is busy. Try again in a moment.")
+        link = None
         try:
-            return self.link_factory(self.host).open()
+            link = self.link_factory(self.host).open()
+            link.ping()
+            return link
         except L.LinkError as e:
+            if link is not None:
+                link.close()
+            if self.io is not None:
+                self.io.release()
             raise LocalError(f"Couldn't reach the controller on the home network: {e}") from None
 
-    def read(self) -> dict:
-        link = self._open()
+    def _close(self, link):
         try:
-            return link.state(self.now())
-        except L.LinkError as e:
-            raise LocalError(f"Couldn't read the controller: {e}") from None
-        finally:
             link.close()
+        finally:
+            if self.io is not None:
+                self.io.release()
+
+    def read(self) -> dict:
+        """Read the controller; once more on a fresh connection if it didn't
+        answer (4.3.6)."""
+        for attempt in (1, 2):
+            link = self._open()
+            try:
+                return link.state(self.now())
+            except L.LinkError as e:
+                if attempt == 2:
+                    raise LocalError(f"Couldn't read the controller: {e}") from None
+            finally:
+                self._close(link)
+            time.sleep(1)
 
     def _start(self, link) -> dict:
         try:
@@ -206,7 +234,7 @@ class Local:
                 restored.append(name)
                 log.info("Put back %r as pattern %s over the home network.", name, pid)
         finally:
-            link.close()
+            self._close(link)
         return {"restored": restored, "skipped": skipped, "duplicates": duplicates, "builtin": builtin}
 
     def save(self, effect: dict) -> int:
@@ -236,7 +264,7 @@ class Local:
                 raise LocalError(f"Saving “{name}”: {x}. Check your patterns in the Trimlight Edge app.") from None
             return pid
         finally:
-            link.close()
+            self._close(link)
 
     def delete(self, pid: int, name: str):
         """Delete pattern `pid`, only if it is still the one called `name`."""
@@ -256,7 +284,7 @@ class Local:
             except LocalError as x:
                 raise LocalError(f"Deleting “{name}”: {x}. Check your patterns in the Trimlight Edge app.") from None
         finally:
-            link.close()
+            self._close(link)
 
     # ------------------------------------------------------------ ports
     def ports(self, ports) -> list[str]:
@@ -294,5 +322,5 @@ class Local:
                     raise LocalError(f"Stopped at port {i + 1}: {x}. Changed before it: {', '.join(changed) or 'none'}.") from None
                 changed.append(f"port {i + 1}: {a}-{b}{'' if on else ' (off)'}")
         finally:
-            link.close()
+            self._close(link)
         return changed

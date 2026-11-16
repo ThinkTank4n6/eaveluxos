@@ -1,5 +1,25 @@
 # Changelog
 
+## 4.3.6: local mode reads reliably, and Back up now
+
+- **Fixed:** Pattern backups could say "Couldn't read the controller: The
+  controller didn't answer" while Test connection read it fine. Opening
+  Setup › Lights & controller, the Local mode and Pattern backups panels read
+  the controller at the same moment on two connections, and the controller
+  seems to answer one at a time; a plain read also skipped the keep-alive
+  that Test connection sends first. Now there is one connection to the
+  controller at a time (music test, reads and changes alike), each starts
+  with a keep-alive answered, a read that gets no answer is tried once more,
+  and panels opened together share one read.
+- Pattern backups still lists the backups when the controller can't be read
+  just now (putting back waits until it can), instead of showing only the
+  error.
+- **Back up now** in Local mode saves what the controller holds (patterns and
+  ports) on this computer, lists it under Pattern backups and downloads a
+  copy.
+- Reading the controller during a music show from this computer says to stop
+  the show first, instead of timing out.
+
 ## 4.3.5: score celebrations have their own switch
 
 - **Celebrate scores** is now its own switch, separate from **Use game-day
