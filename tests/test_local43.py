@@ -481,9 +481,25 @@ class Mislabeled4310(unittest.TestCase):
         self.addCleanup(shutil.rmtree, d, True)
         old, L.DUMP_DIR = L.DUMP_DIR, d
         self.addCleanup(setattr, L, "DUMP_DIR", old)
-        for _ in range(7):
-            L.save_unread("10.0.0.5", b"\xAB" * 200)
-        self.assertEqual(len(list(d.glob("lan-unread-*.bin"))), L.DUMPS_KEPT)
+        for i in range(7):
+            L.save_unread("10.0.0.5", bytes([i]) * 200)
+        kept = sorted(d.glob("lan-unread-*.bin"))
+        self.assertEqual(len(kept), L.DUMPS_KEPT)
+        self.assertEqual([f.read_bytes()[0] for f in kept], [2, 3, 4, 5, 6], "the newest, none overwritten")
+
+    def test_same_instant_never_overwrites(self):
+        from unittest import mock
+        from datetime import datetime as real
+        d = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, d, True)
+        old, L.DUMP_DIR = L.DUMP_DIR, d
+        self.addCleanup(setattr, L, "DUMP_DIR", old)
+        frozen = mock.Mock(wraps=real)
+        frozen.now.return_value = real(2026, 11, 16, 20, 33, 49, 488586)     # Windows: the same tick each time
+        with mock.patch.object(L, "datetime", frozen):
+            for i in range(3):
+                L.save_unread("10.0.0.5", bytes([i]) * 200)
+        self.assertEqual(len(list(d.glob("lan-unread-*.bin"))), 3)
 
     def test_backups_keep_the_raw_answer(self):
         st = L.read_state(FACTORY)

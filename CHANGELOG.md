@@ -1,5 +1,13 @@
 # Changelog
 
+## 4.3.11: the Windows test
+
+- **Fixed:** GitHub's Windows test of 4.3.10 failed ("4 != 5"): Windows'
+  clock gave two saved unreadable messages the same microsecond, so one
+  overwrote the other. Names are now numbered within the second and never
+  reused (as controller backups already were), and a test freezes the clock
+  to check it.
+
 ## 4.3.10: reading a controller whose own data is off
 
 - **Fixed:** on Nov 16 at 3:13 PM the controller answered a read with 1,940

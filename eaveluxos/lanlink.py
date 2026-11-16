@@ -206,7 +206,14 @@ def save_unread(host: str, raw: bytes):
     try:
         d = Path(DUMP_DIR)
         d.mkdir(parents=True, exist_ok=True)
-        name = d / f"lan-unread-{datetime.now():%Y%m%d-%H%M%S-%f}.bin"
+        # A unique name: Windows' clock can give two saves the same
+        # microsecond (4.3.11; GitHub's Windows test overwrote one).
+        stamp = f"{datetime.now():%Y%m%d-%H%M%S}"
+        n = len(list(d.glob(f"lan-unread-{stamp}-*.bin")))
+        name = d / f"lan-unread-{stamp}-{n:03d}.bin"
+        while name.exists():
+            n += 1
+            name = d / f"lan-unread-{stamp}-{n:03d}.bin"
         name.write_bytes(raw)
         old = sorted(d.glob("lan-unread-*.bin"))[:-DUMPS_KEPT]
         for f in old:
