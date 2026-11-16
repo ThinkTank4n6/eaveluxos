@@ -204,6 +204,10 @@ class BackgroundSwitches(unittest.TestCase):
             a.updates.start = lambda: started.append("updates")
             a.alerts.start = lambda: started.append("alerts")
             a.gameday.start = lambda *x: started.append("gameday")
+            # The others aren't part of this test, but must not start for real
+            # either: they'd outlive the closed database (4.3.4).
+            a.country.start = lambda *x: None
+            a.scores.start = lambda *x: None
             with mock.patch.dict(os.environ, env):
                 a.start()
             return started

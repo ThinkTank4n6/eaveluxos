@@ -318,6 +318,19 @@ class ReviewFixes431(ServerBase):
             self.loc.save(custom(0, "A name much too long for it", [(1, 0xFF0000)]))
 
 
+class SampleFilesReachGitHub(unittest.TestCase):
+    """4.3.4: ".gitignore" kept tests/data off GitHub, so its tests failed there."""
+
+    def test_not_ignored(self):
+        import shutil as sh
+        import subprocess
+        if not (sh.which("git") and (ROOT / ".git").exists()):
+            self.skipTest("not a git checkout")
+        files = [str(f.relative_to(ROOT)) for f in DATA.iterdir()]
+        r = subprocess.run(["git", "check-ignore", *files], cwd=ROOT, capture_output=True, text=True, encoding="utf-8")
+        self.assertEqual(r.stdout.strip(), "", "ignored by .gitignore: " + r.stdout)
+
+
 class NoCloudPatternWrites(unittest.TestCase):
     def test_nothing_calls_them(self):
         for f in (ROOT / "eaveluxos").glob("*.py"):

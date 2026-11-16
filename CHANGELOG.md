@@ -1,5 +1,19 @@
 # Changelog
 
+## 4.3.4: tests pass on GitHub again
+
+- **Fixed:** the tests' sample controller files (tests/data, new in 4.3.0)
+  never reached GitHub: the ".gitignore" line that keeps your private data
+  folder out (data/) matched them too, so the local-mode tests failed there on
+  Ubuntu and Windows. Only the app's own data folder is ignored now, and a
+  test checks the sample files aren't.
+- A test of the background services started the real holiday and score
+  threads, which then logged "Cannot operate on a closed database" for the
+  rest of the run. They're stubbed out like the others.
+- After a change over the home network, the app asks the controller to
+  update Trimlight's cloud in the background; if the app was closing at that
+  moment, that printed an error. It's now only noted in the log.
+
 ## 4.3.3: ESPN review fixes
 
 - **Fixed (most important):** since 4.3.2 a game starting after midnight

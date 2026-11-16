@@ -892,7 +892,7 @@ class App:
         def nudge():
             try:
                 self.client().resync(dev, self.now())
-            except (ApiError, TrimlightError, OSError) as e:
+            except Exception as e:      # best effort, and never a traceback (the app may be closing, 4.3.4)
                 log.info("Couldn't ask the controller to update Trimlight's cloud: %s", e)
         threading.Thread(target=nudge, daemon=True).start()
 

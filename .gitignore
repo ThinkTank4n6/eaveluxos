@@ -1,6 +1,9 @@
 # NEVER commit your data folder: it holds your Trimlight credentials,
 # password hash, sign-ins, house photos and controller backups.
 data/
+# ...but the tests' own sample files are part of the project (4.3.4: "data/"
+# also matched tests/data, so they never reached GitHub and its tests failed).
+!/tests/data/
 *.db
 *.db-wal
 *.db-shm
