@@ -411,6 +411,11 @@ class Commands:
         if not self.usable(dev) or not self.io.acquire(timeout=3):
             return None
         try:
+            if self.blocked():
+                # A show from this computer may have started while this
+                # waited for the connection (it holds it while starting):
+                # a command now would end the show (4.4.1).
+                return None
             link = self.link_factory(self.host()).open()
             try:
                 link.ping()
@@ -422,8 +427,10 @@ class Commands:
                 return out
             finally:
                 link.close()
-        except (L.LinkError, ValueError) as e:
+        except Exception as e:          # never keep the cloud from doing it instead (4.4.1)
             self.failed_at = time.monotonic()
+            if not isinstance(e, (L.LinkError, ValueError)):
+                log.exception("Unexpected trouble over the home network")
             log.warning("Over the home network didn't work (%s); using Trimlight's cloud for %d minutes.",
                         e, self.RETRY_AFTER // 60)
             return None
@@ -431,10 +438,16 @@ class Commands:
             self.io.release()
 
     def power(self, dev, on: bool) -> bool:
-        return self._do(dev, lambda link: link.power(on) or True) is True
+        done = self._do(dev, lambda link: link.power(on) or True) is True
+        if done:                        # each one in the log, so it can be seen working (4.4.1)
+            log.info("Over the home network: lights %s.", "on" if on else "off")
+        return done
 
     def show(self, dev, pid: int) -> bool:
-        return self._do(dev, lambda link: link.show_saved(pid) or True) is True
+        done = self._do(dev, lambda link: link.show_saved(pid) or True) is True
+        if done:
+            log.info("Over the home network: showed saved pattern %d.", pid)
+        return done
 
     def switch(self, dev):
         """1 on, 0 off, as the controller itself says; None if unknown."""

@@ -98,7 +98,7 @@ class Controller:
         self.cfg = cfg
         self.api = api
         self.lan = None                       # localmode.Commands when the server sets it (4.4)
-        self.lan_sent: dict = {}              # deviceId -> True when its last command went over the home network
+        self.lan_sent: dict = {}              # deviceId -> {"switch", "pattern"}: which last went over the home network
         self.lock = threading.RLock()
         self.stop_event = threading.Event()
         self.wake = threading.Event()         # wakes the loop early (stop, a flash starting)
@@ -309,17 +309,27 @@ class Controller:
         works (4.4), else through Trimlight's cloud. Timer mode (2) always
         goes through the cloud."""
         if state in (0, 1) and self.lan is not None and self.lan.power(dev, state == 1):
-            self.lan_sent[dev] = True
+            self._sent(dev, "switch", True)
             return
-        self.lan_sent.pop(dev, None)
+        self._sent(dev, "switch", False)
         self.api.set_switch(dev, state)
 
     def _show_saved(self, dev: str, pid: int):
         if self.lan is not None and self.lan.show(dev, pid):
-            self.lan_sent[dev] = True
+            self._sent(dev, "pattern", True)
             return
-        self.lan_sent.pop(dev, None)
+        self._sent(dev, "pattern", False)
         self.api.run_saved_effect(dev, pid)
+
+    def _sent(self, dev: str, what: str, local: bool):
+        """Note which way the on/off ("switch") and the pattern last went
+        (4.4.1). Each is checked where it was sent: the cloud doesn't hear
+        about a change made over the home network, so after a local "on" and
+        a pattern through the cloud, the cloud still says off."""
+        got = self.lan_sent.setdefault(dev, set())
+        (got.add if local else got.discard)(what)
+        if not got:
+            self.lan_sent.pop(dev, None)
 
     def _apply(self, on: bool, effect, levels: dict | None = None, timer_off: bool = False, delegated: bool = False):
         """timer_off: when off, use Timer mode (safety net) instead of Off.
@@ -365,7 +375,7 @@ class Controller:
                 else:
                     payload.update(lv)
                 self.api.preview_effect(dev, payload)
-                self.lan_sent.pop(dev, None)           # this one went through the cloud
+                self._sent(dev, "pattern", False)       # this one went through the cloud
                 self.sent_effect[dev] = payload
         self.status_cache["at"] = 0.0
         return on and not some_off          # "all switched on": else the next pattern switches each one on
@@ -717,10 +727,10 @@ class Controller:
         # 4.4: a controller set over the home network is checked there too;
         # Trimlight's cloud may not have caught up with it yet.
         for d in snap:
-            if self.lan_sent.get(d["id"]) and self.lan is not None:
+            if "switch" in self.lan_sent.get(d["id"], ()) and self.lan is not None:
                 sw = self.lan.switch(d["id"])
                 if sw in (0, 1):
-                    d["switch_raw"] = sw
+                    d["switch_raw"], d["switch"] = sw, ("off", "on")[sw]     # Home shows it too (4.4.1)
         restored = None
         with self.lock:
             self.status_cache = {"at": now, "data": snap}
@@ -739,7 +749,7 @@ class Controller:
                 self.pattern_mismatches = 0
                 self._invalidate()
                 restored = ", ".join(str(d["name"]) for d in wrong)
-            elif not wrong and not any(self.lan_sent.get(d["id"]) for d in snap):
+            elif not wrong and not any("pattern" in self.lan_sent.get(d["id"], ()) for d in snap):
                 restored = self._check_pattern(t, snap)   # (the cloud's view of the pattern lags local commands)
         self._save_reported()
         if restored:

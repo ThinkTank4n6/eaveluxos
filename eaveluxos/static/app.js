@@ -2702,17 +2702,19 @@ async function localPanel(box, fresh = false) {
     <div class="row" style="align-items:flex-end">
       <label class="field" style="flex:1;min-width:180px">Controller\u2019s address on your home network<input type="text" id="lcaddr" value="${esc(addr)}" placeholder="e.g. 192.168.1.50" inputmode="decimal" spellcheck="false"></label>
       <button class="small" data-lcsave>Save</button><button class="small ghost" data-lcfind>Find it</button></div>`;
+  // The setting is reachable even when the controller can't be read just
+  // now (4.4.1: it used to show only after a good read).
+  const cmd = addr ? `<label class="check" style="margin-top:8px"><input type="checkbox" id="lccmd" ${((S.settings || {}).lan || {}).commands ? 'checked' : ''}>
+          <span><b>Send on/off and saved patterns over the home network</b> <span class="pill">Try it</span><br><span class="small muted">The schedule turns the lights on and off, and shows patterns saved on the controller, straight over your home network instead of through Trimlight\u2019s cloud. If that doesn\u2019t work, it uses the cloud as before. Patterns of your own colors and built-in effects still go through the cloud.</span></span></label>` : '';
   if (!addr) { box.innerHTML = head + '<p class="callout small">Enter the address (the Trimlight Edge app shows it when you open the controller on your home Wi-Fi), or tap <b>Find it</b>.</p>'; }
   else {
-    box.innerHTML = head + '<div id="lcbody"><p class="muted small">Reading the controller\u2026</p></div>';
+    box.innerHTML = head + cmd + '<div id="lcbody"><p class="muted small">Reading the controller\u2026</p></div>';
     try {
       const st = await api('local' + (fresh ? '?fresh=1' : ''));
       $('#lcbody', box).innerHTML = `<p class="small">Ports: ${st.ports.map(p => `${p.port}: ${p.start}\u2013${p.end}`).join(' \u00b7 ')}</p>
         <h3 style="margin:8px 0 4px">On the controller now (${st.patterns.length})</h3>
         <div class="list">${st.patterns.map(p => `<div class="item"><div class="grow"><b>${esc(p.name)}</b> <span class="small muted">#${p.id}</span>
           <div>${swatches(p.colors.map(c => c[1]), 10)}</div></div><button class="small ghost danger" data-lcdel="${p.id}" data-name="${esc(p.name)}">Delete</button></div>`).join('') || '<p class="muted small">No saved patterns.</p>'}</div>
-        <label class="check" style="margin-top:8px"><input type="checkbox" id="lccmd" ${((S.settings || {}).lan || {}).commands ? 'checked' : ''}>
-          <span><b>Send on/off and saved patterns over the home network</b> <span class="pill">Try it</span><br><span class="small muted">The schedule turns the lights on and off, and shows patterns saved on the controller, straight over your home network instead of through Trimlight\u2019s cloud. If that doesn\u2019t work, it uses the cloud as before. Patterns of your own colors and built-in effects still go through the cloud.</span></span></label>
         <div class="row" style="margin-top:8px"><button class="small ghost" data-lcread>Read again</button>
           <button class="small" data-lcbackup>Back up now</button><span class="small muted">Saves these patterns and ports on this computer (listed under Pattern backups).</span></div>`;
     } catch (e) { $('#lcbody', box).innerHTML = `<p class="callout warn small">${esc(e.message)}</p><div><button class="small ghost" data-lcread>Try again</button></div>`; }

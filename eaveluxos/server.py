@@ -286,6 +286,7 @@ class App:
         self.lanshow = lanlink.Streamer(on_end=self._musiclink_ended)          # music from this computer (4.1)
         self.lan_seen = {"address": None, "ok": None, "at": 0.0, "checking": False, "gen": 0}  # answering there? (4.1.2)
         self.lan_lock = threading.Lock()     # guards lan_seen (4.1.4)
+        self._resync_at = None               # the last Resync with Trimlight's cloud (4.4.1)
         self.local_busy = threading.Lock()   # one local-mode job at a time (4.3.1)
         self.lan_io = threading.Lock()       # one connection to the controller at a time (4.3.6)
         self._local_seen = (0.0, None, None)  # the last read (time, state, address), shared by panels opened together
@@ -943,12 +944,16 @@ class App:
         the cloud a fresh copy of its data, then read it back. What the
         Trimlight app's sync did, without the Trimlight app. Reads only; it
         changes nothing on the controller."""
+        with self.lan_lock:
+            if self._resync_at is not None and time.monotonic() - self._resync_at < 30:
+                raise ApiError("Resync was just asked for; give the controller a minute.", 429)
+            self._resync_at = time.monotonic()
         api = self.client()
         out = []
         for dev in self.target_devices():
             now = self.now()
-            api.resync(dev, now)
-            try:
+            try:                        # one controller's trouble doesn't skip the others (4.4.1)
+                api.resync(dev, now)
                 api.get_device(dev, now, resync=False)
                 out.append({"device": dev, "ok": True})
             except TrimlightError as e:
@@ -1024,10 +1029,15 @@ class App:
         if start:
             def check():
                 # 4.4: waits its turn for the connection like everything else
-                # (a probe next to a show may have dropped it, Nov 16, 5:45 PM);
-                # busy means something is using the controller, so it answers.
+                # (a probe next to a show may have dropped it, Nov 16, 5:45 PM).
                 if not self.lan_io.acquire(blocking=False):
-                    ok = True
+                    # Busy: something is talking to it (or waiting to). Keep
+                    # what was known and check again on the next look; a
+                    # connection stuck waiting on a controller that's gone
+                    # isn't proof it answers (4.4.1).
+                    with self.lan_lock:
+                        seen["checking"] = False
+                    return
                 else:
                     try:
                         with socket.create_connection((addr, lanlink.TCP_PORT), timeout=1.5):

@@ -1,5 +1,33 @@
 # Changelog
 
+## 4.4.1: review of 4.4
+
+- Each command that goes over the home network is now in the log ("Over the
+  home network: lights off."), so you can see it working; before, only a
+  failure was.
+- With "Send on/off and saved patterns over the home network" on, a rule
+  showing a pattern of its own colors turned the lights on over the home
+  network but sent the pattern through the cloud, and the app then went back
+  to trusting the cloud's on/off. The cloud doesn't hear about changes made
+  over the home network, so every check saw "off", warned "changed outside
+  this app" and sent everything again. On/off and the pattern are now
+  tracked separately, each checked where it was sent
+  (tests/repro_mixed_paths.py).
+- Home showed the cloud's on/off for a controller switched over the home
+  network; it now shows what the controller says.
+- A music show from this computer that started while a command waited for
+  the connection could be ended by it; the command now goes through the
+  cloud instead.
+- Anything unexpected going wrong over the home network now falls back to
+  the cloud, instead of leaving the lights as they were.
+- The checkbox sits under the controller's address and is there even when
+  the controller can't be read just then (it only showed after a good read).
+- The reachability check no longer counts "busy" as "answers" (a connection
+  stuck waiting on a controller that's gone isn't proof); it keeps what was
+  known and checks again on the next look.
+- Resync with Trimlight's cloud: a second tap within 30 seconds is refused,
+  and one controller's trouble doesn't skip the others.
+
 ## 4.4.0: local first
 
 - **Send on/off and saved patterns over the home network** (Setup › Lights

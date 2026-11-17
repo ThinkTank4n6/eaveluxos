@@ -1,7 +1,7 @@
 # EaveLuxOS: User Manual
 ### The Intelligent Lighting Control Platform
 
-Version 4.4.0 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
+Version 4.4.1 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
 
 > **Downloaded the ready-made app? You can skip most of the setup.**
 > The downloads on the project's GitHub **Releases** page
@@ -1644,11 +1644,15 @@ the owner's own patterns.
    *Try it*): the schedule then turns the lights on and off, and shows
    patterns saved on the controller, straight over your home network instead
    of through Trimlight's cloud, which is quicker and keeps working when the
-   cloud has trouble. If the controller doesn't answer there, the app uses
-   the cloud as before for 5 minutes. Patterns of your own colors and the
-   built-in effects still go through the cloud, and nothing is sent this way
-   during a music show from this computer. The app also checks the lights'
-   on/off state with the controller itself.
+   cloud has trouble. The checkbox sits right under the address, and is
+   there even when the controller can't be read just then. If the controller
+   doesn't answer there, the app uses the cloud as before for 5 minutes.
+   Patterns of your own colors and the built-in effects still go through the
+   cloud, and nothing is sent this way during a music show from this
+   computer. The app checks the lights' on/off with the controller itself.
+   While a saved pattern was sent this way, the app can't yet tell if someone
+   changed the pattern with the Trimlight app (on/off is still checked and
+   put back).
 5. **Back up now** saves those patterns and ports on this computer (in the
    controller-backups folder, listed under Pattern backups) and downloads a
    copy. Do it before changing patterns in the Trimlight app, too.

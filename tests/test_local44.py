@@ -54,6 +54,15 @@ class Commands(ServerBase):
         with mock.patch("eaveluxos.localmode.time.monotonic", return_value=12.0):
             self.assertTrue(self.app.ctrl.lan.usable(DEV))
 
+    def test_each_one_in_the_log(self):
+        """4.4.1: a command that went over the home network says so."""
+        self.turn(True)
+        with self.assertLogs("eaveluxos.localmode", "INFO") as cm:
+            self.app.ctrl._switch(DEV, 0)
+            self.app.ctrl._show_saved(DEV, 12)
+        self.assertEqual([r.getMessage() for r in cm.records],
+                         ["Over the home network: lights off.", "Over the home network: showed saved pattern 12."])
+
     def test_timer_mode_always_through_the_cloud(self):
         self.turn(True)
         self.app.ctrl._switch(DEV, 2)
@@ -88,6 +97,52 @@ class Commands(ServerBase):
         js = (ROOT / "eaveluxos" / "static" / "app.js").read_text(encoding="utf-8")
         self.assertIn('id="lccmd"', js)
         self.assertIn("api('local/commands'", js)
+        # 4.4.1: shown with the address, not only after a good read
+        self.assertIn("head + cmd + '<div id=\"lcbody\">", js)
+        body = js[js.index("$('#lcbody', box).innerHTML = `<p class=\"small\">Ports"):js.index("box.onchange = e =>")]
+        self.assertNotIn('id="lccmd"', body)
+
+    def test_on_then_a_pattern_of_its_own_colors(self):
+        """4.4.1 (review #1): "on" over the home network, the pattern through
+        the cloud: on/off is still checked with the controller, and Home
+        shows what the controller says."""
+        self.turn(True)
+        c = self.app.ctrl
+        c._switch(DEV, 1)
+        c._sent(DEV, "pattern", False)                  # what _apply does after a cloud preview
+        self.assertEqual(c.lan_sent[DEV], {"switch"})
+        c._show_saved(DEV, 9)
+        self.assertEqual(c.lan_sent[DEV], {"switch", "pattern"})
+        c.lan.failed_at = time.monotonic()               # home network out: both through the cloud
+        c._switch(DEV, 0); c._show_saved(DEV, 9)
+        self.assertNotIn(DEV, c.lan_sent)
+
+    def test_a_show_starting_meanwhile_wins(self):
+        """4.4.1 (review #3): a show from this computer that started while a
+        command waited for the connection isn't ended by it."""
+        self.turn(True)
+        lan, calls = self.app.ctrl.lan, []
+        real = lan.io.acquire
+        def acquire(*a, **k):
+            got = real(*a, **k)
+            self.app.lanshow.running = lambda: True      # the show started while this waited
+            return got
+        lan.io = type("IO", (), {"acquire": staticmethod(acquire), "release": staticmethod(self.app.lan_io.release)})()
+        self.assertFalse(lan.power(DEV, True))
+        self.assertEqual(self.subs(), [])
+
+    def test_unexpected_trouble_still_uses_the_cloud(self):
+        """4.4.1 (review #4): anything going wrong over the home network falls
+        back to the cloud instead of leaving the lights as they were."""
+        self.turn(True)
+        lan = self.app.ctrl.lan
+        def broken(host):
+            raise IndexError("odd answer")
+        lan.link_factory = broken
+        with self.assertLogs("eaveluxos.localmode", "WARNING"):
+            self.app.ctrl._switch(DEV, 1)
+        self.assertEqual(self.cloud(), ["/device/update"])
+        self.assertFalse(self.app.lan_io.locked())
 
 
 class Resync(ServerBase):
@@ -97,6 +152,27 @@ class Resync(ServerBase):
         self.assertIn("/device/notify-update-shadow", [p for p, _ in self.F.STATE["log"]])
         self.assertFalse([p for p, _ in self.F.STATE["log"] if p.endswith(("/save", "/delete", "/update"))],
                          "changes nothing on the controller")
+
+    def test_not_twice_in_a_row_and_each_controller_tried(self):
+        """4.4.1 (review #7): a second tap within 30 seconds is refused; one
+        controller's trouble doesn't skip the others."""
+        from eaveluxos.server import ApiError
+        self.app.resync_cloud()
+        with self.assertRaises(ApiError):
+            self.app.resync_cloud()
+        self.app._resync_at = None
+        api = self.app.client()
+        self.app.target_devices = lambda: ["A", "B"]
+        seen = []
+        def resync(dev, now):
+            seen.append(dev)
+            if dev == "A":
+                from eaveluxos.api import TrimlightError
+                raise TrimlightError("no")
+        self.app.client = lambda: type("Api", (), {"resync": staticmethod(resync), "get_device": staticmethod(lambda *a, **k: {})})()
+        r = self.app.resync_cloud()
+        self.assertEqual(seen, ["A", "B"])
+        self.assertEqual([d["ok"] for d in r["devices"]], [False, True])
 
     def test_messages_point_to_it_not_to_the_trimlight_app(self):
         from eaveluxos.api import UNREADABLE_HELP
@@ -123,8 +199,23 @@ class Connection(ServerBase):
             self.app.lan_seen.update(at=0.0, checking=False)
             self.app.lan_home()
             time.sleep(0.3)
-        self.assertTrue(self.app.lan_seen["ok"])
         self.assertEqual(self.ctl.most_active, n_conn, "no connection opened while busy")
+
+    def test_busy_keeps_what_was_known_and_checks_again_later(self):
+        """4.4.1: busy isn't proof it answers (a connection may be stuck
+        waiting on a controller that's gone), and the next look checks."""
+        with self.app.lan_io:
+            self.app.lan_seen.update(address=self.app._lan_address(), ok=False, at=0.0, checking=False)
+            self.app.lan_home()
+            time.sleep(0.3)
+            self.assertIs(self.app.lan_seen["ok"], False)
+            self.assertFalse(self.app.lan_seen["checking"])
+        self.app.lan_home()
+        for _ in range(50):
+            if self.app.lan_seen["ok"]:
+                break
+            time.sleep(0.05)
+        self.assertTrue(self.app.lan_seen["ok"])
 
 
 if __name__ == "__main__":
