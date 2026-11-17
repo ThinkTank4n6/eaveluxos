@@ -374,6 +374,13 @@ class Controller:
                     payload["brightness"] = max(1, min(255, round(payload.get("brightness", 255) * lv["brightness"] / max(1, base))))
                 else:
                     payload.update(lv)
+                # 4.4.2: the same as a pattern saved on the controller? Show
+                # that one over the home network, by its number.
+                pid = self.lan.show_like(dev, payload) if self.lan is not None and effect.kind != "split" else None
+                if pid:
+                    self._sent(dev, "pattern", True)
+                    self.sent_effect[dev] = {**payload, "id": pid}
+                    continue
                 self.api.preview_effect(dev, payload)
                 self._sent(dev, "pattern", False)       # this one went through the cloud
                 self.sent_effect[dev] = payload

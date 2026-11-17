@@ -1,5 +1,20 @@
 # Changelog
 
+## 4.4.2: your own patterns over the home network too
+
+- When one of this app's patterns looks exactly like one saved on the
+  controller (same colors and bulb counts, motion, speed and brightness), the
+  app shows the saved one by its number over the home network instead of
+  sending it through Trimlight's cloud. On Nov 16 that covered Fall,
+  EVERYDAY, 0-Security and 9-11; American Flag differs in brightness (255
+  here, 188 there) and HALLOWEEN in its motion, so they still go through the
+  cloud. The controller is read first in the same connection, so a pattern
+  that moved to another number is never shown by its old one; a look not on
+  the controller isn't read for again for 10 minutes.
+- A command over the home network that gets no answer is sent once more on a
+  fresh connection before the app falls back to the cloud (the controller
+  sometimes ignores the first request: "0 bytes came").
+
 ## 4.4.1: review of 4.4
 
 - Each command that goes over the home network is now in the log ("Over the

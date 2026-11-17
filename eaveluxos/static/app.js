@@ -2705,7 +2705,7 @@ async function localPanel(box, fresh = false) {
   // The setting is reachable even when the controller can't be read just
   // now (4.4.1: it used to show only after a good read).
   const cmd = addr ? `<label class="check" style="margin-top:8px"><input type="checkbox" id="lccmd" ${((S.settings || {}).lan || {}).commands ? 'checked' : ''}>
-          <span><b>Send on/off and saved patterns over the home network</b> <span class="pill">Try it</span><br><span class="small muted">The schedule turns the lights on and off, and shows patterns saved on the controller, straight over your home network instead of through Trimlight\u2019s cloud. If that doesn\u2019t work, it uses the cloud as before. Patterns of your own colors and built-in effects still go through the cloud.</span></span></label>` : '';
+          <span><b>Send on/off and saved patterns over the home network</b> <span class="pill">Try it</span><br><span class="small muted">The schedule turns the lights on and off, and shows patterns saved on the controller, straight over your home network instead of through Trimlight\u2019s cloud. If that doesn\u2019t work, it uses the cloud as before. This app\u2019s own patterns go this way too when one saved on the controller looks exactly the same (same colors, motion, speed and brightness); others, and built-in effects, still go through the cloud.</span></span></label>` : '';
   if (!addr) { box.innerHTML = head + '<p class="callout small">Enter the address (the Trimlight Edge app shows it when you open the controller on your home Wi-Fi), or tap <b>Find it</b>.</p>'; }
   else {
     box.innerHTML = head + cmd + '<div id="lcbody"><p class="muted small">Reading the controller\u2026</p></div>';

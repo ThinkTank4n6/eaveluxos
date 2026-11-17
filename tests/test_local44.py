@@ -145,6 +145,75 @@ class Commands(ServerBase):
         self.assertFalse(self.app.lan_io.locked())
 
 
+FALL = {"category": 1, "mode": 0, "speed": 128, "brightness": 139,
+        "pixels": [{"index": 0, "count": 4, "color": 0xFF6300, "disable": False},
+                   {"index": 1, "count": 2, "color": 0x561003, "disable": False}]}
+
+
+class SameAsSaved(ServerBase):
+    """4.4.2: this app's own copy of a pattern saved on the controller is
+    shown by its number over the home network."""
+    def setUp(self):
+        super().setUp()
+        self.app.local_commands(True)
+        self.app.ctrl.devices = [{"deviceId": DEV, "name": "Trimlight"}]
+        self.ctl.holds["patterns"][19] = L.pattern_record(19, "Fall", 0, 128, 139,
+                                                          [(4, (0xFF, 0x63, 0x00), True), (2, (0x56, 0x10, 0x03), True)])
+
+    def shown(self):
+        return [b[3] for _, _, b in self.ctl.frames(L.CMD_REQUEST) if b[0] == L.SUB_SHOW]
+
+    def cloud(self):
+        return [p for p, _ in self.F.STATE["log"] if p in ("/device/update", "/device/effect/preview", "/device/effect/view")]
+
+    def apply(self, payload):
+        from eaveluxos.schedule import Effect
+        self.app.ctrl.known_on = True
+        self.app.ctrl._apply(True, Effect("fall", "Fall", "custom", payload=payload, colors=[]))
+
+    def test_the_same_look_is_shown_by_its_number(self):
+        with self.assertLogs("eaveluxos.localmode", "INFO") as cm:
+            self.apply(dict(FALL))
+        self.assertEqual(self.shown(), [19])
+        self.assertEqual(self.cloud(), [])
+        self.assertEqual(self.app.ctrl.lan_sent[DEV], {"pattern"})
+        self.assertIn("showed saved pattern 19", cm.output[-1])
+
+    def test_a_different_brightness_goes_through_the_cloud(self):
+        self.apply({**FALL, "brightness": 255})                  # American Flag on Nov 16: 255 here, 188 there
+        self.assertEqual(self.shown(), [])
+        self.assertEqual(self.cloud(), ["/device/effect/preview"])
+        self.assertIsNone(self.app.ctrl.lan.failed_at, "no match isn't a failure")
+
+    def test_not_on_the_controller_isnt_read_again_for_a_while(self):
+        self.apply({**FALL, "speed": 1})
+        reads = len([1 for _, _, b in self.ctl.frames(L.CMD_REQUEST) if b[0] == L.SUB_TIME])
+        self.apply({**FALL, "speed": 2})
+        self.assertEqual(len([1 for _, _, b in self.ctl.frames(L.CMD_REQUEST) if b[0] == L.SUB_TIME]), reads)
+        self.apply(dict(FALL))                                   # one the controller had: read fresh, shown
+        self.assertEqual(self.shown(), [19])
+
+    def test_its_number_comes_from_a_fresh_read(self):
+        self.apply(dict(FALL))
+        rec = self.ctl.holds["patterns"].pop(19)                 # moved to number 7 since (Local mode)
+        self.ctl.holds["patterns"][7] = bytes([7]) + rec[1:]
+        self.apply(dict(FALL))
+        self.assertEqual(self.shown(), [19, 7])
+
+    def test_built_in_effects_and_splits_stay_on_the_cloud(self):
+        from eaveluxos.localmode import look_of
+        self.assertIsNone(look_of({"category": 0, "mode": 5, "speed": 100, "brightness": 200, "pixelLen": 30}))
+        self.assertIsNone(look_of({**FALL, "pixels": [{"index": i, "count": 1, "color": 1} for i in range(31)]}))
+
+    def test_an_ignored_first_request_is_sent_again(self):
+        """4.4.2: the controller sometimes ignores a request on a new
+        connection; once more on a fresh one before using the cloud."""
+        self.ctl.silent_reads = 1
+        self.apply(dict(FALL))
+        self.assertEqual(self.shown(), [19])
+        self.assertIsNone(self.app.ctrl.lan.failed_at)
+
+
 class Resync(ServerBase):
     def test_asks_the_controller_to_send_the_cloud_a_fresh_copy(self):
         r = self.app.resync_cloud()

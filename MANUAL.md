@@ -1,7 +1,7 @@
 # EaveLuxOS: User Manual
 ### The Intelligent Lighting Control Platform
 
-Version 4.4.1 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
+Version 4.4.2 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
 
 > **Downloaded the ready-made app? You can skip most of the setup.**
 > The downloads on the project's GitHub **Releases** page
@@ -1647,9 +1647,12 @@ the owner's own patterns.
    cloud has trouble. The checkbox sits right under the address, and is
    there even when the controller can't be read just then. If the controller
    doesn't answer there, the app uses the cloud as before for 5 minutes.
-   Patterns of your own colors and the built-in effects still go through the
-   cloud, and nothing is sent this way during a music show from this
-   computer. The app checks the lights' on/off with the controller itself.
+   This app's own patterns go this way too when one saved on the controller
+   looks exactly the same: same colors and bulb counts, motion, speed and
+   brightness (4.4.2; the controller is read first, so the right number is
+   shown). If any of those differ (say you set a pattern brighter here), or
+   it's a built-in effect, it goes through the cloud. Nothing is sent this
+   way during a music show from this computer. The app checks the lights' on/off with the controller itself.
    While a saved pattern was sent this way, the app can't yet tell if someone
    changed the pattern with the Trimlight app (on/off is still checked and
    put back).

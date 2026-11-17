@@ -65,6 +65,24 @@ def _essence(p: dict) -> tuple:
             tuple((i, c, col, on) for i, (c, col, on) in enumerate(p["slots"]) if c))
 
 
+def _look(p: dict) -> tuple:
+    """What a pattern shows, without its name or number (4.4.2): two
+    patterns with the same look are the same on the house."""
+    return (p["mode"], p["speed"], p["brightness"], tuple((c, col, on) for c, col, on in p["slots"] if c))
+
+
+def look_of(payload: dict):
+    """The look of a pattern as sent to Trimlight's cloud (this app's own
+    pattern, with any brightness or speed already in it); None when it can't
+    be one saved on the controller (a built-in effect, too many colors)."""
+    if payload.get("category", 1) != 1 or not payload.get("pixels"):
+        return None
+    try:
+        return _look(L.read_record(L.record_from_effect(1, {**payload, "name": "x"})))
+    except (ValueError, TypeError, KeyError):
+        return None
+
+
 def _check(before: dict, after: dict, *, added=None, removed=None, port=None):
     """Raise LocalError unless `after` is `before` with exactly this change.
     port: (index, start, end, on)."""
@@ -400,8 +418,10 @@ class Commands:
         self.enabled, self.host, self.device = enabled, host, device
         self.io, self.blocked, self.now, self.link_factory = io, blocked, now, link_factory
         self.failed_at = None               # after a failure, the cloud for a while
+        self.looks = (None, None)           # (time, {look: pattern number}) of the last read, 4.4.2
 
     RETRY_AFTER = 300
+    LOOKS_FOR = 600                         # a look not on the controller: don't read it again for 10 minutes
 
     def usable(self, dev) -> bool:
         return bool(self.enabled() and self.host() and self.device() == dev and not self.blocked()
@@ -416,17 +436,24 @@ class Commands:
                 # waited for the connection (it holds it while starting):
                 # a command now would end the show (4.4.1).
                 return None
-            link = self.link_factory(self.host()).open()
-            try:
-                link.ping()
-                out = fn(link)
-                # The controller doesn't answer a change, and hanging up at
-                # once can lose it: one answered keep-alive after it says it
-                # was taken in (it handles requests in order).
-                link.ping()
-                return out
-            finally:
-                link.close()
+            for attempt in (1, 2):
+                link = self.link_factory(self.host()).open()
+                try:
+                    link.ping()
+                    out = fn(link)
+                    # The controller doesn't answer a change, and hanging up at
+                    # once can lose it: one answered keep-alive after it says it
+                    # was taken in (it handles requests in order).
+                    link.ping()
+                    return out
+                except L.LinkError:
+                    # It sometimes ignores a request on a new connection ("0
+                    # bytes came"); these commands can be sent again safely
+                    # (4.4.2: once more, on a fresh connection).
+                    if attempt == 2:
+                        raise
+                finally:
+                    link.close()
         except Exception as e:          # never keep the cloud from doing it instead (4.4.1)
             self.failed_at = time.monotonic()
             if not isinstance(e, (L.LinkError, ValueError)):
@@ -448,6 +475,36 @@ class Commands:
         if done:
             log.info("Over the home network: showed saved pattern %d.", pid)
         return done
+
+    def show_like(self, dev, payload: dict):
+        """Show the pattern saved on the controller that looks exactly like
+        this one, by its number (4.4.2), so this app's own copies of the
+        controller's patterns don't need the cloud. The controller is read
+        first, in the same connection, so the number is never a stale one.
+        Returns the number shown, or None (no such pattern: use the cloud)."""
+        want = look_of(payload)
+        if want is None or not self.usable(dev):
+            return None
+        at, known = self.looks
+        if known is not None and want not in known and time.monotonic() - at < self.LOOKS_FOR:
+            return None                     # not on the controller a few minutes ago: don't read again
+
+        def fn(link):
+            st = link.state(self.now())
+            known = {}
+            for p in st["patterns"]:
+                known.setdefault(_look(p), p["id"])
+            self.looks = (time.monotonic(), known)
+            pid = known.get(want)
+            if pid:
+                link.show_saved(pid)
+            return pid or 0
+
+        pid = self._do(dev, fn)
+        if pid:
+            log.info("Over the home network: showed saved pattern %d (the same as this app's).", pid)
+            return pid
+        return None
 
     def switch(self, dev):
         """1 on, 0 off, as the controller itself says; None if unknown."""
