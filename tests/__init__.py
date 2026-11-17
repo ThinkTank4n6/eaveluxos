@@ -28,3 +28,4 @@ _safety.READBACK_PAUSES = (0, 0, 0)    # read again at once (4.3.8)
 _safety.PAUSED = False
 import eaveluxos.lanlink as _lanlink
 _lanlink.GREET_PAUSE = 0               # no half-second pause after each greeting (4.4)
+_lanlink.ASK_AGAIN = 0.3               # ask again sooner (4.4.3)

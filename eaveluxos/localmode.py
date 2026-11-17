@@ -65,6 +65,10 @@ def _essence(p: dict) -> tuple:
             tuple((i, c, col, on) for i, (c, col, on) in enumerate(p["slots"]) if c))
 
 
+def _clock(t) -> str:
+    return t.strftime("%I:%M %p").lstrip("0") if hasattr(t, "strftime") else str(t)
+
+
 def _look(p: dict) -> tuple:
     """What a pattern shows, without its name or number (4.4.2): two
     patterns with the same look are the same on the house."""
@@ -419,8 +423,10 @@ class Commands:
         self.io, self.blocked, self.now, self.link_factory = io, blocked, now, link_factory
         self.failed_at = None               # after a failure, the cloud for a while
         self.looks = (None, None)           # (time, {look: pattern number}) of the last read, 4.4.2
+        self.trouble = None                 # (since, last said): a stretch of failures, said once an hour (4.4.3)
 
     RETRY_AFTER = 300
+    SAY_AGAIN = 3600                        # during a stretch of failures, a reminder this often
     LOOKS_FOR = 600                         # a look not on the controller: don't read it again for 10 minutes
 
     def usable(self, dev) -> bool:
@@ -436,7 +442,10 @@ class Commands:
                 # waited for the connection (it holds it while starting):
                 # a command now would end the show (4.4.1).
                 return None
-            for attempt in (1, 2):
+            # During a stretch of failures, one connection per try (4.4.3:
+            # Nov 17, 2:56-6:00 AM, every read went unanswered).
+            tries = (2,) if self.trouble else (1, 2)
+            for attempt in tries:
                 link = self.link_factory(self.host()).open()
                 try:
                     link.ping()
@@ -445,6 +454,7 @@ class Commands:
                     # once can lose it: one answered keep-alive after it says it
                     # was taken in (it handles requests in order).
                     link.ping()
+                    self._worked()
                     return out
                 except L.LinkError:
                     # It sometimes ignores a request on a new connection ("0
@@ -458,11 +468,27 @@ class Commands:
             self.failed_at = time.monotonic()
             if not isinstance(e, (L.LinkError, ValueError)):
                 log.exception("Unexpected trouble over the home network")
-            log.warning("Over the home network didn't work (%s); using Trimlight's cloud for %d minutes.",
-                        e, self.RETRY_AFTER // 60)
+            self._failed(e)
             return None
         finally:
             self.io.release()
+
+    def _failed(self, e):
+        """Once for a stretch of failures, then once an hour (4.4.3)."""
+        now = time.monotonic()
+        if self.trouble is None:
+            self.trouble = (self.now(), now)
+            log.warning("Over the home network didn't work (%s); using Trimlight's cloud, and trying again "
+                        "every %d minutes.", e, self.RETRY_AFTER // 60)
+        elif now - self.trouble[1] >= self.SAY_AGAIN:
+            self.trouble = (self.trouble[0], now)
+            log.warning("Over the home network still isn't working (since %s; %s); Trimlight's cloud is being "
+                        "used.%s", _clock(self.trouble[0]), e, ONE_AT_A_TIME)
+
+    def _worked(self):
+        if self.trouble is not None:
+            log.info("Over the home network works again (it didn't from %s).", _clock(self.trouble[0]))
+            self.trouble = None
 
     def power(self, dev, on: bool) -> bool:
         done = self._do(dev, lambda link: link.power(on) or True) is True

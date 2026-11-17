@@ -1,5 +1,18 @@
 # Changelog
 
+## 4.4.3: quieter when the controller won't answer
+
+- On Nov 17 from 2:56 to 6:00 AM the controller answered keep-alives but no
+  read, and the log got 74 warnings. Now a stretch like that gets one
+  warning, a reminder each hour (with the hint about the Trimlight app), and
+  "Over the home network works again" when it does. During a stretch, each
+  try uses one connection instead of two. As before, commands go through
+  Trimlight's cloud meanwhile (the 6:00 AM lights came on that way).
+- When nothing at all comes back to a read, the app asks again on the same
+  connection after 3 seconds before trying a new one (the controller often
+  ignores only the first request). A plain "0 bytes came" is now an
+  information line, not a warning; bytes that don't fit still warn.
+
 ## 4.4.2: your own patterns over the home network too
 
 - When one of this app's patterns looks exactly like one saved on the

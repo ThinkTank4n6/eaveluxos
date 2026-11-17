@@ -1,7 +1,7 @@
 # EaveLuxOS: User Manual
 ### The Intelligent Lighting Control Platform
 
-Version 4.4.2 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
+Version 4.4.3 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
 
 > **Downloaded the ready-made app? You can skip most of the setup.**
 > The downloads on the project's GitHub **Releases** page
@@ -1646,7 +1646,9 @@ the owner's own patterns.
    of through Trimlight's cloud, which is quicker and keeps working when the
    cloud has trouble. The checkbox sits right under the address, and is
    there even when the controller can't be read just then. If the controller
-   doesn't answer there, the app uses the cloud as before for 5 minutes.
+   doesn't answer there, the app uses the cloud as before and tries again
+   every 5 minutes; the log says so once, then once an hour, and says when
+   it works again.
    This app's own patterns go this way too when one saved on the controller
    looks exactly the same: same colors and bulb counts, motion, speed and
    brightness (4.4.2; the controller is read first, so the right number is

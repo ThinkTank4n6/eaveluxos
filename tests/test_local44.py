@@ -214,6 +214,46 @@ class SameAsSaved(ServerBase):
         self.assertIsNone(self.app.ctrl.lan.failed_at)
 
 
+class Stretch(ServerBase):
+    """4.4.3: Nov 17, 2:56-6:00 AM, the controller answered keep-alives but
+    no read. 74 warnings; now one, a reminder each hour, and a line when it
+    answers again. Reads are asked again on the same connection first."""
+    def setUp(self):
+        super().setUp()
+        self.app.local_commands(True)
+        self.app.ctrl.devices = [{"deviceId": DEV, "name": "Trimlight"}]
+        self.lan = self.app.ctrl.lan
+
+    def test_asked_again_on_the_same_connection(self):
+        self.ctl.silent_reads = 1
+        n = self.ctl.connections
+        self.assertIn(self.lan.switch(DEV), (0, 1))
+        self.assertEqual(self.ctl.connections - n, 1, "answered on the same connection")
+        self.assertIsNone(self.lan.trouble)
+
+    def test_one_warning_then_hourly_then_works_again(self):
+        self.ctl.silent_reads = 99
+        with self.assertLogs("eaveluxos.localmode", "INFO") as cm:
+            self.assertIsNone(self.lan.switch(DEV))
+            n = self.ctl.connections
+            self.lan.failed_at = None                 # 5 minutes later
+            self.assertIsNone(self.lan.switch(DEV))
+            self.assertEqual(self.ctl.connections - n, 1, "one connection per try during a stretch")
+            since, said = self.lan.trouble
+            self.lan.trouble = (since, said - 3600)   # an hour later
+            self.lan.failed_at = None
+            self.assertIsNone(self.lan.switch(DEV))
+            self.ctl.silent_reads = 0
+            self.lan.failed_at = None
+            self.assertIn(self.lan.switch(DEV), (0, 1))
+        warnings = [r.getMessage() for r in cm.records if r.levelname == "WARNING"]
+        self.assertEqual(len(warnings), 2, warnings)
+        self.assertIn("didn't work", warnings[0])
+        self.assertIn("still isn't working (since", warnings[1])
+        self.assertIn("works again", cm.records[-1].getMessage())
+        self.assertIsNone(self.lan.trouble)
+
+
 class Resync(ServerBase):
     def test_asks_the_controller_to_send_the_cloud_a_fresh_copy(self):
         r = self.app.resync_cloud()

@@ -93,6 +93,7 @@ MAX_FRAME = 64 * 1024
 # couldn't parse its data either (12006).
 DUMP_DIR = None
 GREET_PAUSE = 0.5          # seconds after the greeting (4.4); tests set 0
+ASK_AGAIN = 3.0            # no answer at all to a read this long: ask again on the same connection (4.4.3)
 DUMPS_KEPT = 5
 
 
@@ -539,10 +540,19 @@ class Link:
     def read_all(self, now: datetime) -> bytes:
         """Set the clock (as the Trimlight app does on opening) and get back
         what the controller holds."""
-        self._send(frame(CMD_REQUEST, time_payload(now)))
+        req = frame(CMD_REQUEST, time_payload(now))
+        self._send(req)
         want = lambda m: m[0] == "frame" and m[2][:1] == bytes([SUB_TIME])
         try:
-            return self._wait(want, timeout=max(self.timeout, 6))[2]
+            try:
+                return self._wait(want, timeout=ASK_AGAIN)[2]
+            except LinkError:
+                if not self.buf and self.sock is not None:
+                    # Nothing at all came: the controller often ignores the
+                    # first request (Nov 16-17: "0 bytes came", then the next
+                    # one answered). Ask again here before giving up (4.4.3).
+                    self._send(req)
+                return self._wait(want, timeout=max(self.timeout, 6))[2]
         except LinkError as e:
             # 4.3.13: Nov 16, 4:43 PM, Pattern backups: "didn't answer", and
             # nothing saved. An answer whose length field says more than it
@@ -553,8 +563,12 @@ class Link:
                 log.warning("The controller's answer said more bytes than it sent; read as %d.", len(body))
                 self.buf = b""
                 return body
-            log.warning("No usable answer to a read from %s: %d bytes came%s", self.host, len(self.buf),
-                        f" ({self.buf[:40].hex(' ')})" if self.buf else "")
+            # Nothing at all is common and the caller says what it means
+            # (4.4.3: 74 of these lines on the night of Nov 17); some bytes
+            # that don't fit are worth a warning.
+            (log.warning if self.buf else log.info)(
+                "No usable answer to a read from %s: %d bytes came%s", self.host, len(self.buf),
+                f" ({self.buf[:40].hex(' ')})" if self.buf else "")
             if len(self.buf) >= 100:
                 save_unread(self.host, self.buf)
             raise e
