@@ -21,7 +21,8 @@ class FakeController:
     NOISE = (L.MAGIC + b"\x04\x00\x00\x01\x07" + b"\x00junk!"
              + L.MAGIC + b"\x04\x00\x00\x02" + b"\x11" * 16 + b"\x05\x01\x02")
 
-    def __init__(self, greet=True, answer_pings=True, close_after=None, greet_delay=0.0, noise=False, holds=None):
+    def __init__(self, greet=True, answer_pings=True, close_after=None, greet_delay=0.0, noise=False, holds=None,
+                 host="127.0.0.1", port=0):
         """holds: {"ports": [(start, end, on)] * 4, "patterns": {id: record}}: a
         controller that keeps patterns and ports, applies changes and
         answers the clock request with them, as the real one does (4.3).
@@ -44,7 +45,7 @@ class FakeController:
         self.greet_delay = greet_delay
         self.srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.srv.bind(("127.0.0.1", 0))
+        self.srv.bind((host, port))       # 4.5: several controllers, each at its own 127.0.0.x, same port
         self.srv.listen(4)
         self.port = self.srv.getsockname()[1]
         self.got = []            # (kind, cmd, payload) in order

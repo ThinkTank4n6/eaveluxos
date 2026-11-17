@@ -44,6 +44,11 @@ def wait_for(cond, secs=3.0):
     return cond()
 
 
+
+def _home(app):
+    """Home's entry for the one controller (4.5: lan_home lists each)."""
+    return next(iter(app.lan_home()["devices"].values()), None)
+
 class Frames(unittest.TestCase):
     def test_real_frames_decode_and_encode_byte_for_byte(self):
         for name, hx in REAL.items():
@@ -302,17 +307,17 @@ class AppEndpoints(unittest.TestCase):
         """4.1.2: the cloud doesn't report the controller's IP; Home shows the
         saved one and whether it answered there lately."""
         self.app.musiclink_address("")
-        self.assertIsNone(self.app.lan_home())
+        self.assertIsNone(_home(self.app))
         self.app.musiclink_address("127.0.0.1")
-        first = self.app.lan_home()
+        first = _home(self.app)
         self.assertEqual(first["address"], "127.0.0.1")
-        self.assertTrue(wait_for(lambda: self.app.lan_home()["ok"] is True))
+        self.assertTrue(wait_for(lambda: _home(self.app)["ok"] is True))
         hellos = len([g for g in self.ctl.got if g[0] == "hello"])
         self.assertEqual(hellos, 0, "the check only connects; it sends nothing")
         L.TCP_PORT = 1                                   # now nothing answers there
-        self.assertTrue(self.app.lan_home()["ok"], "checked at most every 5 minutes")
+        self.assertTrue(_home(self.app)["ok"], "checked at most every 5 minutes")
         self.app.lan_recheck()
-        self.assertTrue(wait_for(lambda: self.app.lan_home()["ok"] is False))
+        self.assertTrue(wait_for(lambda: _home(self.app)["ok"] is False))
         from eaveluxos import server
         self.assertIn('st["lan"] = app.lan_home()', Path(server.__file__).read_text(encoding="utf-8"))
 
@@ -351,13 +356,13 @@ class AppEndpoints(unittest.TestCase):
             return real(addr, timeout, *a, **k)
         S.create_connection = slow
         self.addCleanup(setattr, S, "create_connection", real)
-        app.lan_home()
-        app.lan_home()                                         # a second status while it runs
+        _home(app)
+        _home(app)                                         # a second status while it runs
         self.assertEqual(len(calls), 1, "one probe at a time")
         app.musiclink_test()                                   # Test connection: answering
-        self.assertTrue(app.lan_home()["ok"])
+        self.assertTrue(_home(app)["ok"])
         time.sleep(1.0)                                        # the old probe finishes, too late
-        self.assertTrue(app.lan_home()["ok"], "the newer answer stands")
+        self.assertTrue(_home(app)["ok"], "the newer answer stands")
 
     def test_7_the_end_of_an_old_show_never_stops_a_new_one(self):
         """4.1.4 review #7: Stop hands the lights back itself, and a stream
@@ -568,11 +573,11 @@ class Browser(unittest.TestCase):
                 pg = ctx.new_page()
                 pg.on("pageerror", lambda e: errors.append(str(e)))
                 pg.goto(base + "#home")
-                pg.wait_for_selector(".lanline")
-                self.assertTrue(wait_for(lambda: app.lan_seen["ok"] is True))
+                pg.wait_for_selector(".ctlcards")
+                self.assertTrue(wait_for(lambda: (app.lan_seen.get("127.0.0.1") or {}).get("ok") is True))
                 pg.reload()
-                pg.wait_for_selector(".lanline")
-                self.assertIn("127.0.0.1 · answering", pg.inner_text(".lanline"))
+                pg.wait_for_selector(".ctlcards")
+                self.assertIn("127.0.0.1 · answering", pg.inner_text(".ctlcards"))
                 pg.goto(base + "#music")
                 pg.wait_for_selector("#linkbox [data-lkgo]")
             if size["width"] == 390:

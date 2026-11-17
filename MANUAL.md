@@ -1,7 +1,7 @@
 # EaveLuxOS: User Manual
 ### The Intelligent Lighting Control Platform
 
-Version 4.4.3 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
+Version 4.5.1 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
 
 > **Downloaded the ready-made app? You can skip most of the setup.**
 > The downloads on the project's GitHub **Releases** page
@@ -286,7 +286,7 @@ can use them (see section 10).
 > them within about 10 minutes. To override the schedule, use **Turn on** or
 > **Turn off** in this app instead. (If a controller doesn't report a pattern
 > back exactly as it was sent, the app notes that under Home ›
-> **Controllers and activity** and checks only on and off for the rest of
+> **Activity** and checks only on and off for the rest of
 > that pattern's run.)
 
 ## 7. Make it start automatically
@@ -298,8 +298,17 @@ can use them (see section 10).
 On Linux, it starts when you log in. To make it start at power-on without
 anyone logging in, see section 25.
 
-Also turn off sleep in the computer's power settings, so the computer never
-goes to sleep.
+A sleeping computer can't follow the schedule. On Windows, **Keep this
+computer awake while the app runs** (same panel, on by default, 4.4.4) stops
+Windows from putting it to sleep on its own while the app is running: the
+screen can still turn off, and the power button and **Sleep** still work.
+Quitting the app lets it sleep again. On other systems, turn off sleep in
+the computer's power settings. On Windows it doesn't hurt to do that too:
+
+```
+powercfg /change standby-timeout-ac 0
+powercfg /change hibernate-timeout-ac 0
+```
 
 ## 8. Use it from your phone
 
@@ -396,17 +405,17 @@ door, and the tabs are along the bottom of the screen.
   next scheduled change.
 - **This week:** each day's on and off times and which rule runs. A note
   appears on the day daylight saving time changes.
-- **Controller's home-network address** (above Controllers and activity):
-  its IP address on your home network, such as `192.168.1.50`, and whether
-  it's **answering** there. Trimlight's cloud doesn't report this address,
-  so it's the one entered under **Music › Music from this computer**
-  (section 16); until then, Administrators see a link to add it. The app
-  checks every 5 minutes by opening and closing a connection to the
+- **Controllers** (4.5): a card for each controller, as the Trimlight app's
+  first screen lists them: its name, **Online** or **Offline**, on or off,
+  its firmware, and its address on your home network, such as
+  `192.168.1.50`, with whether it's **answering** there. Trimlight's cloud
+  doesn't report the address, so it's the one entered in **Setup › Lights &
+  controller › Local mode**; until then, Administrators see a link there.
+  The app checks every 5 minutes by opening and closing a connection to each
   controller (nothing is sent). **Not answering** usually means the router
   gave the controller a new address: the Trimlight app shows the current
   one when it opens. Reserve it in the router so it stays the same.
-- **Controllers and activity:** each controller's status, plus a log of
-  everything the app did.
+- **Activity:** a log of everything the app did.
 
 ## 10. Patterns
 
@@ -1636,8 +1645,37 @@ the owner's own patterns.
 1. Open **Setup › Lights & controller › Local mode**.
 2. Enter the controller's address on your home network (the Trimlight Edge
    app shows it when you open the controller on your home Wi-Fi), or tap
-   **Find it**, then **Save**. It's the same address **Music from this
-   computer** uses.
+   **Find it**, then **Save**. With one controller, it's the same address
+   **Music from this computer** uses.
+
+**Two or more controllers** (4.5). Each controller on the Trimlight account
+gets its own row and its own address, however many there are; a controller
+added to the account later shows up with an empty row.
+
+- Tap **Find controllers** to list every controller answering on your home
+  network. **Which is this?** shows what one holds (its ports and first
+  pattern names), so you can tell them apart; choose the controller and tap
+  **Use for this controller**. Or type each address and tap **Save**.
+- Before saving an address, the app reads the controller there and compares
+  its ports with what Trimlight's cloud says that controller has. If they
+  differ, or the cloud can't be read to tell, it asks first: that is
+  usually another controller's address. The same check runs before
+  **Ports and bulbs** changes a controller's ports (4.5.1): if the router
+  ever gives two controllers each other's addresses, nothing is changed and
+  the app says to update the address.
+- An address saved before 4.5 isn't taken to be either controller's until
+  you tap which one it is, at the top of the panel. (Before 4.5 there was one
+  address, and everything done over the home network went to that one
+  controller, even with another chosen.)
+- **Controller to read** chooses which one the list below shows; **Delete**
+  and **Back up now** act on that one. Pattern backups put patterns back on
+  the controller the backup came from. **Also save it on the controllers**
+  in the pattern designer saves on each controller this app runs that has an
+  address, and names any that don't. **Ports and bulbs** saves each controller's
+  ports to its own address, and **Send on/off and saved patterns over the
+  home network** sends each controller's commands to its own address (one
+  without an address, or not answering, uses the cloud; the others carry
+  on).
 3. The panel lists the ports and every pattern saved on the controller, with
    its number and colors, read from the controller itself.
 4. **Send on/off and saved patterns over the home network** (4.4, marked
@@ -1654,7 +1692,9 @@ the owner's own patterns.
    brightness (4.4.2; the controller is read first, so the right number is
    shown). If any of those differ (say you set a pattern brighter here), or
    it's a built-in effect, it goes through the cloud. Nothing is sent this
-   way during a music show from this computer. The app checks the lights' on/off with the controller itself.
+   way during a music show from this computer. When Trimlight's cloud
+   disagrees about whether the lights are on, the app asks the controller
+   itself (4.5.1: only then, so the controller isn't read all night).
    While a saved pattern was sent this way, the app can't yet tell if someone
    changed the pattern with the Trimlight app (on/off is still checked and
    put back).

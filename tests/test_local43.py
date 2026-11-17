@@ -401,8 +401,8 @@ class ReviewFixes436(ServerBase):
         self.app._after_local_write = lambda dev: None
         real = self.app._local_read
 
-        def read(fresh=False):
-            r = real(fresh)
+        def read(fresh=False, dev=None):
+            r = real(fresh, dev)
             self.app._local_seen = (0.0, None, None)        # a change elsewhere clears the shared read
             return r
         self.app._local_read = read

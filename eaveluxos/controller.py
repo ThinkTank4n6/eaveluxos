@@ -98,11 +98,13 @@ class Controller:
         self.cfg = cfg
         self.api = api
         self.lan = None                       # localmode.Commands when the server sets it (4.4)
+        self.lan_state: dict = {}             # deviceId -> 0/1 last sent over the home network (4.5.1)
         self.lan_sent: dict = {}              # deviceId -> {"switch", "pattern"}: which last went over the home network
         self.lock = threading.RLock()
         self.stop_event = threading.Event()
         self.wake = threading.Event()         # wakes the loop early (stop, a flash starting)
         self.devices: list[dict] = []
+        self.account: list[dict] = []          # every controller on the account, run here or not (4.5)
         self.saved: dict[str, dict] = {}      # deviceId -> {name lower: effect dict}
         self.override = None                  # {"on": bool, "effect": key, "since": dt}
         self.adjust: dict = {}                # slider levels {"brightness": n, "speed": n}
@@ -239,6 +241,7 @@ class Controller:
         if self.devices:
             return
         found = self.api.list_devices()
+        self.account = list(found)
         if self.cfg.devices:
             wanted = set(self.cfg.devices)
             chosen = [d for d in found if d.get("deviceId") in wanted]
@@ -310,6 +313,7 @@ class Controller:
         goes through the cloud."""
         if state in (0, 1) and self.lan is not None and self.lan.power(dev, state == 1):
             self._sent(dev, "switch", True)
+            self.lan_state[dev] = state
             return
         self._sent(dev, "switch", False)
         self.api.set_switch(dev, state)
@@ -733,8 +737,13 @@ class Controller:
         self.last_clock_sync = today
         # 4.4: a controller set over the home network is checked there too;
         # Trimlight's cloud may not have caught up with it yet.
+        # 4.5.1: only when the cloud disagrees with what was sent. Reading
+        # every 5 minutes, all night, meant hundreds of full reads (each also
+        # sets the controller's clock); on Nov 17 the controller stopped
+        # answering reads at 2:56 AM after hours of them.
         for d in snap:
-            if "switch" in self.lan_sent.get(d["id"], ()) and self.lan is not None:
+            if ("switch" in self.lan_sent.get(d["id"], ()) and self.lan is not None
+                    and d["switch_raw"] != self.lan_state.get(d["id"])):
                 sw = self.lan.switch(d["id"])
                 if sw in (0, 1):
                     d["switch_raw"], d["switch"] = sw, ("off", "on")[sw]     # Home shows it too (4.4.1)

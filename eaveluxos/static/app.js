@@ -340,7 +340,9 @@ function setupSearch() {
   });
   box.addEventListener('mousedown', e => e.preventDefault());           // keep the box focused while clicking
   box.addEventListener('click', e => { const b = e.target.closest('[data-qi]'); if (b) pick(+b.dataset.qi); });
-  q.addEventListener('blur', () => setTimeout(close, 150));
+  // 4.5.1: only if it's still away: a search typed again within the 150 ms
+  // (right after picking a result) kept its results hidden.
+  q.addEventListener('blur', () => setTimeout(() => { if (document.activeElement !== q) close(); }, 150));
   document.addEventListener('keydown', e => {
     if (e.key === '/' && !typing(document.activeElement) && !e.ctrlKey && !e.metaKey && !e.altKey && !$('#dlg').open) {
       e.preventDefault(); q.focus();
@@ -779,8 +781,8 @@ VIEWS.home = async () => {
               return `<tr class="${i === 0 ? 'today' : ''}"><td class="d">${i === 0 ? 'Today' : esc(d.dow)}<small>${esc(d.label)}</small></td>
                 <td>${(d.windows || []).length ? d.windows.map(w => `<div class="win"><span class="num">${esc(w.on)} – ${esc(w.off)}</span><div class="r">${esc(w.rule)}</div></div>`).join('') : '<span class="r">Off</span>'}${dst}</td>
                 <td class="sun num">☀ ${esc(d.sunrise ?? '—')}<br>☾ ${esc(d.sunset ?? '—')}</td></tr>`; }).join('')}</tbody></table></div>
-          <div class="panel">${lanLine(st.lan)}<details><summary>Controllers and activity</summary>
-            <ul class="log">${st.devices.map(d => d.error ? `<li class="warning">${esc(d.error)}</li>` : `<li><b>${esc(d.name)}</b>: ${d.online ? 'online' : 'offline'}, ${esc(d.switch)}, firmware ${esc(d.firmware)}</li>`).join('')}</ul>
+          ${controllerCards(st)}
+          <div class="panel"><details><summary>Activity</summary>
             <ul class="log">${st.events.map(e => `<li class="${esc(e.level)}"><time>${esc(e.label || e.t)}</time>${esc(e.msg)}</li>`).join('')}</ul>
           </details></div>
         </div>
@@ -1197,7 +1199,7 @@ VIEWS.create = async (opts = {}) => {
             ${gOn() && !D.exact ? `<p class="note">Color correction is on (gamma ${Number(S.settings.color.gamma || GAMMA.def).toFixed(1)}): the lights get adjusted colors so they look like this preview. Change it under Lights.</p>` : ''}</div>
           <div class="panel stack">
             <button data-try>Try on my lights</button>
-            <label class="check"><input type="checkbox" id="alsoapp" ${lanAddr() ? '' : 'disabled'}> Also save it on the controller (the Trimlight app's list), over the home network${lanAddr() ? '' : ' <span class="small muted">(set its address in Setup \u203a Lights & controller \u203a Local mode)</span>'}</label>
+            <label class="check"><input type="checkbox" id="alsoapp" ${lanAny() ? '' : 'disabled'}> Also save it on the controller${(S.status && (S.status.devices || []).length > 1) ? 's this app runs' : ''} (the Trimlight app's list), over the home network${lanAny() ? '' : ' <span class="small muted">(set its address in Setup \u203a Lights & controller \u203a Local mode)</span>'}</label>
             <button class="primary" data-save>${D.key ? 'Save changes' : 'Save pattern'}</button>
             <p class="note">Saved patterns appear in Patterns, Home and the schedule editor.</p>
           </div>
@@ -1277,7 +1279,11 @@ VIEWS.create = async (opts = {}) => {
       n.effects[key] = { ...def(), label };
       await saveSettings(n, D.key ? 'Changes saved' : `Saved “${label}”`);
       D.key = key;
-      if ($('#alsoapp').checked) { await api('device/save_effect', { body: { name: label.slice(0, 30), effect: def() } }); toast(`Saved “${label}” here and on the controller`); }
+      if ($('#alsoapp').checked) {
+        const r = await api('device/save_effect', { body: { name: label.slice(0, 30), effect: def() } });
+        const n = (r.saved || []).length, miss = r.missing || [];
+        toast(`Saved “${label}” here and on ${n > 1 ? n + ' controllers' : 'the controller'}${miss.length ? `; not on ${miss.join(' and ')} (no home-network address yet)` : ''}`, !!miss.length);
+      }
       render();
     }).catch(() => {});
   };
@@ -1926,7 +1932,7 @@ async function tryAlertPanel(box) {
     busy(b, () => api('action', { body })).then(st => {
       S.status = st;
       if (body.action !== 'flash') return toast('Stopped');
-      toast(st.flash_started === false ? `Not shown: ${st.target.source || 'something more important'} is showing (see Controllers and activity on Home).` : 'Flashing', st.flash_started === false);
+      toast(st.flash_started === false ? `Not shown: ${st.target.source || 'something more important'} is showing (see Activity on Home).` : 'Flashing', st.flash_started === false);
     }).catch(() => {});
   };
 }
@@ -2276,14 +2282,26 @@ function colorPanel(box) {
 }
 
 /* ---------------------------------------------------------------- music */
-/* Home (4.1.2): the controller's address on the home network. Trimlight's
-   cloud doesn't report it, so it's the one saved under Music › Music from
-   this computer; the app checks every few minutes that it answers there. */
-function lanLine(lan) {
-  if (!lan) return role() === 'admin'
-    ? `<p class="small muted lanline">Controller\u2019s home-network address: not set. <a href="#music">Add it under Music</a> (the Trimlight app shows it when it opens).</p>` : '';
-  const state = lan.ok === true ? '<span class="ok">answering</span>' : lan.ok === false ? '<span class="bad">not answering</span>' : '<span class="muted">checking\u2026</span>';
-  return `<p class="small lanline">Controller\u2019s home-network address: <b class="num">${esc(lan.address)}</b> \u00b7 ${state}${lan.ok === false ? ' (if it changed, check the Trimlight app and update it under Music)' : ''}</p>`;
+/* Home › Controllers (4.5): one card per controller, as the Trimlight app's
+   first screen lists them, each with its own home-network address (Trimlight's
+   cloud doesn't report it; the app checks every few minutes it answers there). */
+function controllerCards(st) {
+  const lan = st.lan || {}, homes = lan.devices || {}, admin = role() === 'admin';
+  const card = d => {
+    const h = homes[d.id];
+    const net = h ? `<b class="num">${esc(h.address)}</b> \u00b7 ${h.ok === true ? '<span class="ok">answering</span>' : h.ok === false ? '<span class="bad">not answering</span>' : '<span class="muted">checking\u2026</span>'}`
+      : `<span class="muted">not set</span>${admin ? ' (<a href="#lights">Setup \u203a Lights &amp; controller \u203a Local mode</a>)' : ''}`;
+    return `<div class="item"><div class="grow"><div class="name">${esc(d.name || 'Controller')}
+        ${d.error || d.unknown ? '' : `<span class="badge ${d.online ? 'hi' : ''}">${d.online ? 'Online' : 'Offline'}</span> <span class="small">${esc(d.switch || '')}</span>`}</div>
+      ${d.error ? `<div class="sub warning">${esc(d.error)}</div>` : ''}
+      <div class="sub">Home network: ${net}${d.firmware ? ` \u00b7 firmware ${esc(d.firmware)}` : ''}</div></div></div>`;
+  };
+  // Controllers the cloud hasn't reported on yet still show with their address.
+  const devs = [...(st.devices || []), ...Object.entries(homes).filter(([id]) => !(st.devices || []).some(d => d.id === id))
+    .map(([id, h]) => ({ id, name: h.name, error: null, online: null, unknown: true }))];
+  return `<div class="panel ctlcards"><h2>${devs.length > 1 ? `Controllers (${devs.length})` : 'Controller'}</h2>
+    ${lan.unassigned && admin ? `<p class="callout small">The home-network address saved before, <b class="num">${esc(lan.unassigned)}</b>, isn\u2019t known to be any one controller\u2019s yet. Choose which in <a href="#lights">Setup \u203a Lights &amp; controller \u203a Local mode</a>.</p>` : ''}
+    <div class="list">${devs.map(card).join('') || '<p class="muted small">No controller reported yet.</p>'}</div></div>`;
 }
 
 /* Music › Music from this computer (4.1, experimental). This browser
@@ -2640,14 +2658,14 @@ async function backupPanel(box, d) {
   const list = all.filter(b => b.device === d.id);
   // 4.3: put back over the home network only, checked against the controller
   // itself (not the cloud's copy, which can be out of step or unreadable).
-  if (!lanAddr()) {
-    box.innerHTML = '<h2>Pattern backups</h2><p class="callout small">Since 4.3 patterns are put back over your home network, never through Trimlight\u2019s cloud. Enter the controller\u2019s address in <b>Local mode</b> above first.</p>';
+  if (!lanFor(d.id)) {
+    box.innerHTML = `<h2>Pattern backups</h2><p class="callout small">Since 4.3 patterns are put back over your home network, never through Trimlight\u2019s cloud. Enter ${(S.devices || []).length > 1 ? esc(d.name || 'this controller') + '\u2019s' : 'the controller\u2019s'} address in <b>Local mode</b> above first.</p>`;
     return;
   }
   // 4.3.6: if the controller can't be read just now, the backups are still
   // listed (and can be downloaded); putting back waits until it can be read.
   let live = null, liveErr = '';
-  try { live = await api('local'); } catch (e) { liveErr = e.message; }
+  try { live = await api('local' + ((S.devices || []).length > 1 ? '?device=' + encodeURIComponent(d.id) : '')); } catch (e) { liveErr = e.message; }
   if (box.dataset.tok !== tok) return;
   const have = new Set((live ? live.patterns : []).map(e => String(e.name || '').trim().toLowerCase()));
   d = { ...d, error: live ? null : liveErr };
@@ -2694,44 +2712,94 @@ async function backupPanel(box, d) {
    put back and deleted only this way, never through Trimlight's cloud; ports
    too when the address is known. */
 const lanAddr = () => ((S.settings || {}).lan || {}).address || '';
+/* 4.5: each controller has its own address on the home network. An address
+   saved before 4.5 counts only when the account has one controller. */
+function lanFor(id) {
+  const l = (S.settings || {}).lan || {}, m = l.devices || {};
+  if (m[id]) return m[id];
+  return l.address && !Object.values(m).includes(l.address) && (S.devices || []).length <= 1 ? l.address : '';
+}
+const lanAny = () => { const l = (S.settings || {}).lan || {}; return !!(l.address || Object.values(l.devices || {}).some(Boolean)); };
 async function localPanel(box, fresh = false) {
   if (!box) return;
-  const addr = lanAddr();
-  const head = `<h2>Local mode (home network)</h2>
-    <p class="note">This app saves, puts back and deletes the controller's patterns, and sets its ports, straight over your home network, as the Trimlight Edge app does when it shows <b>Local</b>. Nothing about patterns goes through Trimlight's cloud: saves and deletes there left its copy of the controller unreadable (code 12006) and lost patterns. Each change is checked by reading the controller back, and it stops at the first difference.</p>
+  const devs = (S.devices || []).filter(d => d.id);
+  const many = devs.length > 1;
+  const l = (S.settings || {}).lan || {};
+  const unassigned = many && l.address && !Object.values(l.devices || {}).includes(l.address) ? l.address : '';
+  const withAddr = many ? devs.filter(d => lanFor(d.id)) : [];
+  if (many && !withAddr.some(d => d.id === S.lcDev)) S.lcDev = (withAddr[0] || {}).id;
+  const addr = many ? lanFor(S.lcDev || '') : lanAddr();
+  const intro = `<h2>Local mode (home network)</h2>
+    <p class="note">This app saves, puts back and deletes the controller's patterns, and sets its ports, straight over your home network, as the Trimlight Edge app does when it shows <b>Local</b>. Nothing about patterns goes through Trimlight's cloud: saves and deletes there left its copy of the controller unreadable (code 12006) and lost patterns. Each change is checked by reading the controller back, and it stops at the first difference.</p>`;
+  const head = many ? intro + `
+    <p class="note">Each controller has its own address. <b>Find</b> lists every controller answering on your home network; <b>Which is this?</b> shows what one holds, so you can tell them apart.</p>
+    ${unassigned ? `<p class="callout small">The address saved before, <b class="num">${esc(unassigned)}</b>, belongs to which controller? ${devs.map(d => `<button class="small ghost" data-lcassign="${esc(d.id)}" data-addr="${esc(unassigned)}">${esc(d.name || d.id)}</button>`).join(' ')}</p>` : ''}
+    <div class="list">${devs.map(d => `<div class="item"><div class="grow"><b>${esc(d.name || d.id)}</b>
+        <div class="row" style="align-items:flex-end;margin-top:4px"><label class="field" style="flex:1;min-width:160px">Address on your home network<input type="text" data-lcaddr="${esc(d.id)}" value="${esc(lanFor(d.id))}" placeholder="e.g. 192.168.1.50" inputmode="decimal" spellcheck="false"></label>
+        <button class="small" data-lcsavedev="${esc(d.id)}">Save</button></div></div></div>`).join('')}</div>
+    <div class="row"><button class="small ghost" data-lcfind>Find controllers</button></div><div id="lcfound"></div>`
+    : intro + `
     <div class="row" style="align-items:flex-end">
-      <label class="field" style="flex:1;min-width:180px">Controller\u2019s address on your home network<input type="text" id="lcaddr" value="${esc(addr)}" placeholder="e.g. 192.168.1.50" inputmode="decimal" spellcheck="false"></label>
+      <label class="field" style="flex:1;min-width:180px">Controller’s address on your home network<input type="text" id="lcaddr" value="${esc(addr)}" placeholder="e.g. 192.168.1.50" inputmode="decimal" spellcheck="false"></label>
       <button class="small" data-lcsave>Save</button><button class="small ghost" data-lcfind>Find it</button></div>`;
   // The setting is reachable even when the controller can't be read just
   // now (4.4.1: it used to show only after a good read).
-  const cmd = addr ? `<label class="check" style="margin-top:8px"><input type="checkbox" id="lccmd" ${((S.settings || {}).lan || {}).commands ? 'checked' : ''}>
-          <span><b>Send on/off and saved patterns over the home network</b> <span class="pill">Try it</span><br><span class="small muted">The schedule turns the lights on and off, and shows patterns saved on the controller, straight over your home network instead of through Trimlight\u2019s cloud. If that doesn\u2019t work, it uses the cloud as before. This app\u2019s own patterns go this way too when one saved on the controller looks exactly the same (same colors, motion, speed and brightness); others, and built-in effects, still go through the cloud.</span></span></label>` : '';
-  if (!addr) { box.innerHTML = head + '<p class="callout small">Enter the address (the Trimlight Edge app shows it when you open the controller on your home Wi-Fi), or tap <b>Find it</b>.</p>'; }
+  const cmd = lanAny() ? `<label class="check" style="margin-top:8px"><input type="checkbox" id="lccmd" ${l.commands ? 'checked' : ''}>
+          <span><b>Send on/off and saved patterns over the home network</b> <span class="pill">Try it</span><br><span class="small muted">The schedule turns the lights on and off, and shows patterns saved on the controller, straight over your home network instead of through Trimlight’s cloud${many ? ', each controller at its own address (one without an address uses the cloud)' : ''}. If that doesn’t work, it uses the cloud as before. This app’s own patterns go this way too when one saved on the controller looks exactly the same (same colors, motion, speed and brightness); others, and built-in effects, still go through the cloud.</span></span></label>` : '';
+  const pick = many && withAddr.length ? `<div class="row" style="margin-top:8px"><label class="field">Controller to read<select id="lcdev">${withAddr.map(d => `<option value="${esc(d.id)}" ${d.id === S.lcDev ? 'selected' : ''}>${esc(d.name || d.id)} (${esc(lanFor(d.id))})</option>`).join('')}</select></label></div>` : '';
+  const q = many && S.lcDev ? 'device=' + encodeURIComponent(S.lcDev) : '';
+  const dev = many ? S.lcDev : undefined;
+  if (!addr) { box.innerHTML = head + cmd + (many ? '' : '<p class="callout small">Enter the address (the Trimlight Edge app shows it when you open the controller on your home Wi-Fi), or tap <b>Find it</b>.</p>'); }
   else {
-    box.innerHTML = head + cmd + '<div id="lcbody"><p class="muted small">Reading the controller\u2026</p></div>';
+    box.innerHTML = head + cmd + pick + '<div id="lcbody"><p class="muted small">Reading the controller…</p></div>';
     try {
-      const st = await api('local' + (fresh ? '?fresh=1' : ''));
-      $('#lcbody', box).innerHTML = `<p class="small">Ports: ${st.ports.map(p => `${p.port}: ${p.start}\u2013${p.end}`).join(' \u00b7 ')}</p>
-        <h3 style="margin:8px 0 4px">On the controller now (${st.patterns.length})</h3>
+      const st = await api('local' + ((fresh || q) ? '?' + [fresh ? 'fresh=1' : '', q].filter(Boolean).join('&') : ''));
+      $('#lcbody', box).innerHTML = `<p class="small">Ports: ${st.ports.map(p => `${p.port}: ${p.start}–${p.end}`).join(' · ')}</p>
+        <h3 style="margin:8px 0 4px">On ${many ? esc((devs.find(d => d.id === S.lcDev) || {}).name || 'the controller') : 'the controller'} now (${st.patterns.length})</h3>
         <div class="list">${st.patterns.map(p => `<div class="item"><div class="grow"><b>${esc(p.name)}</b> <span class="small muted">#${p.id}</span>
           <div>${swatches(p.colors.map(c => c[1]), 10)}</div></div><button class="small ghost danger" data-lcdel="${p.id}" data-name="${esc(p.name)}">Delete</button></div>`).join('') || '<p class="muted small">No saved patterns.</p>'}</div>
         <div class="row" style="margin-top:8px"><button class="small ghost" data-lcread>Read again</button>
           <button class="small" data-lcbackup>Back up now</button><span class="small muted">Saves these patterns and ports on this computer (listed under Pattern backups).</span></div>`;
     } catch (e) { $('#lcbody', box).innerHTML = `<p class="callout warn small">${esc(e.message)}</p><div><button class="small ghost" data-lcread>Try again</button></div>`; }
   }
+  const assign = async (b, id, address, force = false) => {
+    const r = await busy(b, () => api('local/address', { body: { device: id, address, force } }));
+    if (r && r.confirm) {
+      if (!await confirmBox('Is that the right controller?', r.confirm, 'Save anyway')) return;
+      return assign(b, id, address, true);
+    }
+    S.settings = await api('settings'); toast('Saved'); S.lcDev = address ? id : S.lcDev; localPanel(box);
+  };
   box.onchange = e => {
+    if (e.target.id === 'lcdev') { S.lcDev = e.target.value; return localPanel(box); }
     if (e.target.id !== 'lccmd') return;
     const on = e.target.checked;
-    api('local/commands', { body: { on } }).then(async () => { S.settings = await api('settings'); toast(on ? 'On/off and saved patterns go over the home network' : 'Everything goes through Trimlight\u2019s cloud'); })
+    api('local/commands', { body: { on } }).then(async () => { S.settings = await api('settings'); toast(on ? 'On/off and saved patterns go over the home network' : 'Everything goes through Trimlight’s cloud'); })
       .catch(() => { e.target.checked = !on; });
   };
   box.onclick = async e => {
     const b = e.target.closest('button'); if (!b) return; const ds = b.dataset;
     if (ds.lcsave !== undefined) return busy(b, async () => { await api('musiclink/address', { body: { address: $('#lcaddr', box).value.trim() } }); S.settings = await api('settings'); toast('Saved'); localPanel(box); }).catch(() => {});
+    if (ds.lcsavedev) return assign(b, ds.lcsavedev, $(`[data-lcaddr="${CSS.escape(ds.lcsavedev)}"]`, box).value.trim()).catch(() => {});
+    if (ds.lcassign) return assign(b, ds.lcassign, ds.addr).catch(() => {});
     if (ds.lcfind !== undefined) return busy(b, async () => { const r = await api('musiclink/find', { body: {} });
-      if (r.found.length) { $('#lcaddr', box).value = r.found[0]; toast(r.found.length === 1 ? 'Found it. Tap Save.' : `Found ${r.found.length}: ${r.found.join(', ')}`); } else toast('No controller answered. Enter its address instead.', true); }).catch(() => {});
+      if (!many) {
+        if (r.found.length) { $('#lcaddr', box).value = r.found[0]; toast(r.found.length === 1 ? 'Found it. Tap Save.' : `Found ${r.found.length}: ${r.found.join(', ')}`); } else toast('No controller answered. Enter its address instead.', true);
+        return;
+      }
+      const taken = Object.fromEntries(devs.map(d => [lanFor(d.id), d.name || d.id]));
+      $('#lcfound', box).innerHTML = r.found.length ? `<div class="list">${r.found.map(a => `<div class="item"><div class="grow"><b class="num">${esc(a)}</b>${taken[a] ? ` <span class="small muted">${esc(taken[a])}’s</span>` : ''}<div class="small muted" data-lcinfo="${esc(a)}"></div>
+          <div class="row" style="margin-top:4px">${taken[a] ? '' : `<select data-lcfor="${esc(a)}">${devs.filter(d => !lanFor(d.id)).concat(devs.filter(d => lanFor(d.id))).map(d => `<option value="${esc(d.id)}">${esc(d.name || d.id)}</option>`).join('')}</select><button class="small" data-lcuse="${esc(a)}">Use for this controller</button>`}
+          <button class="small ghost" data-lcwhich="${esc(a)}">Which is this?</button></div></div></div>`).join('')}</div>`
+        : '<p class="callout small">No controller answered. Enter each address instead (the Trimlight Edge app shows it when you open that controller on your home Wi-Fi).</p>';
+    }).catch(() => {});
+    if (ds.lcuse) return assign(b, $(`[data-lcfor="${CSS.escape(ds.lcuse)}"]`, box).value, ds.lcuse).catch(() => {});
+    if (ds.lcwhich) return busy(b, () => api('local/identify', { body: { address: ds.lcwhich } })).then(r => {
+      const el = $(`[data-lcinfo="${CSS.escape(ds.lcwhich)}"]`, box);
+      if (el) el.textContent = `Ports ${r.ports.map(p => `${p.port}: ${p.start}–${p.end}`).join(' · ')}. ${r.count} pattern${r.count === 1 ? '' : 's'}${r.patterns.length ? ': ' + r.patterns.join(', ') + (r.count > r.patterns.length ? ', …' : '') : ''}.`;
+    }).catch(() => {});
     if (ds.lcread !== undefined) return localPanel(box, true);
-    if (ds.lcbackup !== undefined) return busy(b, () => api('local/backup', { body: {} })).then(async r => {
+    if (ds.lcbackup !== undefined) return busy(b, () => api('local/backup', { body: { device: dev } })).then(async r => {
       toast(`Backed up ${r.patterns} pattern${r.patterns === 1 ? '' : 's'}`);
       const data = await api('safety/backup?file=' + encodeURIComponent(r.file));
       const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
@@ -2739,8 +2807,9 @@ async function localPanel(box, fresh = false) {
       const bk = $('#bkbox'); if (bk && S.lightDevObj) backupPanel(bk, S.lightDevObj);
     }).catch(() => {});
     if (ds.lcdel !== undefined) {
-      if (!await confirmBox(`Delete \u201c${ds.name}\u201d from the controller?`, `It is removed from the controller's own library (the Trimlight app's list) over your home network. Timers in the Trimlight app that use it stop showing it. A backup of the controller is taken first, so it can be put back from Pattern backups.`, 'Delete', true)) return;
-      return busy(b, () => api('local/delete', { body: { id: +ds.lcdel, name: ds.name } })).then(() => { toast(`Deleted \u201c${ds.name}\u201d`); S.devices = null; localPanel(box); }).catch(() => {});
+      const who = many ? ((devs.find(d => d.id === dev) || {}).name || 'the controller') : 'the controller';
+      if (!await confirmBox(`Delete “${ds.name}” from ${who}?`, `It is removed from the controller's own library (the Trimlight app's list) over your home network. Timers in the Trimlight app that use it stop showing it. A backup of the controller is taken first, so it can be put back from Pattern backups.`, 'Delete', true)) return;
+      return busy(b, () => api('local/delete', { body: { id: +ds.lcdel, name: ds.name, device: dev } })).then(() => { toast(`Deleted “${ds.name}”`); S.devices = null; loadDevices().then(() => localPanel(box)).catch(() => localPanel(box)); }).catch(() => {});
     }
   };
 }
@@ -2783,7 +2852,7 @@ VIEWS.lights = async (opts = {}) => {
       ${d.error ? `<div class="panel stack"><h2>Ports and bulbs</h2><p class="muted">Unknown until the controller can be read.</p><div><button class="ghost" data-reload>Try again</button></div></div>` : `<div class="panel stack"><div class="panel-head"><h2>Ports and bulbs</h2>
           <div class="seg"><button data-pm="simple" aria-pressed="${S.portMode === 'simple'}">Simple</button><button data-pm="advanced" aria-pressed="${S.portMode === 'advanced'}">Advanced</button></div></div>
         ${unset.length ? `<p class="callout small">${unset.map(p => 'Port ' + (p.id + 1)).join(' and ')} ${unset.length === 1 ? 'reads' : 'read'} bulbs 1–600, which is how the controller reports a port that was never set up. If nothing is plugged in there, mark ${unset.length === 1 ? 'it' : 'them'} <b>Not connected</b> and save, so this app counts ${Math.max(...ports.filter(q => !q.off && !unset.includes(q)).map(q => q.end))} bulbs instead of 600. <button class="small ghost" data-portreal="${unset.map(p => p.id).join(',')}">${unset.length === 1 ? 'It\u2019s' : 'They\u2019re'} really connected</button></p>` : ''}
-        <p class="note">${lanAddr() ? 'Saved over your home network (Local mode), where a port marked <b>Not connected</b> is really switched off on the controller and keeps its numbers.' : 'Trimlight\u2019s cloud has no setting that turns a port off. A port marked <b>Not connected</b> keeps its numbers on the controller.'} This app leaves it out of the bulb count, the bulb finder and the house tools.</p>
+        <p class="note">${lanFor(d.id) ? 'Saved over your home network (Local mode), where a port marked <b>Not connected</b> is really switched off on the controller and keeps its numbers.' : 'Trimlight\u2019s cloud has no setting that turns a port off. A port marked <b>Not connected</b> keeps its numbers on the controller.'} This app leaves it out of the bulb count, the bulb finder and the house tools.</p>
         <p class="note">${S.portMode === 'simple' ? 'Enter how many bulbs are on each port. Use 0 for a port with nothing plugged in. Ports are numbered in order along the roofline.' : 'Set the first and last bulb number for each port. Ports may overlap to mirror the same section of the pattern.'}</p>
         <div class="ports">${P.map(p => `<div class="port"><b>Port ${p.id + 1}</b><div class="vals">
           ${S.portMode === 'simple' ? `<input type="number" min="0" max="2048" data-pc="${p.id}" value="${p.count}" aria-label="Bulbs on port ${p.id + 1}"><span class="small muted">bulbs</span>`
@@ -2791,7 +2860,7 @@ VIEWS.lights = async (opts = {}) => {
              <input type="number" min="1" max="2048" data-ps="${p.id}" value="${p.off ? '' : p.start}" ${p.off ? 'disabled' : ''} aria-label="First bulb"><span class="muted">to</span>
              <input type="number" min="1" max="2048" data-pe="${p.id}" value="${p.off ? '' : p.end}" ${p.off ? 'disabled' : ''} aria-label="Last bulb">`}</div></div>`).join('')}</div>
         <div class="portmap" id="pmap"></div><p class="note" id="ptotal"></p>
-        <div class="row"><button class="primary" data-saveports ${d.error && !lanAddr() ? 'disabled' : ''}>Save to controller</button><button class="ghost" data-reload>Undo changes</button></div>
+        <div class="row"><button class="primary" data-saveports ${d.error && !lanFor(d.id) ? 'disabled' : ''}>Save to controller</button><button class="ghost" data-reload>Undo changes</button></div>
       </div>`}
       <div class="stack">
         <div class="panel stack"><h2>Controller</h2>
@@ -3004,7 +3073,9 @@ VIEWS.settings = async (sec) => {
           <p class="note">Phones and bookmarks need the new address afterward. The schedule pauses for a few seconds while the app restarts.</p></div>
         <div class="panel stack"><h2>Start automatically</h2>
           ${a.autostart.supported ? `<label class="check"><input type="checkbox" id="auto" ${a.autostart.enabled ? 'checked' : ''}> Start this app when the computer starts</label>
-            ${a.autostart.note ? `<p class="note">${esc(a.autostart.note)}</p>` : ''}` : '<p class="muted">Not available on this system.</p>'}</div>` : ''}
+            ${a.autostart.note ? `<p class="note">${esc(a.autostart.note)}</p>` : ''}` : '<p class="muted">Not available on this system.</p>'}
+          ${a.awake && a.awake.supported ? `<label class="check"><input type="checkbox" id="awake" ${a.awake.enabled ? 'checked' : ''}> Keep this computer awake while the app runs</label>
+            <p class="note">A sleeping computer can't follow the schedule. With this on, Windows won't put it to sleep on its own; the screen can still turn off, and the power button and Sleep still work. Quitting the app lets it sleep again.</p>` : ''}</div>` : ''}
         ${admin ? fold('ai', 'AI pattern ideas', '<div class="panel stack" id="aibox"></div>') : ''}
         ${admin ? fold('history', 'Version history', `<div class="panel stack"><h2>Version history</h2>
           <p class="note">Every save is kept (the last 100). Restoring brings back the patterns, schedule and house map from that moment; your account, phones and app address stay as they are.</p>
@@ -3104,6 +3175,7 @@ VIEWS.settings = async (sec) => {
   };
   m.onchange = async e => {
     const t = e.target;
+    if (t.id === 'awake') busy(null, () => api('awake', { body: { enabled: t.checked } })).then(r => toast(r.enabled ? 'Keeping this computer awake' : 'This computer may sleep on its own')).catch(() => { t.checked = !t.checked; });
     if (t.id === 'auto') busy(null, () => api('autostart', { body: { enabled: t.checked } })).then(r => toast(r.enabled ? 'Will start automatically' : 'Won’t start automatically')).catch(() => { t.checked = !t.checked; });
     if (t.id === 'locallogin') busy(null, () => api('local_login', { body: { enabled: t.checked } })).then(r => toast(r.local_login ? 'This computer now asks you to sign in too' : 'This computer no longer asks you to sign in')).catch(() => { t.checked = !t.checked; });
     if (t.id === 'idle') busy(null, () => api('session_policy', { body: { idle_hours: +t.value } })).then(r => toast(`Sign-ins now end after ${hours(r.idle_hours)} without use`)).catch(() => { t.value = a.session_idle_hours; });
@@ -3193,7 +3265,7 @@ async function uploadPhoto(side, file) {
     if (r.ok) return;
     const e = await r.json().catch(() => ({}));
     if (r.status === 401) throw new Error('Sign in again, then upload the photo.');
-    if (r.status !== 415 && r.status !== 501) throw new Error(e.error || `Upload failed (${r.status}).`);
+    if (r.status < 500 && r.status !== 415) throw new Error(e.error || `Upload failed (${r.status}).`);   // 4.4.5: any trouble on the app computer: the browser shrinks it
   }
   await api('photo', { body: { side, data: await shrinkPhoto(file) } });
 }

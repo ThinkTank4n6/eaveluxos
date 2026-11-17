@@ -16,7 +16,9 @@
     { t: 'Turn the lights on or off', w: 'Home', v: 'home', h: 'Turn on', k: 'power switch quick favorites pinned patterns on off now' },
     { t: 'Brightness and speed', w: 'Home', v: 'home', h: 'Brightness and speed', k: 'dim dimmer bright slider speed fast slow' },
     { t: 'This week', w: 'Home', v: 'home', h: 'This week', k: 'tonight week calendar upcoming when' },
-    { t: 'Controller address and activity', w: 'Home', v: 'home', h: 'Controllers and activity', k: 'ip address local network lan activity log online' },
+    { t: 'Controllers and their addresses', w: 'Home', v: 'home', h: 'Controller', k: 'ip address local network lan online offline deck front several two three' },
+    { t: 'Activity', w: 'Home', v: 'home', h: 'Controller', k: 'log history what happened events' },
+    { t: 'Each controller\u2019s home-network address', w: 'Setup › Lights & controller', v: 'lights', f: 'local', k: 'address ip find which controller deck front two three several more add' },
     // Patterns
     { t: 'My patterns', w: 'Patterns', v: 'patterns', x: 'mine', k: 'saved favorites edit delete my own' },
     { t: 'Patterns in the Trimlight app', w: 'Patterns', v: 'patterns', x: 'controller', k: 'controller saved trimlight app import' },
@@ -80,6 +82,7 @@
     { t: 'Updates', w: 'Setup › App', v: 'app', h: 'Updates', k: 'update new version upgrade download' },
     { t: 'Setup and about', w: 'Setup › App', v: 'app', h: 'Setup and about', k: 'about version wizard setup again quit' },
     { t: 'App address', w: 'Setup › App', v: 'app', h: 'App address', k: 'port https certificate url address' },
+    { t: 'Keep this computer awake', w: 'Setup › App', v: 'app', h: 'Start automatically', k: 'sleep awake power standby hibernate stay on' },
     { t: 'Start automatically', w: 'Setup › App', v: 'app', h: 'Start automatically', k: 'startup boot windows login autostart' },
     { t: 'Lights usage', w: 'Setup › App', v: 'app', f: 'usage', k: 'hours cost electricity power usage kwh' },
     { t: 'AI pattern ideas', w: 'Setup › App', v: 'app', f: 'ai', k: 'ai key openai anthropic claude describe generate' },

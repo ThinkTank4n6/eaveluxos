@@ -118,6 +118,15 @@ class Browser(unittest.TestCase):
             self.assertFalse(pg.eval_on_selector('[data-fold="safety"]', "e => e.classList.contains('closed')"))
             self.assertTrue(pg.is_hidden("#qres"))
             self.assertEqual(pg.input_value("#q"), "")
+            # 4.5.1: typing again right after picking one keeps the new results
+            # (a close left over from picking used to hide them).
+            pg.fill("#q", "backup")
+            pg.wait_for_selector("#qres button")
+            pg.press("#q", "Enter")
+            pg.fill("#q", "sun")
+            pg.wait_for_timeout(400)
+            self.assertTrue(pg.is_visible("#qres"), "the new results stay open")
+            pg.fill("#q", "")
             # Arrow keys, and a heading rather than a panel.
             pg.fill("#q", "sun")
             pg.wait_for_selector("#qres button")

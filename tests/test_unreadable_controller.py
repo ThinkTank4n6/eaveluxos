@@ -147,7 +147,7 @@ class Unreadable(unittest.TestCase):
 class LightsTabGuard(unittest.TestCase):
     def test_lights_tab_turns_saving_off_when_unreadable(self):
         js = (Path(__file__).resolve().parent.parent / "eaveluxos" / "static" / "app.js").read_text(encoding="utf-8")
-        self.assertIn("data-saveports ${d.error && !lanAddr() ? 'disabled' : ''}", js)   # 4.3: unless saved over the home network
+        self.assertIn("data-saveports ${d.error && !lanFor(d.id) ? 'disabled' : ''}", js)   # 4.3: unless saved over the home network
         self.assertIn("data-savedev ${d.error ? 'disabled' : ''}", js)
 
     def test_server_refuses_every_port_off(self):

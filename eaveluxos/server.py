@@ -38,7 +38,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from zoneinfo import available_timezones
 
-from . import alerts, autostart, catalog, community, gameday, holidays, lanlink, localmode, restore, scores, sharecode, updates, winfirewall
+from . import alerts, autostart, catalog, community, gameday, holidays, keepawake, lanlink, localmode, restore, scores, sharecode, updates, winfirewall
 from .api import TrimlightAPI, TrimlightError, port_base
 from .controller import Controller
 from . import safety
@@ -92,7 +92,7 @@ def shrink_photo(raw: bytes, max_side: int = PHOTO_SIDE) -> bytes:
     graphics card, and some graphics drivers return garbage (solid green,
     stripes)."""
     try:
-        from PIL import Image, ImageOps
+        from PIL import Image
     except ImportError:
         raise PhotoUnreadable("This computer has no image library (Pillow).", 501) from None
     Image.MAX_IMAGE_PIXELS = 250_000_000      # 200-megapixel phone photos; the file size is capped too
@@ -103,7 +103,7 @@ def shrink_photo(raw: bytes, max_side: int = PHOTO_SIDE) -> bytes:
             elif im.size[0] * im.size[1] > PHOTO_MAX_PIXELS_FULL_DECODE:
                 raise PhotoUnreadable(f"That image is too large ({im.size[0]} x {im.size[1]}). "
                                       "Save it as a JPEG, or smaller, and upload it again.", 413)   # decode at a fraction of full size: fast, little memory
-            im = ImageOps.exif_transpose(im)
+            im = _upright(im)
             if im.mode in ("RGBA", "LA", "PA") or (im.mode == "P" and "transparency" in im.info):
                 rgba = im.convert("RGBA")
                 flat = Image.new("RGB", rgba.size, (255, 255, 255))
@@ -115,8 +115,36 @@ def shrink_photo(raw: bytes, max_side: int = PHOTO_SIDE) -> bytes:
             out = io.BytesIO()
             im.save(out, "JPEG", quality=85, optimize=True)
             return out.getvalue()
-    except (OSError, ValueError, SyntaxError, Image.DecompressionBombError) as e:
+    except PhotoUnreadable:
+        raise
+    except Exception as e:
+        # Anything else in a photo the image library can't handle (4.4.5:
+        # ZeroDivisionError from a camera's 0/0 EXIF value) means the
+        # browser shrinks it instead, rather than "Something went wrong".
+        log.warning("This computer couldn't read a house photo (%s: %s); the browser shrinks it instead.",
+                    e.__class__.__name__, e)
         raise PhotoUnreadable(f"This computer couldn't read that photo ({e.__class__.__name__}).", 415) from None
+
+
+# EXIF orientation -> how to turn the picture upright
+_TURNS = {2: "FLIP_LEFT_RIGHT", 3: "ROTATE_180", 4: "FLIP_TOP_BOTTOM", 5: "TRANSPOSE",
+          6: "ROTATE_270", 7: "TRANSVERSE", 8: "ROTATE_90"}
+
+
+def _upright(im):
+    """Turn a photo upright from its EXIF orientation (4.4.5). Pillow's
+    exif_transpose also rewrites the rest of the EXIF, and a camera's damaged
+    value there (a resolution of 0/0) crashed it on a user's photo; the app
+    saves the photo without EXIF anyway, so only the turn is needed."""
+    from PIL import Image
+    try:
+        o = im.getexif().get(0x0112)
+    except Exception:            # unreadable EXIF: leave the picture as it is
+        return im
+    turn = _TURNS.get(o)
+    if turn is None:
+        return im
+    return im.transpose(getattr(Image.Transpose, turn))
 # Headers a reverse proxy or tunnel adds. A request carrying any of them came
 # from another machine even though the TCP connection is from 127.0.0.1.
 PROXY_HEADERS = ("X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto", "Forwarded", "X-Real-IP", "Via",
@@ -163,7 +191,7 @@ class ApiError(Exception):
 # Changes that affect security or access. From another device these need the
 # app password again (once per 5 minutes per sign-in), so a borrowed or lost
 # phone that's still signed in can't take over the account, webhooks or port.
-SENSITIVE = {"/api/credentials", "/api/webhook", "/api/port", "/api/autostart", "/api/local_login",
+SENSITIVE = {"/api/credentials", "/api/webhook", "/api/port", "/api/autostart", "/api/awake", "/api/local_login",
              "/api/users", "/api/users/delete", "/api/session_policy",
              "/api/ai/settings"}      # a paid key: swapping or removing it needs the password (3.18.2)
 REAUTH_SECONDS = 300
@@ -275,6 +303,7 @@ class App:
         self.safety = SafetyNet(self.store.dir)
         lanlink.DUMP_DIR = self.store.dir      # unreadable messages from the controller are kept (4.3.10)
         self.updates = updates.UpdateChecker(self.store.dir)   # "a new version is out"
+        self.awake = keepawake.KeepAwake(self.store.dir)        # no sleeping while the schedule runs (4.4.4)
         self.alerts = alerts.Alerts(self.store.dir, probe=self.alert_probe)   # phone alerts (ntfy)
         self.gameday = gameday.GameDays(self.store.dir, on_change=self.rebuild)  # game-day lights
         self.country = holidays.CountryHolidays(self.store.dir, on_change=self.rebuild)  # public holidays (3.19)
@@ -284,7 +313,11 @@ class App:
         self.ai_calls = []                                                       # times of AI calls, for the limits (3.18.2)
         self.mood_state = None                                                   # mood follow: {"level", "key", "at"}
         self.lanshow = lanlink.Streamer(on_end=self._musiclink_ended)          # music from this computer (4.1)
-        self.lan_seen = {"address": None, "ok": None, "at": 0.0, "checking": False, "gen": 0}  # answering there? (4.1.2)
+        self.lan_seen = {}                  # address -> {"ok", "at", "checking", "gen"}: answering there? (4.1.2; 4.5: each address)
+        self._acct = []                     # the account's controllers, from the last listing here (4.5)
+        self._acct_tried = -1e9             # when they were last asked for
+        self._acct_lock = threading.Lock()
+        self._ports_set = {}                # device -> {port: (start, end)} last set over the home network (4.5.1)
         self.lan_lock = threading.Lock()     # guards lan_seen (4.1.4)
         self._resync_at = None               # the last Resync with Trimlight's cloud (4.4.1)
         self.local_busy = threading.Lock()   # one local-mode job at a time (4.3.1)
@@ -342,7 +375,7 @@ class App:
                 self.ctrl = Controller(cfg, api, safety=self.safety, data_dir=self.store.dir)
                 self.ctrl.lan = localmode.Commands(        # 4.4: on/off and saved patterns over the home network
                     enabled=lambda: bool((self.store.settings.get("lan") or {}).get("commands")),
-                    host=self._lan_address, device=self._lan_device, io=self.lan_io,
+                    host=self._lan_address, io=self.lan_io,      # 4.5: each controller at its own address
                     blocked=lambda: self.lanshow.running() or self.local_busy.locked(), now=self.controller_now)
                 if self.started:
                     self._start_thread()
@@ -362,6 +395,7 @@ class App:
         with self.lock:
             self.started = True
             self._start_thread()
+        self.awake.apply()
         # Background services that reach the internet. EAVELUXOS_BACKGROUND=0
         # turns them all off (the tests do); EAVELUXOS_UPDATE_CHECK=0 only the
         # GitHub version check (3.15.1: they used to share that one switch).
@@ -414,14 +448,19 @@ class App:
         ai = data.get("ai")
         lan = data.get("lan")
         if lan is not None:
-            if not (isinstance(lan, dict) and set(lan) <= {"address", "commands"} and isinstance(lan.get("address", ""), str)
-                    and isinstance(lan.get("commands", False), bool)):
+            devs = lan.get("devices", {}) if isinstance(lan, dict) else None
+            if not (isinstance(lan, dict) and set(lan) <= {"address", "commands", "devices"}
+                    and isinstance(lan.get("address", ""), str) and isinstance(lan.get("commands", False), bool)
+                    and isinstance(devs, dict) and all(isinstance(k, str) and isinstance(v, str) for k, v in devs.items())):
                 raise ApiError("The controller's local address is malformed.")
-            if lan.get("address"):
-                try:
-                    lanlink.check_address(lan["address"])
-                except lanlink.LinkError as e:
-                    raise ApiError(str(e)) from None
+            for a in [lan.get("address")] + list(devs.values()):
+                if a:
+                    try:
+                        lanlink.check_address(a)
+                    except lanlink.LinkError as e:
+                        raise ApiError(str(e)) from None
+            if len(set(devs.values())) != len(devs):
+                raise ApiError("Two controllers can't have the same home-network address.")
         if ai is not None and not (isinstance(ai, dict) and set(ai) <= {"model"} and (
                 ai.get("model") is None or (isinstance(ai["model"], str) and re.fullmatch(r"[a-z0-9][a-z0-9.\-]{2,63}", ai["model"])))):
             raise ApiError("AI pattern ideas: a model name looks like claude-haiku-5-5.")
@@ -855,8 +894,58 @@ class App:
         return {"active": True, "level": level, "pattern": c.cfg.effects[key].label}
 
     # ------------------------------------------------------------ music from this computer (4.1)
-    def _lan_address(self) -> str:
-        return str((self.store.settings.get("lan") or {}).get("address") or "")
+    def _lan_address(self, dev: str | None = None) -> str:
+        """A controller's address on the home network (4.5: one per
+        controller, Setup › Lights & controller › Local mode). Without dev:
+        the address music from this computer uses (the one saved under Music,
+        or the only controller's). An address saved before 4.5 counts for a
+        controller only when the account has just that one, so with two
+        controllers it is never taken for the wrong one."""
+        lan = self.store.settings.get("lan") or {}
+        m = {k: v for k, v in (lan.get("devices") or {}).items() if v}
+        legacy = str(lan.get("address") or "")
+        if dev is None:
+            return legacy or (next(iter(m.values())) if len(m) == 1 else "")
+        if dev in m:
+            return m[dev]
+        if legacy and legacy not in m.values():
+            acct = self._account(fetch=True)
+            if len(acct) == 1 and acct[0]["id"] == dev:
+                return legacy
+        return ""
+
+    def _account(self, fetch: bool = False) -> list[dict]:
+        """Every controller on the Trimlight account ([{"id", "name"}]), as
+        last listed; fetch: list them now if none are known yet (empty when
+        the cloud can't be reached either)."""
+        known = lambda: (self.ctrl.account if self.ctrl else None) or self._acct
+        if fetch and not known():
+            # One listing at a time: panels opened together wait for it rather
+            # than each finding none (4.5).
+            with self._acct_lock:
+                if not known() and time.monotonic() - self._acct_tried > 60:   # a slow or down cloud isn't asked on every look
+                    self._acct_tried = time.monotonic()
+                    try:
+                        self._acct = list(self.client().list_devices())
+                    except Exception as e:
+                        log.info("Couldn't list the controllers on this account: %s", e)
+        # (the controller list fills both together, so the ones run here alone
+        # stand in only before that, as in tests)
+        found = (self.ctrl.account if self.ctrl else None) or self._acct or (self.ctrl.devices if self.ctrl else None)
+        return [{"id": d.get("deviceId"), "name": d.get("name") or d.get("deviceId")} for d in found or []]
+
+    def _lan_unassigned(self) -> str:
+        """An address saved before 4.5 that isn't known to be any controller's
+        (two or more controllers): Local mode asks which one it is."""
+        lan = self.store.settings.get("lan") or {}
+        legacy = str(lan.get("address") or "")
+        if not legacy or legacy in (lan.get("devices") or {}).values():
+            return ""
+        return "" if len(self._account()) <= 1 else legacy
+
+    def _name_of(self, dev: str) -> str:
+        return next((d["name"] for d in self._account() if d["id"] == dev), None) or \
+            next((d.get("name") for d in (self.ctrl.devices if self.ctrl else []) if d.get("deviceId") == dev), None) or dev
 
     def _our_show(self, sid: str | None = None) -> bool:
         """A show from this computer is in charge (sid: that very show)."""
@@ -865,28 +954,30 @@ class App:
         return by == f"lan:{sid}" if sid else by.startswith("lan:")
 
     # ------------------------------------------------------------ local mode (4.3)
-    def local(self, *, write: bool = True):
-        """The controller over the home network: (Local, device id). Patterns
-        are saved, put back and deleted only this way since 4.3."""
-        addr = self._lan_address()
-        if not addr:
-            raise ApiError("Patterns are saved over your home network since 4.3, so this app needs the controller's "
-                           "address there first: Setup \u203a Lights & controller \u203a Local mode (or Music \u203a "
-                           "Music from this computer).", 409)
+    def local(self, *, write: bool = True, dev: str | None = None):
+        """A controller over the home network: (Local, device id). Patterns
+        are saved, put back and deleted only this way since 4.3. 4.5: each
+        controller at its own address; dev chooses one (needed when the
+        account has more than one)."""
         if write and self.lanshow.running():
             raise ApiError("A music show from this computer is using the connection. Stop it first.", 409)
-        try:
-            devs = self.target_devices()
-        except ApiError:
-            # Review #7 (4.3.1): the cloud is down; the controllers this app
-            # already knows will do (local mode shouldn't need the cloud).
-            devs = [d["deviceId"] for d in (self.ctrl.devices if self.ctrl else []) or []]
-            if not devs:
-                raise
-        if len(devs) != 1:
-            raise ApiError("Local mode works with one controller for now; this app runs "
-                           f"{len(devs)}. Choose one under Setup \u203a Lights & controller.", 409)
-        dev = devs[0]
+        if not self._account(fetch=True):
+            # Review #7 (4.3.1): the cloud is down and no controller is known
+            # yet; local mode needs to know which one it's talking to.
+            raise ApiError("Couldn't list the controllers on this account. Check the internet connection and "
+                           "try again.", 502)
+        if dev is None:
+            acct = [d["id"] for d in self._account()]
+            if len(acct) != 1:
+                raise ApiError("Choose a controller first: this account has more than one.", 409)
+            dev = acct[0]
+        elif not isinstance(dev, str) or not dev:
+            raise ApiError("Choose a controller.")
+        addr = self._lan_address(dev)
+        if not addr:
+            whose = (self._name_of(dev) + "\u2019s") if len(self._account()) > 1 else "the controller\u2019s"
+            raise ApiError(f"Patterns are saved over your home network since 4.3, so this app needs {whose} address "
+                           "there first: Setup \u203a Lights & controller \u203a Local mode.", 409)
         if write:
             self.safety.hold()        # no backup-timer writes next to these
         return localmode.Local(addr, now=self.controller_now, backup=lambda det: self.safety._backup(dev, det),
@@ -916,20 +1007,20 @@ class App:
                 log.info("Couldn't ask the controller to update Trimlight's cloud: %s", e)
         threading.Thread(target=nudge, daemon=True).start()
 
-    def local_state(self, fresh: bool = False) -> dict:
-        loc, dev, st = self._local_read(fresh)
+    def local_state(self, fresh: bool = False, dev: str | None = None) -> dict:
+        loc, dev, st = self._local_read(fresh, dev)
         return {"address": loc.host, "device": dev, "ports": st["ports"],
                 "patterns": [{"id": p["id"], "name": p["name"], "mode": p["mode"], "speed": p["speed"],
                               "brightness": p["brightness"],
                               "colors": [[c, col] for c, col, on in p["slots"] if c and on]} for p in st["patterns"]]}
 
-    def _local_read(self, fresh: bool = False):
+    def _local_read(self, fresh: bool = False, dev: str | None = None):
         """(Local, device, what the controller holds), read now or a read from
         the last 5 seconds of the same controller."""
         if self.lanshow.running():
             raise ApiError("A music show from this computer is using the connection to the controller. "
                            "Stop it to read the controller.", 409)
-        loc, dev = self.local(write=False)
+        loc, dev = self.local(write=False, dev=dev)
         t, st, key = self._local_seen
         if fresh or st is None or time.time() - t > 5 or key != loc.host:   # two panels opened together share one read (4.3.6)
             try:
@@ -965,16 +1056,16 @@ class App:
             self.ctrl.refresh_devices()
         return {"ok": good, "devices": out}
 
-    def local_backup(self) -> dict:
+    def local_backup(self, dev: str | None = None) -> dict:
         """Save what the controller holds now as a backup (Local mode › Back
         up now, 4.3.6), listed under Pattern backups and downloadable."""
-        loc, dev, st = self._local_read(fresh=True)     # review #2 (4.3.6): this very read, not a shared one
+        loc, dev, st = self._local_read(fresh=True, dev=dev)     # review #2 (4.3.6): this very read, not a shared one
         name = self.safety._backup(dev, localmode.as_backup(st))
         log.info("Backed up the controller over the home network: %s (%d patterns)", name, len(st["patterns"]))
         return {"file": name, "patterns": len(st["patterns"])}
 
-    def local_ports(self, ports) -> dict:
-        loc, dev = self.local()
+    def local_ports(self, ports, dev: str | None = None) -> dict:
+        loc, dev = self.local(dev=dev)
         try:
             changed = loc.ports(ports)
         except localmode.LocalError as e:
@@ -985,10 +1076,10 @@ class App:
             self.ctrl.refresh_devices()
         return {"ok": True, "changed": changed}
 
-    def local_delete(self, pid, name) -> dict:
+    def local_delete(self, pid, name, dev: str | None = None) -> dict:
         if isinstance(pid, bool) or not isinstance(pid, int) or not isinstance(name, str) or not name.strip():
             raise ApiError("Choose a pattern to delete.")
-        loc, dev = self.local()
+        loc, dev = self.local(dev=dev)
         try:
             loc.delete(pid, name)
         except localmode.LocalError as e:
@@ -1005,23 +1096,29 @@ class App:
 
     LAN_CHECK_EVERY = 300          # seconds between "is the controller answering at its address?" checks
 
-    def lan_home(self) -> dict | None:
-        """For Home (4.1.2): the controller's address on the home network
-        (Trimlight's cloud doesn't report it, so it's the one saved under
-        Music) and whether it answered there lately. Checked in the
-        background at most every 5 minutes, by opening and closing a
-        connection (nothing is sent); while a show runs, it's answering."""
-        addr = self._lan_address()
-        if not addr:
-            return None
-        if self.lanshow.running():
-            return {"address": addr, "ok": True}
-        seen = self.lan_seen
-        # 4.1.4: one probe at a time, and a probe's answer only counts if
-        # nothing newer (Test connection, a new address) came in meanwhile.
+    def lan_home(self) -> dict:
+        """For Home (4.1.2; 4.5: each controller): its address on the home
+        network (Trimlight's cloud doesn't report it) and whether it answered
+        there lately, as {"devices": {id: {"address", "ok"}}, "unassigned":
+        an address saved before 4.5 that isn't known to be any controller's}.
+        Each address is checked in the background at most every 5 minutes by
+        opening and closing a connection (nothing is sent)."""
+        out = {}
+        for d in self._account(fetch=True):
+            addr = self._lan_address(d["id"])
+            if addr:
+                out[d["id"]] = {"address": addr, "ok": self._answers(addr), "name": d["name"]}
+        return {"devices": out, "unassigned": self._lan_unassigned() or None}
+
+    def _answers(self, addr: str):
+        """True/False/None (not known yet) for one address; starts a check
+        when the last is over 5 minutes old."""
+        if self.lanshow.running() and addr == self._lan_address():
+            return True
         with self.lan_lock:
-            if seen["address"] != addr:
-                seen.update(address=addr, ok=None, at=0.0, gen=seen["gen"] + 1)
+            seen = self.lan_seen.setdefault(addr, {"ok": None, "at": 0.0, "checking": False, "gen": 0})
+            # 4.1.4: one probe at a time, and a probe's answer only counts if
+            # nothing newer (Test connection) came in meanwhile.
             start = not seen["checking"] and time.time() - seen["at"] >= self.LAN_CHECK_EVERY
             if start:
                 seen["checking"] = True
@@ -1031,37 +1128,125 @@ class App:
                 # 4.4: waits its turn for the connection like everything else
                 # (a probe next to a show may have dropped it, Nov 16, 5:45 PM).
                 if not self.lan_io.acquire(blocking=False):
-                    # Busy: something is talking to it (or waiting to). Keep
-                    # what was known and check again on the next look; a
-                    # connection stuck waiting on a controller that's gone
-                    # isn't proof it answers (4.4.1).
+                    # Busy: keep what was known and check again on the next
+                    # look; a connection stuck waiting on a controller that's
+                    # gone isn't proof it answers (4.4.1).
                     with self.lan_lock:
                         seen["checking"] = False
                     return
-                else:
-                    try:
-                        with socket.create_connection((addr, lanlink.TCP_PORT), timeout=1.5):
-                            ok = True
-                    except OSError:
-                        ok = False
-                    finally:
-                        self.lan_io.release()
+                try:
+                    with socket.create_connection((addr, lanlink.TCP_PORT), timeout=1.5):
+                        ok = True
+                except OSError:
+                    ok = False
+                finally:
+                    self.lan_io.release()
                 with self.lan_lock:
                     if seen["gen"] == gen:
                         seen.update(ok=ok, at=time.time())
                     seen["checking"] = False
             threading.Thread(target=check, daemon=True, name="lan-check").start()
-        return {"address": addr, "ok": ok_now}
+        return ok_now
 
     def _lan_result(self, addr, ok):
         """Test connection's answer, newer than any probe still running."""
         with self.lan_lock:
-            if addr == self._lan_address():
-                self.lan_seen.update(address=addr, ok=ok, at=time.time(), gen=self.lan_seen["gen"] + 1)
+            seen = self.lan_seen.setdefault(addr, {"ok": None, "at": 0.0, "checking": False, "gen": 0})
+            seen.update(ok=ok, at=time.time(), gen=seen["gen"] + 1)
 
     def lan_recheck(self):
         with self.lan_lock:
-            self.lan_seen.update(at=0.0, ok=None, gen=self.lan_seen["gen"] + 1)
+            for seen in self.lan_seen.values():
+                seen.update(at=0.0, ok=None, gen=seen["gen"] + 1)
+
+    def local_address(self, dev, addr, force: bool = False) -> dict:
+        """Administrators (4.5): one controller's address on the home network.
+        With two or more controllers, the controller found there is read
+        first and its ports compared with what Trimlight's cloud says this
+        one has, so an address is never given to the wrong controller without
+        a warning (force: saved anyway after that warning)."""
+        acct = self._account()
+        if not isinstance(dev, str) or (acct and dev not in [d["id"] for d in acct]):
+            raise ApiError("Choose one of the controllers on this account.")
+        if addr is None or (isinstance(addr, str) and not addr.strip()):
+            addr = ""
+        else:
+            try:
+                addr = lanlink.check_address(addr)
+            except lanlink.LinkError as e:
+                raise ApiError(str(e)) from None
+        s = copy.deepcopy(self.store.settings)
+        lan = dict(s.get("lan") or {})
+        m = dict(lan.get("devices") or {})
+        other = next((k for k, v in m.items() if v == addr and k != dev), None) if addr else None
+        if other:
+            raise ApiError(f"{addr} is already {self._name_of(other)}\u2019s address.", 409)
+        if addr and len(acct) > 1 and not force:
+            warn = self._ports_differ(dev, addr)
+            if warn:
+                return {"ok": False, "confirm": warn}
+        if addr:
+            m[dev] = addr
+        else:
+            m.pop(dev, None)
+        lan["devices"] = m
+        if lan.get("address") and len(acct) <= 1 and lan["address"] != addr and dev in m:
+            lan.pop("address")          # the old single address, now this controller's own
+        s["lan"] = lan
+        self.store.save_settings(s)
+        self.lan_recheck()
+        log.info("%s's home-network address: %s", self._name_of(dev), addr or "none")
+        return {"ok": True, "lan": self.lan_home()}
+
+    def _ports_differ(self, dev, addr) -> str:
+        """A warning when the controller at addr doesn't have dev's ports (as
+        Trimlight's cloud knows them); "" when they match or can't be told."""
+        try:
+            got = self.local_identify(addr)
+        except ApiError as e:
+            return (f"Couldn't read a controller at {addr} to check it's {self._name_of(dev)} ({e}). "
+                    "Save it anyway?")
+        why = self._not_this_one(dev, addr, got["ports"])
+        return f"{why} Save it as {self._name_of(dev)}\u2019s address anyway?" if why else ""
+
+    def _not_this_one(self, dev, addr, lan_ports) -> str:
+        """Why the controller at addr (with these ports, read over the home
+        network) may not be dev: its ports differ from what Trimlight's cloud
+        says dev has, and from what this app last set there. "" when they
+        match; a note when the cloud can't be read to tell (4.5.1)."""
+        here = {i: (p["start"], p["end"]) for i, p in enumerate(lan_ports)}
+        if self._ports_set.get(dev) == here:
+            return ""
+        try:
+            det = self.client().get_device(dev, self.now())
+        except Exception as e:
+            return (f"Couldn't check that the controller at {addr} is {self._name_of(dev)}: Trimlight\u2019s cloud "
+                    f"didn't say which ports {self._name_of(dev)} has ({e}).")
+        base = port_base(det.get("ports"))
+        cloud = {p.get("id", 0) - base: (p.get("start"), p.get("end")) for p in det.get("ports") or []}
+        if not [i for i, se in cloud.items() if se != (0, 0) and i in here and here[i] != se]:
+            return ""
+        fmt = lambda d: ", ".join(f"port {i + 1}: {a}-{b}" for i, (a, b) in sorted(d.items()) if (a, b) != (0, 0))
+        return (f"The controller at {addr} has {fmt(here)}, but {self._name_of(dev)} has {fmt(cloud)} in "
+                f"Trimlight\u2019s cloud. It may be another controller.")
+
+    def local_identify(self, addr) -> dict:
+        """Administrators (4.5): what the controller at an address holds (its
+        ports and first pattern names), to tell two controllers apart."""
+        try:
+            addr = lanlink.check_address(addr)
+        except lanlink.LinkError as e:
+            raise ApiError(str(e)) from None
+        if self.lanshow.running():
+            raise ApiError("A music show from this computer is using the connection. Stop it first.", 409)
+        loc = localmode.Local(addr, now=self.controller_now, backup=lambda det: None,
+                              lock=None, busy=self.local_busy, io=self.lan_io, blocked=self.lanshow.running)
+        try:
+            st = loc.read()
+        except localmode.LocalError as e:
+            raise ApiError(str(e), 502) from None
+        return {"address": addr, "ports": st["ports"],
+                "patterns": [p["name"] for p in st["patterns"]][:6], "count": len(st["patterns"])}
 
     def musiclink_address(self, addr) -> dict:
         """Administrators: the controller's address on the home network."""
@@ -1074,28 +1259,31 @@ class App:
                 raise ApiError(str(e)) from None
         s = copy.deepcopy(self.store.settings)
         self.lan_recheck()
+        lan = dict(s.get("lan") or {})              # keeps the commands setting (4.4) and each controller's (4.5)
         if addr:
-            s["lan"] = {**(s.get("lan") or {}), "address": addr}      # keeps the commands setting (4.4)
+            lan["address"] = addr
+        else:
+            lan.pop("address", None)
+        if lan:
+            s["lan"] = lan
         else:
             s.pop("lan", None)
         self.store.save_settings(s)
         return self.musiclink_status()
 
-    def _lan_device(self):
-        """The one controller this app runs, if just one (local mode's rule);
-        never asks the cloud (4.4)."""
-        devs = [d["deviceId"] for d in (self.ctrl.devices if self.ctrl else []) or []]
-        return devs[0] if len(devs) == 1 else None
-
     def local_commands(self, on) -> dict:
         """Administrators: send on/off and saved patterns over the home network (4.4)."""
         if not isinstance(on, bool):
             raise ApiError("on must be true or false.")
-        if on and not self._lan_address():
-            raise ApiError("Enter the controller's address on your home network first.", 409)
+        if on and not any(self._lan_address(d["id"]) for d in self._account(fetch=True)):
+            # 4.5.1: an address saved before 4.5 that isn't any controller's yet
+            # (two or more controllers) doesn't count: nothing would go there.
+            raise ApiError("Enter the controller's address on your home network first"
+                           + (", or choose which controller the saved one is" if self._lan_unassigned() else "")
+                           + ": Setup \u203a Lights & controller \u203a Local mode.", 409)
         s = copy.deepcopy(self.store.settings)
-        if s.get("lan"):
-            s["lan"]["commands"] = on
+        if s.get("lan") or on:
+            s["lan"] = {**(s.get("lan") or {}), "commands": on}
             self.store.save_settings(s)
         log.info("Everyday commands %s.", "go over the home network when they can" if on else "go through Trimlight's cloud")
         return {"ok": True, "commands": on}
@@ -1293,9 +1481,10 @@ class App:
         except restore.RestoreError as e:
             raise ApiError(str(e), 404)
         m = restore.NAME_RE.fullmatch(str(name))
-        loc, dev = self.local()
-        if m.group(1) != dev:
-            raise ApiError("That backup is of a controller this app doesn't use now.", 409)
+        acct = [d["id"] for d in self._account()]
+        if acct and m.group(1) not in acct:
+            raise ApiError("That backup is of a controller that isn't on this Trimlight account now.", 409)
+        loc, dev = self.local(dev=m.group(1))        # 4.5: back onto the controller it came from
         try:
             r = loc.restore(det, ids)
         except localmode.LocalError as e:
@@ -1314,6 +1503,7 @@ class App:
             listing = api.list_devices()
         except TrimlightError as e:
             raise ApiError(str(e), 502)
+        self._acct = list(listing)           # 4.5: which controllers there are, for their home-network addresses
         # Ask every controller at once: one at a time, a slow cloud (15 s per
         # call) made this screen take minutes with several controllers.
         from concurrent.futures import ThreadPoolExecutor
@@ -1488,7 +1678,7 @@ class App:
                 raise ApiError("Each port can be given only once.")          # review #5 (4.3.1)
             if ports and all(p["start"] == 0 and p["end"] == 0 for p in ports):
                 raise ApiError("At least one port needs bulbs. Turning every port off would leave the lights dark.")
-            if self._lan_address() and sorted(p["id"] for p in ports) == [0, 1, 2, 3]:   # review #5 (4.3.1): each port once
+            if self._lan_address(dev) and sorted(p["id"] for p in ports) == [0, 1, 2, 3]:   # review #5 (4.3.1): each port once
                 # 4.3: over the home network, where a port can really be off.
                 return self._ports_local(dev, ports, {k: v for k, v in payload.items()})
             off_ids = sorted(p["id"] for p in ports if p["start"] == 0 and p["end"] == 0)
@@ -1538,13 +1728,19 @@ class App:
     def _ports_local(self, dev: str, ports: list, other: dict) -> dict:
         """The Lights tab's port layout, sent over the home network (4.3). A
         port marked not connected is switched off and keeps its numbers."""
-        loc, ldev = self.local()
-        if ldev != dev:
-            raise ApiError("Local mode works with the controller this app runs.", 409)
+        loc, ldev = self.local(dev=dev)
         try:
             cur = loc.read()["ports"]
         except localmode.LocalError as e:
             raise ApiError(f"{e} Nothing was changed.", 502) from None
+        if len(self._account()) > 1:
+            # 4.5.1: with several controllers, make sure this is the one: if the
+            # router gave two of them each other's addresses, these ports would
+            # land on the wrong controller.
+            why = self._not_this_one(dev, loc.host, cur)
+            if why:
+                raise ApiError(f"{why} Nothing was changed. If its address changed, update it in Setup \u203a "
+                               "Lights & controller \u203a Local mode (Find controllers).", 409)
         want = []
         for p in sorted(ports, key=lambda p: p["id"]):
             off = p["start"] == 0 and p["end"] == 0
@@ -1557,6 +1753,7 @@ class App:
             changed = loc.ports(want)
         except localmode.LocalError as e:
             raise ApiError(str(e), 502) from None
+        self._ports_set[dev] = {i: (w["start"], w["end"]) for i, w in enumerate(want)}   # what it holds now
         log.info("Ports set over the home network: %s", "; ".join(changed))
         self._after_local_write(dev)
         note = None
@@ -1677,14 +1874,34 @@ class App:
         if eff.payload.get("category") != 1:
             raise ApiError("Only patterns of your own colors can be saved on the controller; a built-in effect is "
                            "already there.")
-        loc, dev = self.local()
-        try:
-            pid = loc.save({"name": name, **eff.payload})
-        except localmode.LocalError as e:
-            raise ApiError(str(e), 502)
-        log.info("Saved %r on the controller over the home network as pattern %s.", name, pid)
-        self._after_local_write(dev)
-        return {"ok": True, "saved": [{"device": dev, "id": pid}]}
+        want = body.get("devices")
+        if want is None:
+            # 4.5: every controller this app runs that has an address (one,
+            # before 4.5); a controller without one is named, not skipped quietly.
+            want = [d.get("deviceId") for d in (self.ctrl.devices if self.ctrl else [])] or None
+        if want is not None and (not isinstance(want, list) or not want or not all(isinstance(x, str) for x in want)):
+            raise ApiError("Choose which controllers to save it on.")
+        saved, missing = [], []
+        for dev in (want or [None]):
+            if dev is not None and not self._lan_address(dev):
+                missing.append(self._name_of(dev))
+                continue
+            loc, dev = self.local(dev=dev)
+            try:
+                pid = loc.save({"name": name, **eff.payload})
+            except localmode.LocalError as e:
+                if saved:
+                    raise ApiError(f"Saved on {', '.join(self._name_of(x['device']) for x in saved)}, but not on "
+                                   f"{self._name_of(dev)}: {e}", 502)
+                raise ApiError(str(e), 502)
+            log.info("Saved %r on %s over the home network as pattern %s.", name, self._name_of(dev), pid)
+            self._after_local_write(dev)
+            saved.append({"device": dev, "id": pid})
+        if not saved:
+            raise ApiError(f"{' and '.join(missing)} {'has' if len(missing) == 1 else 'have'} no home-network address "
+                           "yet, so nothing was saved on the controller: Setup \u203a Lights & controller \u203a "
+                           "Local mode.", 409)
+        return {"ok": True, "saved": saved, "missing": missing}
 
     # ------------------------------------------------------------ misc
     def upcoming(self, days: int, month: str | None = None):
@@ -2161,7 +2378,7 @@ def make_server(app: App, host: str, port: int):
                 st["setup"] = app.setup_state()
                 st["slot_limit"] = TrimlightAPI.slot_limit     # bulbs per color slot this controller takes (90 or 60)
                 st["coming"] = app.coming_up()                  # next holiday and game, for the panel summaries (4.0.1)
-                st["lan"] = app.lan_home()                      # the controller's home-network address, for Home (4.1.2)
+                st["lan"] = app.lan_home()                      # each controller's home-network address, for Home (4.1.2; 4.5)
                 return st
             if path == "/api/catalog":
                 return catalog.catalog()
@@ -2194,7 +2411,8 @@ def make_server(app: App, host: str, port: int):
                 out.update({"client_id": s.get("client_id", ""),
                             "secret_hint": ("••••" + s["client_secret"][-4:]) if s.get("client_secret") else "",
                             "webhook_token": s.get("webhook_token"), "local_login": app.store.local_login_required(),
-                            "autostart": autostart.status(app.base), "python": platform.python_version(),
+                            "autostart": autostart.status(app.base), "awake": app.awake.status(),
+                            "python": platform.python_version(),
                             "data_dir": str(app.store.dir), "session_idle_hours": app.store.session_idle_hours(),
                             "session_idle_choices": list(SESSION_IDLE_CHOICES), "session_max_days": SESSION_MAX_DAYS})
                 return out
@@ -2230,7 +2448,7 @@ def make_server(app: App, host: str, port: int):
             if path == "/api/backups":                 # controller backups to restore patterns from (3.15)
                 return restore.list_backups(app.safety.backup_dir)
             if path == "/api/local":                    # Administrators: the controller over the home network (4.3)
-                return app.local_state(q.get("fresh") == "1")
+                return app.local_state(q.get("fresh") == "1", q.get("device") or None)
             if path == "/api/backups/patterns":
                 try:
                     det = restore.read_backup(app.safety.backup_dir, q.get("file", ""))
@@ -2359,15 +2577,19 @@ def make_server(app: App, host: str, port: int):
             if path == "/api/backups/restore":      # Administrators (not on the editor list)
                 return app.restore_patterns(b.get("file"), b.get("ids"))
             if path == "/api/local/ports":          # Administrators (4.3)
-                return app.local_ports(b.get("ports"))
+                return app.local_ports(b.get("ports"), b.get("device"))
             if path == "/api/local/commands":       # Administrators (4.4)
                 return app.local_commands(b.get("on"))
             if path == "/api/resync":               # Administrators (4.4)
                 return app.resync_cloud()
             if path == "/api/local/backup":         # Administrators (4.3.6)
-                return app.local_backup()
+                return app.local_backup(b.get("device"))
             if path == "/api/local/delete":         # Administrators (4.3)
-                return app.local_delete(b.get("id"), b.get("name"))
+                return app.local_delete(b.get("id"), b.get("name"), b.get("device"))
+            if path == "/api/local/address":        # Administrators (4.5): one controller's address
+                return app.local_address(b.get("device"), b.get("address"), bool(b.get("force")))
+            if path == "/api/local/identify":       # Administrators (4.5): what's at an address
+                return app.local_identify(b.get("address"))
             if path == "/api/textpattern":         # Editors: describe a pattern in words (3.18)
                 from . import textpattern
                 try:
@@ -2565,6 +2787,11 @@ def make_server(app: App, host: str, port: int):
                 if not r.get("ok"):
                     raise ApiError(r.get("error") or "Windows Firewall wasn't changed.")
                 return r
+            if path == "/api/awake":
+                try:
+                    return app.awake.set_enabled(bool(b.get("enabled")))
+                except OSError as e:
+                    raise ApiError(f"Couldn't save that: {e}")
             if path == "/api/autostart":
                 try:
                     return autostart.set_enabled(app.base, bool(b.get("enabled")))

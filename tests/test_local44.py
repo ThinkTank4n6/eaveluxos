@@ -61,7 +61,8 @@ class Commands(ServerBase):
             self.app.ctrl._switch(DEV, 0)
             self.app.ctrl._show_saved(DEV, 12)
         self.assertEqual([r.getMessage() for r in cm.records],
-                         ["Over the home network: lights off.", "Over the home network: showed saved pattern 12."])
+                         ["Over the home network (127.0.0.1): lights off.",
+                          "Over the home network (127.0.0.1): showed saved pattern 12."])
 
     def test_timer_mode_always_through_the_cloud(self):
         self.turn(True)
@@ -98,7 +99,7 @@ class Commands(ServerBase):
         self.assertIn('id="lccmd"', js)
         self.assertIn("api('local/commands'", js)
         # 4.4.1: shown with the address, not only after a good read
-        self.assertIn("head + cmd + '<div id=\"lcbody\">", js)
+        self.assertIn("head + cmd + pick + '<div id=\"lcbody\">", js)
         body = js[js.index("$('#lcbody', box).innerHTML = `<p class=\"small\">Ports"):js.index("box.onchange = e =>")]
         self.assertNotIn('id="lccmd"', body)
 
@@ -113,7 +114,7 @@ class Commands(ServerBase):
         self.assertEqual(c.lan_sent[DEV], {"switch"})
         c._show_saved(DEV, 9)
         self.assertEqual(c.lan_sent[DEV], {"switch", "pattern"})
-        c.lan.failed_at = time.monotonic()               # home network out: both through the cloud
+        c.lan.failed_at[DEV] = time.monotonic()          # home network out: both through the cloud
         c._switch(DEV, 0); c._show_saved(DEV, 9)
         self.assertNotIn(DEV, c.lan_sent)
 
@@ -183,7 +184,7 @@ class SameAsSaved(ServerBase):
         self.apply({**FALL, "brightness": 255})                  # American Flag on Nov 16: 255 here, 188 there
         self.assertEqual(self.shown(), [])
         self.assertEqual(self.cloud(), ["/device/effect/preview"])
-        self.assertIsNone(self.app.ctrl.lan.failed_at, "no match isn't a failure")
+        self.assertIsNone(self.app.ctrl.lan.failed_at.get(DEV), "no match isn't a failure")
 
     def test_not_on_the_controller_isnt_read_again_for_a_while(self):
         self.apply({**FALL, "speed": 1})
@@ -211,7 +212,7 @@ class SameAsSaved(ServerBase):
         self.ctl.silent_reads = 1
         self.apply(dict(FALL))
         self.assertEqual(self.shown(), [19])
-        self.assertIsNone(self.app.ctrl.lan.failed_at)
+        self.assertIsNone(self.app.ctrl.lan.failed_at.get(DEV))
 
 
 class Stretch(ServerBase):
@@ -229,29 +230,29 @@ class Stretch(ServerBase):
         n = self.ctl.connections
         self.assertIn(self.lan.switch(DEV), (0, 1))
         self.assertEqual(self.ctl.connections - n, 1, "answered on the same connection")
-        self.assertIsNone(self.lan.trouble)
+        self.assertIsNone(self.lan.trouble.get(DEV))
 
     def test_one_warning_then_hourly_then_works_again(self):
         self.ctl.silent_reads = 99
         with self.assertLogs("eaveluxos.localmode", "INFO") as cm:
             self.assertIsNone(self.lan.switch(DEV))
             n = self.ctl.connections
-            self.lan.failed_at = None                 # 5 minutes later
+            self.lan.failed_at.pop(DEV, None)         # 5 minutes later
             self.assertIsNone(self.lan.switch(DEV))
             self.assertEqual(self.ctl.connections - n, 1, "one connection per try during a stretch")
-            since, said = self.lan.trouble
-            self.lan.trouble = (since, said - 3600)   # an hour later
-            self.lan.failed_at = None
+            since, said = self.lan.trouble[DEV]
+            self.lan.trouble[DEV] = (since, said - 3600)   # an hour later
+            self.lan.failed_at.pop(DEV, None)
             self.assertIsNone(self.lan.switch(DEV))
             self.ctl.silent_reads = 0
-            self.lan.failed_at = None
+            self.lan.failed_at.pop(DEV, None)
             self.assertIn(self.lan.switch(DEV), (0, 1))
         warnings = [r.getMessage() for r in cm.records if r.levelname == "WARNING"]
         self.assertEqual(len(warnings), 2, warnings)
         self.assertIn("didn't work", warnings[0])
         self.assertIn("still isn't working (since", warnings[1])
         self.assertIn("works again", cm.records[-1].getMessage())
-        self.assertIsNone(self.lan.trouble)
+        self.assertIsNone(self.lan.trouble.get(DEV))
 
 
 class Resync(ServerBase):
@@ -305,7 +306,7 @@ class Connection(ServerBase):
         before = len(self.ctl.got)
         n_conn = self.ctl.most_active
         with self.app.lan_io:
-            self.app.lan_seen.update(at=0.0, checking=False)
+            self.app.lan_seen.clear()
             self.app.lan_home()
             time.sleep(0.3)
         self.assertEqual(self.ctl.most_active, n_conn, "no connection opened while busy")
@@ -313,18 +314,19 @@ class Connection(ServerBase):
     def test_busy_keeps_what_was_known_and_checks_again_later(self):
         """4.4.1: busy isn't proof it answers (a connection may be stuck
         waiting on a controller that's gone), and the next look checks."""
+        addr = self.app._lan_address()
         with self.app.lan_io:
-            self.app.lan_seen.update(address=self.app._lan_address(), ok=False, at=0.0, checking=False)
+            self.app.lan_seen[addr] = {"ok": False, "at": 0.0, "checking": False, "gen": 0}
             self.app.lan_home()
             time.sleep(0.3)
-            self.assertIs(self.app.lan_seen["ok"], False)
-            self.assertFalse(self.app.lan_seen["checking"])
+            self.assertIs(self.app.lan_seen[addr]["ok"], False)
+            self.assertFalse(self.app.lan_seen[addr]["checking"])
         self.app.lan_home()
         for _ in range(50):
-            if self.app.lan_seen["ok"]:
+            if self.app.lan_seen[addr]["ok"]:
                 break
             time.sleep(0.05)
-        self.assertTrue(self.app.lan_seen["ok"])
+        self.assertTrue(self.app.lan_seen[addr]["ok"])
 
 
 if __name__ == "__main__":

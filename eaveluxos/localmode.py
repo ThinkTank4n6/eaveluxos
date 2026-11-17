@@ -418,20 +418,23 @@ class Commands:
     through the cloud: how the controller keeps a live preview hasn't been
     seen yet."""
 
-    def __init__(self, enabled, host, device, io, blocked, now=datetime.now, link_factory=L.Link):
-        self.enabled, self.host, self.device = enabled, host, device
+    def __init__(self, enabled, host, io, blocked, now=datetime.now, link_factory=L.Link):
+        # host(dev): that controller's address on the home network, or "" (4.5:
+        # one per controller; each has its own failures, reads and reminders)
+        self.enabled, self.host = enabled, host
         self.io, self.blocked, self.now, self.link_factory = io, blocked, now, link_factory
-        self.failed_at = None               # after a failure, the cloud for a while
-        self.looks = (None, None)           # (time, {look: pattern number}) of the last read, 4.4.2
-        self.trouble = None                 # (since, last said): a stretch of failures, said once an hour (4.4.3)
+        self.failed_at = {}                 # dev -> after a failure, the cloud for a while
+        self.looks = {}                     # dev -> (time, {look: pattern number}) of the last read, 4.4.2
+        self.trouble = {}                   # dev -> (since, last said): a stretch of failures, said once an hour (4.4.3)
 
     RETRY_AFTER = 300
     SAY_AGAIN = 3600                        # during a stretch of failures, a reminder this often
     LOOKS_FOR = 600                         # a look not on the controller: don't read it again for 10 minutes
 
     def usable(self, dev) -> bool:
-        return bool(self.enabled() and self.host() and self.device() == dev and not self.blocked()
-                    and (self.failed_at is None or time.monotonic() - self.failed_at > self.RETRY_AFTER))
+        at = self.failed_at.get(dev)
+        return bool(self.enabled() and self.host(dev) and not self.blocked()
+                    and (at is None or time.monotonic() - at > self.RETRY_AFTER))
 
     def _do(self, dev, fn):
         if not self.usable(dev) or not self.io.acquire(timeout=3):
@@ -444,9 +447,9 @@ class Commands:
                 return None
             # During a stretch of failures, one connection per try (4.4.3:
             # Nov 17, 2:56-6:00 AM, every read went unanswered).
-            tries = (2,) if self.trouble else (1, 2)
+            tries = (2,) if self.trouble.get(dev) else (1, 2)
             for attempt in tries:
-                link = self.link_factory(self.host()).open()
+                link = self.link_factory(self.host(dev)).open()
                 try:
                     link.ping()
                     out = fn(link)
@@ -454,7 +457,7 @@ class Commands:
                     # once can lose it: one answered keep-alive after it says it
                     # was taken in (it handles requests in order).
                     link.ping()
-                    self._worked()
+                    self._worked(dev)
                     return out
                 except L.LinkError:
                     # It sometimes ignores a request on a new connection ("0
@@ -465,41 +468,42 @@ class Commands:
                 finally:
                     link.close()
         except Exception as e:          # never keep the cloud from doing it instead (4.4.1)
-            self.failed_at = time.monotonic()
+            self.failed_at[dev] = time.monotonic()
             if not isinstance(e, (L.LinkError, ValueError)):
                 log.exception("Unexpected trouble over the home network")
-            self._failed(e)
+            self._failed(dev, e)
             return None
         finally:
             self.io.release()
 
-    def _failed(self, e):
-        """Once for a stretch of failures, then once an hour (4.4.3)."""
-        now = time.monotonic()
-        if self.trouble is None:
-            self.trouble = (self.now(), now)
-            log.warning("Over the home network didn't work (%s); using Trimlight's cloud, and trying again "
-                        "every %d minutes.", e, self.RETRY_AFTER // 60)
-        elif now - self.trouble[1] >= self.SAY_AGAIN:
-            self.trouble = (self.trouble[0], now)
-            log.warning("Over the home network still isn't working (since %s; %s); Trimlight's cloud is being "
-                        "used.%s", _clock(self.trouble[0]), e, ONE_AT_A_TIME)
+    def _failed(self, dev, e):
+        """Once for a stretch of failures, then once an hour (4.4.3); each
+        controller on its own (4.5)."""
+        now, t, host = time.monotonic(), self.trouble.get(dev), self.host(dev)
+        if t is None:
+            self.trouble[dev] = (self.now(), now)
+            log.warning("Over the home network (%s) didn't work (%s); using Trimlight's cloud, and trying again "
+                        "every %d minutes.", host, e, self.RETRY_AFTER // 60)
+        elif now - t[1] >= self.SAY_AGAIN:
+            self.trouble[dev] = (t[0], now)
+            log.warning("Over the home network (%s) still isn't working (since %s; %s); Trimlight's cloud is being "
+                        "used.%s", host, _clock(t[0]), e, ONE_AT_A_TIME)
 
-    def _worked(self):
-        if self.trouble is not None:
-            log.info("Over the home network works again (it didn't from %s).", _clock(self.trouble[0]))
-            self.trouble = None
+    def _worked(self, dev):
+        t = self.trouble.pop(dev, None)
+        if t is not None:
+            log.info("Over the home network (%s) works again (it didn't from %s).", self.host(dev), _clock(t[0]))
 
     def power(self, dev, on: bool) -> bool:
         done = self._do(dev, lambda link: link.power(on) or True) is True
         if done:                        # each one in the log, so it can be seen working (4.4.1)
-            log.info("Over the home network: lights %s.", "on" if on else "off")
+            log.info("Over the home network (%s): lights %s.", self.host(dev), "on" if on else "off")
         return done
 
     def show(self, dev, pid: int) -> bool:
         done = self._do(dev, lambda link: link.show_saved(pid) or True) is True
         if done:
-            log.info("Over the home network: showed saved pattern %d.", pid)
+            log.info("Over the home network (%s): showed saved pattern %d.", self.host(dev), pid)
         return done
 
     def show_like(self, dev, payload: dict):
@@ -511,7 +515,7 @@ class Commands:
         want = look_of(payload)
         if want is None or not self.usable(dev):
             return None
-        at, known = self.looks
+        at, known = self.looks.get(dev, (None, None))
         if known is not None and want not in known and time.monotonic() - at < self.LOOKS_FOR:
             return None                     # not on the controller a few minutes ago: don't read again
 
@@ -520,7 +524,7 @@ class Commands:
             known = {}
             for p in st["patterns"]:
                 known.setdefault(_look(p), p["id"])
-            self.looks = (time.monotonic(), known)
+            self.looks[dev] = (time.monotonic(), known)
             pid = known.get(want)
             if pid:
                 link.show_saved(pid)
@@ -528,7 +532,7 @@ class Commands:
 
         pid = self._do(dev, fn)
         if pid:
-            log.info("Over the home network: showed saved pattern %d (the same as this app's).", pid)
+            log.info("Over the home network (%s): showed saved pattern %d (the same as this app's).", self.host(dev), pid)
             return pid
         return None
 

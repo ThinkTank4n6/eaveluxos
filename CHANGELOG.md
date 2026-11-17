@@ -1,5 +1,94 @@
 # Changelog
 
+## 4.5.1: review of 4.5, the controllers' health first
+
+Nothing in 4.5 saves or deletes anything through Trimlight's cloud, the
+cause of the 12006 errors and lost patterns (the backup timer, the only
+part that wrote timers there, stays paused). This review looked at
+everything that talks to the controllers over the home network:
+
+- **Far fewer reads of the controllers.** With "Send on/off and saved
+  patterns over the home network" on, the 5-minute check read each
+  controller every time (a full read, which also sets its clock), all
+  day and night: about 288 reads a day per controller, even when Trimlight's
+  cloud already agreed. On Nov 17 the controller stopped answering reads at
+  2:56 AM after hours of them. Now it reads only when the cloud disagrees
+  with what was sent (tests/repro_verify_reads.py: 7 reads in half an hour
+  before, none now).
+- **Ports never go to the wrong controller.** With two or more controllers,
+  changing a controller's ports first checks that the controller at its
+  address has that controller's ports (as Trimlight's cloud knows them, or
+  as this app last set them). If the router gave two controllers each
+  other's addresses, nothing is changed and the app says so.
+- Saving a controller's address no longer says yes without checking when
+  Trimlight's cloud can't be read (12006 or offline): it asks.
+- "Send on/off and saved patterns over the home network" can't be turned on
+  when the only address is one saved before 4.5 that isn't known to be any
+  controller's (nothing would have gone over the home network).
+- Search: typing a new search right after picking a result could leave the
+  new results hidden (a close left over from the pick, 150 ms later). Seen
+  as a test that failed only now and then.
+- tests/repro_mixed_paths.py works again (it predated the pattern matching
+  of 4.4.2).
+
+## 4.5.0: each controller on its own
+
+- **A home-network address for each controller** (Setup › Lights &
+  controller › Local mode), for two, three or more. Before, there was one
+  address: with two controllers, saving to the controller, Pattern backups,
+  deleting, the Lights tab's ports and the home-network commands all went to
+  whichever controller had that address, even with only the other one
+  chosen (a user with a Deck and a Front controller saw only the Deck's
+  patterns, and couldn't save anything on the Front).
+  - **Find controllers** lists every controller answering on the home
+    network; **Which is this?** shows one's ports and first pattern names;
+    **Use for this controller** saves it.
+  - Before an address is saved, the controller there is read and its ports
+    compared with what Trimlight's cloud says that controller has; when
+    they differ, the app asks first. One address can't be two controllers'.
+  - An address saved before 4.5 counts only when the account has one
+    controller (nothing changes then). With two or more, the panel asks
+    which controller it is, and nothing goes to it until you say.
+  - Local mode reads the controller you choose; Delete and Back up now act
+    on it; Pattern backups put patterns back on the controller the backup
+    came from; the designer's "Also save it on the controllers" saves on
+    each controller this app runs that has an address and names any that
+    don't; the Lights tab saves ports to that controller's own address.
+  - Home-network commands go to each controller's own address, and each
+    controller's failures, reads and reminders are its own: one not
+    answering doesn't send the others to the cloud.
+- **Home lists each controller** on its own card, as the Trimlight app's
+  first screen does: name, online or offline, on or off, firmware, and its
+  home-network address with whether it answers. The activity log is under
+  **Activity**.
+- The controller cards on the Lights tab spilled 3 pixels past a phone's
+  screen (their Online label took another style's 10-pixel width).
+- Search finds the new pieces.
+
+## 4.4.5: house photos from any camera
+
+- A house photo wouldn't upload for a user ("Something went wrong. Details
+  are in the log."). Their camera wrote a resolution of 0/0 into the photo's
+  hidden camera information (EXIF), and the image library in the Windows
+  release divided by zero while turning the photo upright. The app now turns
+  photos upright itself without rewriting that information (the saved photo
+  doesn't keep it anyway), all eight orientations as before
+  (tests/repro_photo_zero_rational.py).
+- Anything else the app computer can't handle in a photo now lets the
+  browser shrink it instead, as an iPhone HEIC photo already did, and the
+  log says why.
+
+## 4.4.4: keep the computer awake
+
+- **Keep this computer awake while the app runs** (Setup › App › Start
+  automatically; Windows; on by default). A sleeping computer can't follow
+  the schedule: the mini PC slept on its own five times from Nov 14 to 16,
+  three of them through sunrise, when 0-Security turns the lights off (Nov
+  16: 5:33 to 8:03 AM). The app now asks Windows not to sleep on its own,
+  the way a video player does while it plays. The screen can still turn
+  off, the power button and Sleep still work, and quitting the app lets the
+  computer sleep again. The log says when it's holding. Search finds it.
+
 ## 4.4.3: quieter when the controller won't answer
 
 - On Nov 17 from 2:56 to 6:00 AM the controller answered keep-alives but no
