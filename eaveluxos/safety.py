@@ -436,7 +436,7 @@ class SafetyNet:
                 failed = True
                 if isinstance(e, TrimlightError) and e.unreadable:
                     why = ("Trimlight's cloud can't read the controller (code 12006), so the backup timer won't write "
-                           "to it. Open the Trimlight Edge app on your home Wi-Fi so it syncs the controller.")
+                           "to it. Tap Resync with Trimlight's cloud (Setup \u203a Lights & controller).")
                     self._halt(why)
                     with self.lock:
                         self._dev(dev).update(ok=False, hash=None, message=why)

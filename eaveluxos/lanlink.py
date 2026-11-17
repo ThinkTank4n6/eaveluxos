@@ -92,6 +92,7 @@ MAX_FRAME = 64 * 1024
 # read with 1,940 bytes whose check didn't match, while Trimlight's cloud
 # couldn't parse its data either (12006).
 DUMP_DIR = None
+GREET_PAUSE = 0.5          # seconds after the greeting (4.4); tests set 0
 DUMPS_KEPT = 5
 
 
@@ -372,7 +373,8 @@ def read_state(body: bytes) -> dict:
     pats = [read_record(d[HEAD + RECORD * k:HEAD + RECORD * (k + 1)]) for k in range(n)]
     # raw: everything it sent, kept with backups (4.3.10) so the parts not
     # decoded yet (its timers) can be looked at.
-    return {"head": d[:3].hex(" "), "ports": ports, "patterns": pats, "raw": body.hex()}
+    # switch: the first byte, 1 with the lights on and 0 off (seen Nov 15-16, 2026).
+    return {"head": d[:3].hex(" "), "switch": d[0], "ports": ports, "patterns": pats, "raw": body.hex()}
 
 
 def state_payload(ports, patterns, head=b"\x01\x00\x00", tail=b"\x00" * 37) -> bytes:
@@ -432,6 +434,11 @@ class Link:
         except LinkError:
             self.close()
             raise
+        # 4.4: the Trimlight app waits about half a second after the greeting
+        # before asking anything; asked at once, the controller often ignored
+        # the first read ("0 bytes came", Nov 16).
+        if GREET_PAUSE:
+            time.sleep(GREET_PAUSE)
         return self
 
     def close(self):
@@ -579,6 +586,12 @@ class Link:
 
     def power(self, on: bool):
         self._send(frame(CMD_REQUEST, request(SUB_POWER, b"\x01" if on else b"\x00")))
+
+    def show_saved(self, pid: int):
+        """Show saved pattern number pid (sub 0x04, as the Trimlight app does)."""
+        if not 1 <= pid <= 255:
+            raise ValueError("pattern number out of range")
+        self._write(SUB_SHOW, bytes([pid]))
 
     def music(self, source: int, pattern: int, sensitivity: int, color=DEFAULT_COLOR):
         self._send(frame(CMD_REQUEST, music_payload(source, pattern, sensitivity, color=color)))

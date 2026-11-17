@@ -69,7 +69,8 @@ class Unreadable(unittest.TestCase):
         with self.assertRaises(TrimlightError) as cm:
             self.api.get_device(DEV, self.now)
         self.assertTrue(cm.exception.unreadable)
-        self.assertIn("Trimlight Edge app", str(cm.exception))
+        self.assertIn("Resync with Trimlight", str(cm.exception))
+        self.assertNotIn("Trimlight Edge app", str(cm.exception))
         self.assertIn("code 12006", str(cm.exception))
 
     def test_a_passing_problem_is_retried_after_a_resync(self):

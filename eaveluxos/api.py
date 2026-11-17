@@ -48,8 +48,9 @@ class TrimlightError(Exception):
 
 UNREADABLE = 12006
 UNREADABLE_HELP = ("Trimlight's cloud can't read its copy of this controller right now, so nothing on it can be "
-                   "shown or changed from here. The lights keep running. Open the Trimlight Edge app on your home "
-                   "Wi-Fi and open this controller so it syncs; see the manual, Troubleshooting.")
+                   "shown or changed from here. The lights keep running. Tap Resync with Trimlight's cloud (Setup \u203a "
+                   "Lights & controller) to ask the controller to send it a fresh copy; don't unplug the controller "
+                   "meanwhile. See the manual, Troubleshooting.")
 
 
 def port_base(ports) -> int:

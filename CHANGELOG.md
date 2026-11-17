@@ -1,5 +1,34 @@
 # Changelog
 
+## 4.4.0: local first
+
+- **Send on/off and saved patterns over the home network** (Setup › Lights
+  & controller › Local mode, marked *Try it*, off until you tick it): the
+  schedule turns the lights on and off, and shows patterns saved on the
+  controller, straight over the home network, as the Trimlight app does in
+  Local mode. When the controller doesn't answer there, the app uses
+  Trimlight's cloud as before for 5 minutes. Patterns of your own colors and
+  the built-in effects still go through the cloud (how the controller keeps
+  a live preview hasn't been seen yet), Timer mode always does, and nothing
+  goes this way during a music show from this computer or a local-mode job.
+  A controller set this way is checked with the controller itself, not the
+  cloud's copy, which may lag behind.
+  After each command the app waits for one answered keep-alive before
+  hanging up, so the controller has taken it in.
+- **Resync with Trimlight's cloud** (Setup › Lights & controller): asks the
+  controller to send the cloud a fresh copy of its data and reads it back,
+  what the Trimlight app's sync did. It changes nothing on the controller.
+  The "can't read its copy of this controller" (12006) message and the
+  backup timer's point to it instead of the Trimlight app, and say not to
+  unplug the controller meanwhile.
+- After greeting the controller, the app waits half a second before asking
+  anything, as the Trimlight app does (asked at once, the controller often
+  ignored the first read: "0 bytes came").
+- The background check that the controller answers on the home network now
+  waits its turn for the connection like everything else (one may have
+  dropped a show on Nov 16 at 5:45 PM).
+- Search finds both.
+
 ## 4.3.13: an answer that says it's longer than it is
 
 - **Fixed:** on Nov 16 at 4:43 PM Pattern backups kept saying "Couldn't read

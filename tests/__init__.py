@@ -26,3 +26,5 @@ _safety.READBACK_PAUSES = (0, 0, 0)    # read again at once (4.3.8)
 # The backup timer is paused for everyone in 4.3.9 (safety.PAUSED); its own
 # tests still test it. tests/test_review438.py tests the pause.
 _safety.PAUSED = False
+import eaveluxos.lanlink as _lanlink
+_lanlink.GREET_PAUSE = 0               # no half-second pause after each greeting (4.4)

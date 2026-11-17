@@ -58,6 +58,8 @@
     { t: 'Lights', w: 'Setup › Lights & controller', v: 'lights', h: 'Lights', k: 'bulbs strand' },
     { t: 'Ports and bulbs', w: 'Setup › Lights & controller', v: 'lights', h: 'Ports and bulbs', k: 'port pixels start end count 1 2 3 4' },
     { t: 'Controller', w: 'Setup › Lights & controller', v: 'lights', h: 'Controller', k: 'controller name firmware online' },
+    { t: 'Resync with Trimlight\u2019s cloud', w: 'Setup › Lights & controller', v: 'lights', h: 'Controller', k: 'resync sync 12006 cannot read cloud fix parsed' },
+    { t: 'Send commands over the home network', w: 'Setup › Lights & controller', v: 'lights', f: 'local', k: 'local commands on off faster lan without cloud' },
     { t: 'Controlled by this app', w: 'Setup › Lights & controller', v: 'lights', h: 'Controlled by this app', k: 'which controllers several devices' },
     { t: 'Backup timer', w: 'Setup › Lights & controller', v: 'lights', f: 'safety', k: 'safety net offline timers calendar internet down fallback' },
     { t: 'Color correction', w: 'Setup › Lights & controller', v: 'lights', f: 'color', k: 'gamma color accuracy calibrate white balance' },

@@ -339,6 +339,10 @@ class App:
             self.cfg = cfg
             if self.ctrl is None:
                 self.ctrl = Controller(cfg, api, safety=self.safety, data_dir=self.store.dir)
+                self.ctrl.lan = localmode.Commands(        # 4.4: on/off and saved patterns over the home network
+                    enabled=lambda: bool((self.store.settings.get("lan") or {}).get("commands")),
+                    host=self._lan_address, device=self._lan_device, io=self.lan_io,
+                    blocked=lambda: self.lanshow.running() or self.local_busy.locked(), now=self.controller_now)
                 if self.started:
                     self._start_thread()
             else:
@@ -409,7 +413,8 @@ class App:
         ai = data.get("ai")
         lan = data.get("lan")
         if lan is not None:
-            if not (isinstance(lan, dict) and set(lan) <= {"address"} and isinstance(lan.get("address", ""), str)):
+            if not (isinstance(lan, dict) and set(lan) <= {"address", "commands"} and isinstance(lan.get("address", ""), str)
+                    and isinstance(lan.get("commands", False), bool)):
                 raise ApiError("The controller's local address is malformed.")
             if lan.get("address"):
                 try:
@@ -933,6 +938,28 @@ class App:
             self._local_seen = (time.time(), st, loc.host)    # review #3: only for this address
         return loc, dev, st
 
+    def resync_cloud(self) -> dict:
+        """Resync with Trimlight's cloud (4.4): ask each controller to send
+        the cloud a fresh copy of its data, then read it back. What the
+        Trimlight app's sync did, without the Trimlight app. Reads only; it
+        changes nothing on the controller."""
+        api = self.client()
+        out = []
+        for dev in self.target_devices():
+            now = self.now()
+            api.resync(dev, now)
+            try:
+                api.get_device(dev, now, resync=False)
+                out.append({"device": dev, "ok": True})
+            except TrimlightError as e:
+                out.append({"device": dev, "ok": False, "error": str(e)})
+        good = all(r["ok"] for r in out)
+        log.info("Resync with Trimlight's cloud: %s", "it reads the controller again" if good else
+                 "; ".join(r.get("error", "") for r in out if not r["ok"]))
+        if self.ctrl:
+            self.ctrl.refresh_devices()
+        return {"ok": good, "devices": out}
+
     def local_backup(self) -> dict:
         """Save what the controller holds now as a backup (Local mode › Back
         up now, 4.3.6), listed under Pattern backups and downloadable."""
@@ -996,11 +1023,19 @@ class App:
             gen, ok_now = seen["gen"], seen["ok"]
         if start:
             def check():
-                try:
-                    with socket.create_connection((addr, lanlink.TCP_PORT), timeout=1.5):
-                        ok = True
-                except OSError:
-                    ok = False
+                # 4.4: waits its turn for the connection like everything else
+                # (a probe next to a show may have dropped it, Nov 16, 5:45 PM);
+                # busy means something is using the controller, so it answers.
+                if not self.lan_io.acquire(blocking=False):
+                    ok = True
+                else:
+                    try:
+                        with socket.create_connection((addr, lanlink.TCP_PORT), timeout=1.5):
+                            ok = True
+                    except OSError:
+                        ok = False
+                    finally:
+                        self.lan_io.release()
                 with self.lan_lock:
                     if seen["gen"] == gen:
                         seen.update(ok=ok, at=time.time())
@@ -1030,11 +1065,30 @@ class App:
         s = copy.deepcopy(self.store.settings)
         self.lan_recheck()
         if addr:
-            s["lan"] = {"address": addr}
+            s["lan"] = {**(s.get("lan") or {}), "address": addr}      # keeps the commands setting (4.4)
         else:
             s.pop("lan", None)
         self.store.save_settings(s)
         return self.musiclink_status()
+
+    def _lan_device(self):
+        """The one controller this app runs, if just one (local mode's rule);
+        never asks the cloud (4.4)."""
+        devs = [d["deviceId"] for d in (self.ctrl.devices if self.ctrl else []) or []]
+        return devs[0] if len(devs) == 1 else None
+
+    def local_commands(self, on) -> dict:
+        """Administrators: send on/off and saved patterns over the home network (4.4)."""
+        if not isinstance(on, bool):
+            raise ApiError("on must be true or false.")
+        if on and not self._lan_address():
+            raise ApiError("Enter the controller's address on your home network first.", 409)
+        s = copy.deepcopy(self.store.settings)
+        if s.get("lan"):
+            s["lan"]["commands"] = on
+            self.store.save_settings(s)
+        log.info("Everyday commands %s.", "go over the home network when they can" if on else "go through Trimlight's cloud")
+        return {"ok": True, "commands": on}
 
     def musiclink_test(self, addr=None, read=False) -> dict:
         """Administrators: connect, greet and ping; with read, also set the
@@ -2296,6 +2350,10 @@ def make_server(app: App, host: str, port: int):
                 return app.restore_patterns(b.get("file"), b.get("ids"))
             if path == "/api/local/ports":          # Administrators (4.3)
                 return app.local_ports(b.get("ports"))
+            if path == "/api/local/commands":       # Administrators (4.4)
+                return app.local_commands(b.get("on"))
+            if path == "/api/resync":               # Administrators (4.4)
+                return app.resync_cloud()
             if path == "/api/local/backup":         # Administrators (4.3.6)
                 return app.local_backup()
             if path == "/api/local/delete":         # Administrators (4.3)

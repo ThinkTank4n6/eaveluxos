@@ -384,3 +384,59 @@ class Local:
         finally:
             self._close(link)
         return changed
+
+
+class Commands:
+    """Everyday commands over the home network (4.4, an opt-in setting):
+    lights on and off, and showing a saved pattern, as the Trimlight app does
+    in Local mode. Each returns False when it can't be done that way (the
+    setting is off, another controller, a music show from this computer, the
+    connection busy or no answer), and the caller then uses Trimlight's cloud
+    as before. Patterns of your own colors and the built-in effects still go
+    through the cloud: how the controller keeps a live preview hasn't been
+    seen yet."""
+
+    def __init__(self, enabled, host, device, io, blocked, now=datetime.now, link_factory=L.Link):
+        self.enabled, self.host, self.device = enabled, host, device
+        self.io, self.blocked, self.now, self.link_factory = io, blocked, now, link_factory
+        self.failed_at = None               # after a failure, the cloud for a while
+
+    RETRY_AFTER = 300
+
+    def usable(self, dev) -> bool:
+        return bool(self.enabled() and self.host() and self.device() == dev and not self.blocked()
+                    and (self.failed_at is None or time.monotonic() - self.failed_at > self.RETRY_AFTER))
+
+    def _do(self, dev, fn):
+        if not self.usable(dev) or not self.io.acquire(timeout=3):
+            return None
+        try:
+            link = self.link_factory(self.host()).open()
+            try:
+                link.ping()
+                out = fn(link)
+                # The controller doesn't answer a change, and hanging up at
+                # once can lose it: one answered keep-alive after it says it
+                # was taken in (it handles requests in order).
+                link.ping()
+                return out
+            finally:
+                link.close()
+        except (L.LinkError, ValueError) as e:
+            self.failed_at = time.monotonic()
+            log.warning("Over the home network didn't work (%s); using Trimlight's cloud for %d minutes.",
+                        e, self.RETRY_AFTER // 60)
+            return None
+        finally:
+            self.io.release()
+
+    def power(self, dev, on: bool) -> bool:
+        return self._do(dev, lambda link: link.power(on) or True) is True
+
+    def show(self, dev, pid: int) -> bool:
+        return self._do(dev, lambda link: link.show_saved(pid) or True) is True
+
+    def switch(self, dev):
+        """1 on, 0 off, as the controller itself says; None if unknown."""
+        st = self._do(dev, lambda link: link.state(self.now()))
+        return None if st is None else st["switch"]

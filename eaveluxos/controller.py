@@ -97,6 +97,8 @@ class Controller:
     def __init__(self, cfg, api: TrimlightAPI, weather: WeatherService | None = None, safety=None, data_dir=None):
         self.cfg = cfg
         self.api = api
+        self.lan = None                       # localmode.Commands when the server sets it (4.4)
+        self.lan_sent: dict = {}              # deviceId -> True when its last command went over the home network
         self.lock = threading.RLock()
         self.stop_event = threading.Event()
         self.wake = threading.Event()         # wakes the loop early (stop, a flash starting)
@@ -302,6 +304,23 @@ class Controller:
         return {}
 
     # ------------------------------------------------------------ actions
+    def _switch(self, dev: str, state: int):
+        """On (1) and off (0) over the home network when that's set up and
+        works (4.4), else through Trimlight's cloud. Timer mode (2) always
+        goes through the cloud."""
+        if state in (0, 1) and self.lan is not None and self.lan.power(dev, state == 1):
+            self.lan_sent[dev] = True
+            return
+        self.lan_sent.pop(dev, None)
+        self.api.set_switch(dev, state)
+
+    def _show_saved(self, dev: str, pid: int):
+        if self.lan is not None and self.lan.show(dev, pid):
+            self.lan_sent[dev] = True
+            return
+        self.lan_sent.pop(dev, None)
+        self.api.run_saved_effect(dev, pid)
+
     def _apply(self, on: bool, effect, levels: dict | None = None, timer_off: bool = False, delegated: bool = False):
         """timer_off: when off, use Timer mode (safety net) instead of Off.
         delegated: lights on, run by the controller's own timer (Timer mode).
@@ -322,7 +341,7 @@ class Controller:
             part = effect.for_device(dev) if on and effect is not None else effect
             if not on or (effect is not None and effect.kind == "split" and part is None):
                 # A split pattern can leave a controller off (3.17).
-                self.api.set_switch(dev, 2 if timer_off else 0)
+                self._switch(dev, 2 if timer_off else 0)
                 some_off = True
                 continue
             effect_d = part
@@ -332,10 +351,10 @@ class Controller:
             lv = levels if effect.kind != "split" else {k: v for k, v in levels.items() if k == "brightness"}
             # (switch-on is skipped when we already turned it on; effect calls follow)
             if not self.known_on or (effect.kind == "split"):
-                self.api.set_switch(dev, 1)
+                self._switch(dev, 1)
             if effect_d.kind == "saved" and not lv:
                 saved = self._saved_effect(dev, effect_d)
-                self.api.run_saved_effect(dev, int(saved.get("id")))
+                self._show_saved(dev, int(saved.get("id")))
                 self.sent_effect[dev] = {**self._payload_from_saved(saved), "id": int(saved.get("id"))}
             else:
                 payload = (self._payload_from_saved(self._saved_effect(dev, effect_d))
@@ -346,6 +365,7 @@ class Controller:
                 else:
                     payload.update(lv)
                 self.api.preview_effect(dev, payload)
+                self.lan_sent.pop(dev, None)           # this one went through the cloud
                 self.sent_effect[dev] = payload
         self.status_cache["at"] = 0.0
         return on and not some_off          # "all switched on": else the next pattern switches each one on
@@ -694,6 +714,13 @@ class Controller:
             return
         self.read_error = None
         self.last_clock_sync = today
+        # 4.4: a controller set over the home network is checked there too;
+        # Trimlight's cloud may not have caught up with it yet.
+        for d in snap:
+            if self.lan_sent.get(d["id"]) and self.lan is not None:
+                sw = self.lan.switch(d["id"])
+                if sw in (0, 1):
+                    d["switch_raw"] = sw
         restored = None
         with self.lock:
             self.status_cache = {"at": now, "data": snap}
@@ -712,8 +739,8 @@ class Controller:
                 self.pattern_mismatches = 0
                 self._invalidate()
                 restored = ", ".join(str(d["name"]) for d in wrong)
-            elif not wrong:
-                restored = self._check_pattern(t, snap)
+            elif not wrong and not any(self.lan_sent.get(d["id"]) for d in snap):
+                restored = self._check_pattern(t, snap)   # (the cloud's view of the pattern lags local commands)
         self._save_reported()
         if restored:
             self.note(f"{restored} was changed outside this app (power blip or the Trimlight app). Restoring it.",

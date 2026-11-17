@@ -1,7 +1,7 @@
 # EaveLuxOS
 ### The Intelligent Lighting Control Platform
 
-By **Christopher A. Tankelewicz (ThinkTank4n6)** · MIT License · version 4.3.13
+By **Christopher A. Tankelewicz (ThinkTank4n6)** · MIT License · version 4.4.0
 
 EaveLuxOS currently works with **Trimlight Edge** permanent-lighting controllers.
 Its scheduling, mapping and design tools are built to grow to other brands.
@@ -107,6 +107,8 @@ owner and are used here only to say which hardware EaveLuxOS works with.*
 - **Local mode:** saves, puts back and deletes the controller's patterns,
   and sets its ports, over the home network, each change read back and
   checked. Nothing about patterns goes through Trimlight's cloud.
+  Optionally, on/off and saved patterns go that way too, and a **Resync with
+  Trimlight's cloud** button replaces the Trimlight app's sync.
 - **Search features** from the top of every page: type "backup" or "eagles"
   and it opens that panel.
 - **Stores everything in a local SQLite database,** with version history and

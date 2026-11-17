@@ -1,7 +1,7 @@
 # EaveLuxOS: User Manual
 ### The Intelligent Lighting Control Platform
 
-Version 4.3.13 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
+Version 4.4.0 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
 
 > **Downloaded the ready-made app? You can skip most of the setup.**
 > The downloads on the project's GitHub **Releases** page
@@ -1640,7 +1640,16 @@ the owner's own patterns.
    computer** uses.
 3. The panel lists the ports and every pattern saved on the controller, with
    its number and colors, read from the controller itself.
-4. **Back up now** saves those patterns and ports on this computer (in the
+4. **Send on/off and saved patterns over the home network** (4.4, marked
+   *Try it*): the schedule then turns the lights on and off, and shows
+   patterns saved on the controller, straight over your home network instead
+   of through Trimlight's cloud, which is quicker and keeps working when the
+   cloud has trouble. If the controller doesn't answer there, the app uses
+   the cloud as before for 5 minutes. Patterns of your own colors and the
+   built-in effects still go through the cloud, and nothing is sent this way
+   during a music show from this computer. The app also checks the lights'
+   on/off state with the controller itself.
+5. **Back up now** saves those patterns and ports on this computer (in the
    controller-backups folder, listed under Pattern backups) and downloads a
    copy. Do it before changing patterns in the Trimlight app, too.
 
@@ -2167,7 +2176,7 @@ Sharing it helps other Trimlight owners know what works on their firmware.
 | The browser says it can't connect | The app isn't running. Double-click the launcher. On Mac or Linux, keep its window open. |
 | "Couldn't check these with Trimlight" during setup | The app couldn't reach Trimlight, so your keys weren't checked yet. Check the internet connection and try again. If the message also says the **certificate check failed**: on a Mac, update to version 3.11.1 or later, which fixes this. Otherwise check the computer's date and time, and whether antivirus or network filtering software checks secure (HTTPS) connections. |
 | "Trimlight didn't accept these" | Re-enter the Client ID and Secret. They're case-sensitive, so check for spaces. Also check the computer's clock is correct, because Trimlight's sign-in uses the time. |
-| "Trimlight's cloud can't read its copy of this controller" (code 12006, "Device data could not be parsed … declared 21 and scanned 20 effect records") | Trimlight's cloud copy of the controller is out of step, for example because two saved patterns got the same number. The lights keep running. The app first asks the controller to resend its data and tries again. Since 4.2.1 the backup timer never saves patterns and doesn't try to repair this itself: it removes its timers and stops itself until you turn it off and on again. Since 4.3 nothing in this app saves or deletes patterns through the cloud (Local mode does it over the home network), and with the controller's address set, Setup › Lights & controller still saves ports while the cloud can't read it. While it lasts, Setup › Lights & controller shows the error and turns saving off, so the port layout can't be overwritten. If it doesn't clear: open the **Trimlight Edge app** on your home Wi-Fi (connection shows **LOCAL**), open the controller so it syncs, and delete any patterns whose names start with **Auto**. Still stuck: unplug the controller for 30 seconds. |
+| "Trimlight's cloud can't read its copy of this controller" (code 12006, "Device data could not be parsed … declared 21 and scanned 20 effect records") | Trimlight's cloud copy of the controller is out of step, for example because two saved patterns got the same number. The lights keep running. The app first asks the controller to resend its data and tries again. Since 4.2.1 the backup timer never saves patterns and doesn't try to repair this itself: it removes its timers and stops itself until you turn it off and on again. Since 4.3 nothing in this app saves or deletes patterns through the cloud (Local mode does it over the home network), and with the controller's address set, Setup › Lights & controller still saves ports while the cloud can't read it. While it lasts, Setup › Lights & controller shows the error and turns saving off, so the port layout can't be overwritten. If it doesn't clear: tap **Resync with Trimlight's cloud** in Setup › Lights & controller (4.4), which asks the controller to send the cloud a fresh copy and changes nothing on it; give it a few minutes and try again. First tap **Back up now** in Local mode, which works without the cloud. **Don't unplug or reset the controller while this shows**: twice in November 2026 a restart then left it with only its factory patterns (put yours back with Pattern backups if that happens). |
 | "Can't reach lights" on Home | Check the controller is online in the Trimlight Edge app and the computer has internet. The app retries automatically. |
 | Lights are on or off at the wrong time | **Setup › Location & time:** check the location, time zone and Daylight saving (Automatic). Check the computer's own clock. Check **Schedule › Coming up**. |
 | A different pattern than expected is showing | Look at the Home headline. It names the rule, weather rule or manual change in charge. Check priorities on the Schedule tab. |

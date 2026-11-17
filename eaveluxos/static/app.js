@@ -2711,10 +2711,18 @@ async function localPanel(box, fresh = false) {
         <h3 style="margin:8px 0 4px">On the controller now (${st.patterns.length})</h3>
         <div class="list">${st.patterns.map(p => `<div class="item"><div class="grow"><b>${esc(p.name)}</b> <span class="small muted">#${p.id}</span>
           <div>${swatches(p.colors.map(c => c[1]), 10)}</div></div><button class="small ghost danger" data-lcdel="${p.id}" data-name="${esc(p.name)}">Delete</button></div>`).join('') || '<p class="muted small">No saved patterns.</p>'}</div>
+        <label class="check" style="margin-top:8px"><input type="checkbox" id="lccmd" ${((S.settings || {}).lan || {}).commands ? 'checked' : ''}>
+          <span><b>Send on/off and saved patterns over the home network</b> <span class="pill">Try it</span><br><span class="small muted">The schedule turns the lights on and off, and shows patterns saved on the controller, straight over your home network instead of through Trimlight\u2019s cloud. If that doesn\u2019t work, it uses the cloud as before. Patterns of your own colors and built-in effects still go through the cloud.</span></span></label>
         <div class="row" style="margin-top:8px"><button class="small ghost" data-lcread>Read again</button>
           <button class="small" data-lcbackup>Back up now</button><span class="small muted">Saves these patterns and ports on this computer (listed under Pattern backups).</span></div>`;
     } catch (e) { $('#lcbody', box).innerHTML = `<p class="callout warn small">${esc(e.message)}</p><div><button class="small ghost" data-lcread>Try again</button></div>`; }
   }
+  box.onchange = e => {
+    if (e.target.id !== 'lccmd') return;
+    const on = e.target.checked;
+    api('local/commands', { body: { on } }).then(async () => { S.settings = await api('settings'); toast(on ? 'On/off and saved patterns go over the home network' : 'Everything goes through Trimlight\u2019s cloud'); })
+      .catch(() => { e.target.checked = !on; });
+  };
   box.onclick = async e => {
     const b = e.target.closest('button'); if (!b) return; const ds = b.dataset;
     if (ds.lcsave !== undefined) return busy(b, async () => { await api('musiclink/address', { body: { address: $('#lcaddr', box).value.trim() } }); S.settings = await api('settings'); toast('Saved'); localPanel(box); }).catch(() => {});
@@ -2767,7 +2775,8 @@ VIEWS.lights = async (opts = {}) => {
   m.innerHTML = `<div class="view"><div class="panel-head"><h2>${devs.length > 1 ? `Lights: ${esc(d.name || 'Controller')}` : 'Lights'}</h2>
       <span class="badge ${d.online ? 'hi' : ''}">${d.online ? 'Online' : 'Offline'}</span><span class="small muted">Firmware ${esc(d.firmware || '?')}</span></div>
     ${devs.length > 1 ? devCards(devs, d.id, chosen) : ''}
-    ${d.error ? `<p class="callout warn">${esc(d.error)}</p><p class="callout">Your port layout and settings on the controller haven\u2019t changed. They just can\u2019t be shown, and saving is turned off until the controller can be read.</p>` : ''}
+    ${d.error ? `<p class="callout warn">${esc(d.error)}</p><p class="callout">Your port layout and settings on the controller haven\u2019t changed. They just can\u2019t be shown, and saving is turned off until the controller can be read.</p>
+      ${isAdmin() ? '<div class="row"><button class="primary small" data-resync>Resync with Trimlight\u2019s cloud</button><span class="small muted">Asks the controller to send the cloud a fresh copy. Changes nothing on it. Don\u2019t unplug the controller meanwhile.</span></div>' : ''}` : ''}
     <div class="cols wide-left">
       ${d.error ? `<div class="panel stack"><h2>Ports and bulbs</h2><p class="muted">Unknown until the controller can be read.</p><div><button class="ghost" data-reload>Try again</button></div></div>` : `<div class="panel stack"><div class="panel-head"><h2>Ports and bulbs</h2>
           <div class="seg"><button data-pm="simple" aria-pressed="${S.portMode === 'simple'}">Simple</button><button data-pm="advanced" aria-pressed="${S.portMode === 'advanced'}">Advanced</button></div></div>
@@ -2788,7 +2797,8 @@ VIEWS.lights = async (opts = {}) => {
           <label class="field">LED chip<select id="lic">${S.catalog.ic_types.map((n, i) => `<option value="${i}" ${d.ic === i ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
           <label class="field">Color order <span class="hint">Trimlight systems are almost always RGB. Change it only if Test colors shows the wrong color.</span>
             <select id="lco">${S.catalog.color_orders.map((n, i) => `<option value="${i}" ${d.colorOrder === i ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
-          <div><button data-savedev ${d.error ? 'disabled' : ''}>Save controller settings</button></div>
+          <div class="row"><button data-savedev ${d.error ? 'disabled' : ''}>Save controller settings</button>
+            ${isAdmin() ? '<button class="ghost" data-resync title="Ask the controller to send Trimlight\u2019s cloud a fresh copy of its data">Resync with Trimlight\u2019s cloud</button>' : ''}</div>
           <div class="row"><span class="small">Test colors:</span>${[['Red', '#FF0000'], ['Green', '#00FF00'], ['Blue', '#0000FF'], ['White', '#FFFFFF']].map(([n, c]) => `<button class="small" data-test="${c}">${swatches([c], 1)}${n}</button>`).join('')}</div>
         </div>
         ${fold('safety', 'Backup timer', '<div class="panel stack" id="safetybox"><p class="muted">Loading…</p></div>', false)}
@@ -2841,6 +2851,10 @@ VIEWS.lights = async (opts = {}) => {
       S.portMode = ds.pm; return VIEWS.lights({ keep: true });
     }
     if (ds.reload !== undefined) { S.portMode = null; return VIEWS.lights(); }
+    if (ds.resync !== undefined) return busy(b, () => api('resync', { body: {} })).then(r => {
+      toast(r.ok ? 'Trimlight\u2019s cloud reads the controller again' : 'Trimlight\u2019s cloud still can\u2019t read it. Try again in a few minutes; the lights keep running.', !r.ok);
+      S.devices = null; VIEWS.lights({ keep: true });
+    }).catch(() => {});
     if (ds.saveports !== undefined) {
       const bad = P.find(p => !p.off && !(p.start >= 1 && p.end >= p.start && p.end <= 2048));
       if (bad) return toast(`Port ${bad.id + 1}: the first bulb must be 1 or more and not after the last bulb (max 2048).`, true);
