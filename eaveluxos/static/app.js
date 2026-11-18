@@ -362,6 +362,11 @@ async function loadSettings() { S.settings = await api('settings'); return S.set
    another device is still caught: the server checks the version. */
 const SAVEQ = { running: false, pending: null, timer: null };
 function saveSettings(next, msg = 'Saved') {
+  // 4.9.1: a pattern saved again from an editor keeps its folder
+  for (const [k, e] of Object.entries((next && next.effects) || {})) {
+    const was = ((S.settings && S.settings.effects) || {})[k];
+    if (was && was.folder && e && typeof e === 'object' && !('folder' in e)) e.folder = was.folder;
+  }
   const changes = Merge.diff(S.settings, next);
   return new Promise((resolve, reject) => {
     const job = SAVEQ.pending || (SAVEQ.pending = { changes: [], msg, waiters: [] });
@@ -858,11 +863,43 @@ function fromController(e) {
   if (e.category === 1 && px.length) return { ...base, colors: px.map(p => p.disable ? 'off' : hex(p.color)), counts: px.map(p => Math.min(90, p.count)), custom_mode: Math.min(16, e.mode || 0), speed: e.speed ?? 100, brightness: e.brightness ?? 200, exact_colors: true };
   return { ...base, saved: e.name };
 }
-function totalBulbs() {
-  const d = (S.devices || []).find(x => x.selected && x.ports) || (S.devices || []).find(x => x.ports);
-  if (!d) return 100;
-  const ends = d.ports.filter(p => p.end > 0 && !p.unused).map(p => p.end);     // not-connected ports don't count (3.18.1)
+function devBulbs(d) {
+  const ends = (d.ports || []).filter(p => p.end > 0 && !p.unused).map(p => p.end);     // not-connected ports don't count (3.18.1)
   return ends.length ? Math.max(...ends) : 100;
+}
+function totalBulbs() {
+  // 4.9.1: the controller chosen in Create (Bulbs of), else the first this app runs
+  const d = (S.devices || []).find(x => x.id === S.designDev && x.ports) || (S.devices || []).find(x => x.selected && x.ports)
+    || (S.devices || []).find(x => x.ports);
+  return d ? devBulbs(d) : 100;
+}
+/* Create's "Bulbs of" choice (4.9.1): with controllers of different
+   lengths, which one the preview and Paint bulbs count. A pattern repeats
+   along any controller's lights, so it works on each. */
+function designDevPick() {
+  const ds = (S.devices || []).filter(x => x.selected && x.ports);
+  if (ds.length < 2 || new Set(ds.map(devBulbs)).size < 2) return '';
+  const cur = ds.find(x => x.id === S.designDev) || ds[0];
+  return `<label class="row small" style="gap:6px">Bulbs of<select id="designdev" style="width:auto">${ds.map(x =>
+    `<option value="${esc(x.id)}" ${x.id === cur.id ? 'selected' : ''}>${esc(x.name || 'Controller')} (${devBulbs(x)} bulbs)</option>`).join('')}</select></label>`;
+}
+// Small per-browser conveniences (4.9.1): never needed, so failures are ignored.
+function lsGet(k) { try { return localStorage.getItem('elx:' + k); } catch { return null; } }
+function lsSet(k, v) { try { localStorage.setItem('elx:' + k, v); } catch { /* private mode */ } }
+/* Patterns › Folder (4.9.1): one folder per pattern, typed or picked. */
+function folderDialog(key) {
+  const e = S.settings.effects[key];
+  if (!e) return;
+  const folders = [...new Set(Object.values(S.settings.effects || {}).map(x => (x.folder || '').trim()).filter(Boolean))].sort();
+  dialog(`<h2>Folder for \u201c${esc(e.label || key)}\u201d</h2>
+    <label class="field">Folder<input type="text" name="folder" maxlength="30" list="pfolderlist" value="${esc(e.folder || '')}" placeholder="e.g. Christmas"></label>
+    <datalist id="pfolderlist">${folders.map(f => `<option value="${esc(f)}">`).join('')}</datalist>
+    <p class="note">Leave it empty for no folder. Folders only sort your list; they change nothing else.</p>`, async f => {
+    const n = clone(S.settings), v = f.folder.value.trim().slice(0, 30);
+    if (v) n.effects[key].folder = v; else n.effects[key].folder = '';
+    await saveSettings(n, v ? `In ${v}` : 'No folder');
+    VIEWS.patterns('mine');
+  });
 }
 function builtinDialog(def, onSave, title) {
   const isSaved = def.saved !== undefined;
@@ -1015,17 +1052,34 @@ VIEWS.patterns = async (tab) => {
   const tryDef = (def, btn) => busy(btn, () => api('action', { body: { action: 'try', effect: def } })).then(() => toast(`Showing “${def.label}” for 15 minutes, then back to the schedule`)).catch(() => {});
 
   if (S.ptab === 'mine') {
-    const effs = Object.entries(S.settings.effects || {});
+    // 4.9.1: A to Z (or newest first), and folders such as Christmas or
+    // Fourth of July. The order and the folder shown are remembered here.
+    const all = Object.entries(S.settings.effects || {});
+    const folders = [...new Set(all.map(([, e]) => (e.folder || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+    const sort = S.psort || lsGet('psort') || 'az';
+    let fold = S.pfolder ?? lsGet('pfolder') ?? '';
+    if (fold && fold !== ' ' && !folders.includes(fold)) fold = '';   // ' ' is No folder (names are trimmed)
+    const name = e => String(e.label || '').toLowerCase();
+    let effs = all.filter(([, e]) => !fold || (fold === ' ' ? !(e.folder || '').trim() : (e.folder || '').trim() === fold));
+    if (sort === 'az') effs = effs.sort(([, a], [, b]) => name(a).localeCompare(name(b), undefined, { numeric: true }));
+    else if (sort === 'new') effs = effs.reverse();
+    const chip = (v, label, n) => `<button class="small ${fold === v ? '' : 'ghost'}" data-pfolder="${esc(v)}" aria-pressed="${fold === v}">${esc(label)} <span class="muted">${n}</span></button>`;
     body.innerHTML = `<div class="row" style="margin-bottom:12px"><button class="small ghost" data-splitnew>Split by controller</button>
       <span class="note">With more than one controller: a different pattern on each, at the same time.</span>
       <span class="grow"></span>${role() !== 'viewer' ? '<button class="small ghost" data-shareopen>Open a share code</button>' : ''}<button class="small ghost" data-sharepick>Share patterns</button></div>
+      <div class="row pfolders" style="margin-bottom:12px;gap:6px">
+        <label class="row small" style="gap:6px">Order<select id="psort" style="width:auto"><option value="az" ${sort === 'az' ? 'selected' : ''}>A to Z</option><option value="new" ${sort === 'new' ? 'selected' : ''}>Newest first</option><option value="old" ${sort === 'old' ? 'selected' : ''}>Oldest first</option></select></label>
+        ${folders.length ? chip('', 'All', all.length) + folders.map(f => chip(f, f, all.filter(([, e]) => (e.folder || '').trim() === f).length)).join('')
+          + chip(' ', 'No folder', all.filter(([, e]) => !(e.folder || '').trim()).length) : '<span class="note">Put patterns in folders (Christmas, Fourth of July\u2026) with Folder on each one.</span>'}</div>
       <div class="cards">${effs.map(([k, e]) => `<div class="card">
       <div class="title"><b>${esc(e.label || k)}</b><button class="small ghost favbtn" data-fav="${esc(k)}" aria-pressed="${favs().includes(k)}" title="${favs().includes(k) ? 'Remove from Home' : 'Pin to Home (up to ' + MAX_FAVS + ')'}" aria-label="${favs().includes(k) ? 'Remove from Home' : 'Pin to Home'}">${icon('star')}</button></div>
       ${e.colors ? strand(e.colors, e.counts) : strand(effectSwatches(e))}
       <p class="small muted">${esc(effectKind(e))}${usedBy(k).length ? ` · used by ${usedBy(k).length}` : ''}</p>
       ${e.scene && HouseFX.sceneTotal(e) !== addressSpace() ? `<p class="small warn">Made for ${HouseFX.sceneTotal(e)} bulbs; your lights now have ${addressSpace()}. Edit it and save it again.</p>` : ''}
-      <div class="actions"><button class="small" data-on="${esc(k)}">Turn on</button><button class="small ghost" data-edit="${esc(k)}">Edit</button>${shareable(e) ? `<button class="small ghost" data-share="${esc(k)}">Share</button>` : ''}<button class="small ghost danger" data-del="${esc(k)}">Delete</button></div>
-    </div>`).join('')}</div>`;
+      <div class="actions"><button class="small" data-on="${esc(k)}">Turn on</button><button class="small ghost" data-edit="${esc(k)}">Edit</button>${role() !== 'viewer' ? `<button class="small ghost" data-pfold="${esc(k)}">Folder${e.folder ? ': ' + esc(e.folder) : ''}</button>` : ''}${shareable(e) ? `<button class="small ghost" data-share="${esc(k)}">Share</button>` : ''}<button class="small ghost danger" data-del="${esc(k)}">Delete</button></div>
+    </div>`).join('') || '<p class="muted small">No patterns in this folder.</p>'}</div>`;
+    const ps = $('#psort', body);
+    if (ps) ps.onchange = () => { S.psort = ps.value; lsSet('psort', ps.value); VIEWS.patterns('mine'); };
   } else if (S.ptab === 'community') {
     // Reviewed patterns shared by other owners (community.py). Fetched only now.
     let lib;
@@ -1113,6 +1167,8 @@ VIEWS.patterns = async (tab) => {
     if (d.bgroup) { S.bgroup = d.bgroup; return VIEWS.patterns('builtin'); }
     if (d.on) return busy(b, () => api('action', { body: { action: 'on', effect: d.on } })).then(() => toast('Turned on until the next scheduled change')).catch(() => {});
     if (d.splitnew !== undefined) return splitDialog(null);
+    if (d.pfolder !== undefined) { S.pfolder = d.pfolder; lsSet('pfolder', d.pfolder); return VIEWS.patterns('mine'); }
+    if (d.pfold) return folderDialog(d.pfold);
     if (d.edit) {
       const def = S.settings.effects[d.edit];
       if (def.split) return splitDialog(d.edit);
@@ -1242,7 +1298,7 @@ VIEWS.create = async (opts = {}) => {
           </div>
         </div>
         <div class="stack">
-          <div class="panel stack"><h3>Preview</h3><canvas class="preview" id="cv" height="160" aria-label="Animated preview of the pattern"></canvas>
+          <div class="panel stack"><div class="panel-head"><h3>Preview</h3>${designDevPick()}</div><canvas class="preview" id="cv" height="160" aria-label="Animated preview of the pattern"></canvas>
             <p class="note" id="cvnote"></p>
             ${gOn() && !D.exact ? `<p class="note">Color correction is on (gamma ${Number(S.settings.color.gamma || GAMMA.def).toFixed(1)}): the lights get adjusted colors so they look like this preview. Change it under Lights.</p>` : ''}</div>
           <div class="panel stack">
@@ -1268,6 +1324,8 @@ VIEWS.create = async (opts = {}) => {
     // While painting, the preview shows the painted pattern (if it fits).
     const painted = D.paint && PT.compress(D.paint.canvas);
     startPreview($('#cv'), painted && painted.length <= PT.MAX_SLOTS ? { ...D, segs: painted } : D, $('#cvnote'));
+    const dd = $('#designdev');
+    if (dd) dd.onchange = () => { S.designDev = dd.value; render(); };
     if (D.paint) painterDraw(D);
   };
   VIEWS.createRender = render;
@@ -2932,6 +2990,7 @@ async function localPanel(box, fresh = false) {
       const st = await api('local' + ((fresh || q) ? '?' + [fresh ? 'fresh=1' : '', q].filter(Boolean).join('&') : ''));
       $('#lcbody', box).innerHTML = `<p class="small">Ports: ${st.ports.map(p => `${p.port}: ${p.start}–${p.end}`).join(' · ')}</p>
         <h3 style="margin:8px 0 4px">On ${many ? esc((devs.find(d => d.id === S.lcDev) || {}).name || 'the controller') : 'the controller'} now (${st.patterns.length})</h3>
+        ${st.unreadable ? `<p class="note small">The controller also sent ${st.unreadable} slot${st.unreadable === 1 ? '' : 's'} that ${st.unreadable === 1 ? 'isn\u2019t a pattern' : 'aren\u2019t patterns'} (numbered 0 or past 60, usually without a name). They\u2019re left out here and never changed by this app.</p>` : ''}
         <div class="list">${st.patterns.map(p => `<div class="item"><div class="grow"><b>${esc(p.name)}</b> <span class="small muted">#${p.id}</span>
           <div>${swatches(p.colors.map(c => c[1]), 10)}</div></div><button class="small ghost danger" data-lcdel="${p.id}" data-name="${esc(p.name)}">Delete</button></div>`).join('') || '<p class="muted small">No saved patterns.</p>'}</div>
         ${st.daily ? `<h3 style="margin:12px 0 4px">Daily timers on the controller</h3>

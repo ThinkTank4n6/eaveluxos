@@ -114,7 +114,7 @@ class Players(unittest.TestCase):
                      popen=lambda cmd, **k: ran.append(cmd) or type("P", (), {"poll": lambda s: 0})())
         self.assertTrue(p.supported())
         self.assertTrue(p.play(Path("/x/clip.mp3"), "mp3", 0.1))
-        self.assertEqual(ran, [["afplay", "/x/clip.mp3"]])
+        self.assertEqual(ran, [["afplay", str(Path("/x/clip.mp3"))]])   # this system's way of writing it (4.9.1)
 
     def test_linux_picks_a_player_for_the_kind(self):
         have = {"mpg123", "aplay"}

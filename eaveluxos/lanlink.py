@@ -401,12 +401,17 @@ def read_state(body: bytes) -> dict:
         raise LinkError("The controller's answer was shorter than its pattern count says.")
     ports = [{"port": i + 1, "start": int.from_bytes(d[3 + 4 * i:5 + 4 * i], "big"),
               "end": int.from_bytes(d[5 + 4 * i:7 + 4 * i], "big")} for i in range(4)]
-    pats = [read_record(d[HEAD + RECORD * k:HEAD + RECORD * (k + 1)]) for k in range(n)]
+    every = [read_record(d[HEAD + RECORD * k:HEAD + RECORD * (k + 1)]) for k in range(n)]
+    # 4.9.1: a slot numbered 0, or past the library's 60, isn't a pattern (a
+    # controller showed 54 of them, nameless or with garbled names, after its
+    # 2 real ones). They're left out of everything, so nothing can delete,
+    # match or copy one; raw keeps them for a look.
+    pats = [p for p in every if 1 <= p["id"] <= MAX_PATTERN_ID]
     # raw: everything it sent, kept with backups (4.3.10) so the parts not
     # decoded yet (its timers) can be looked at.
     # switch: the first byte, 1 with the lights on and 0 off (seen Nov 15-16, 2026).
     return {"head": d[:3].hex(" "), "switch": d[0], "ports": ports, "patterns": pats, "raw": body.hex(),
-            "daily": read_daily(d[HEAD + RECORD * n:])}
+            "unreadable": len(every) - len(pats), "daily": read_daily(d[HEAD + RECORD * n:])}
 
 
 REPEAT = {0: "today only", 1: "every day", 2: "weekdays", 3: "weekends"}

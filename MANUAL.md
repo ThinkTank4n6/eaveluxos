@@ -1,7 +1,7 @@
 # EaveLuxOS: User Manual
 ### The Intelligent Lighting Control Platform
 
-Version 4.9.0 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
+Version 4.9.1 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
 
 > **Downloaded the ready-made app? You can skip most of the setup.**
 > The downloads on the project's GitHub **Releases** page
@@ -443,6 +443,15 @@ The buttons at the top switch between three lists.
   you change that rule.
 - **The star** pins it to Home as a big one-tap button (up to 6). Tap it again
   to unpin.
+- **Folder** (4.9.1) puts it in a folder, such as *Christmas* or *Fourth of
+  July*: type a new name or pick one you've used. Leave it empty for none.
+
+**Order** lists them **A to Z** (the usual), **Newest first** or **Oldest
+first**. Once a pattern has a folder, buttons above the list show **All**,
+each folder, and **No folder**, each with how many it holds. This browser
+remembers the order and folder you chose. Folders only sort the list; they
+change nothing on the lights, and a pattern saved again in Create keeps its
+folder.
 
 **In the Trimlight app** lists the patterns saved in your Trimlight Edge app,
 read from your controller.
@@ -475,6 +484,12 @@ on).
   little differently from the original, not an edit of it.
 
 ## 11. Create a pattern
+
+With two or more controllers of different lengths (4.9.1), **Bulbs of**
+above the preview chooses whose bulbs the preview and **Paint bulbs** count,
+for example *Front (106 bulbs)* or *Deck (96 bulbs)*. Your patterns are
+shared by all controllers, and a pattern repeats along any controller's
+lights, so it works on each; this only changes what you see while making it.
 
 ### Describe it in words
 
@@ -1844,6 +1859,13 @@ and color order still go through the cloud (they don't touch patterns). A
 port's on/off switch isn't in what the controller sends back, so that one
 part can't be checked (nor the numbers of a port switched off). Stop **Music from this computer** first; it uses the
 same connection.
+
+**Slots that aren't patterns (4.9.1).** A controller can send slots numbered
+0 or past 60, usually without a name or with garbled letters, after its real
+patterns. They aren't patterns, so the list leaves them out and says how many
+there were; nothing in this app deletes, copies or shows one. Before 4.9.1
+they were listed with a **Delete** button: don't use it on them in an older
+version.
 
 ### Pattern backups
 

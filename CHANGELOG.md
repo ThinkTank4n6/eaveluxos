@@ -1,5 +1,27 @@
 # Changelog
 
+## 4.9.1: what a user's screenshots showed, and patterns in folders
+
+- **Slots that aren't patterns are left out.** A user's Front controller
+  sent its 2 real patterns and then 54 slots numbered 0 or 255, nameless or
+  with garbled names, which Setup › Local mode listed with Delete buttons.
+  They're left out of the list now (it says how many), of backups and of
+  matching patterns, and nothing deletes a slot that isn't numbered 1 to 60,
+  even if asked directly.
+- **Create › Bulbs of**: with controllers of different lengths (Front 106,
+  Deck 96), choose whose bulbs the preview and Paint bulbs count. Before, it
+  always counted the first controller's.
+- **Patterns › My patterns**: **Order** (A to Z, the usual; newest or oldest
+  first) and **Folder** on each pattern (Christmas, Fourth of July, Easter
+  ...), with a button for each folder above the list. Saving a pattern again
+  in Create keeps its folder.
+- A test meant for Macs compared a file path the Mac way and failed on
+  GitHub's Windows (4.9.0); no change to the app.
+- Review of 4.9.1 before release: **No folder** didn't work in the first
+  try (it used a character browsers change in a page), and a request to
+  delete slot 0 or 255 is now refused before anything is sent to the
+  controller.
+
 ## 4.9.0: a sound when your team scores
 
 - **Schedule › Game-day lights**: a team with celebrations on can play a

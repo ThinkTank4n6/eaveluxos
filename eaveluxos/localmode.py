@@ -371,6 +371,9 @@ class Local:
             self._delete(pid, name)
 
     def _delete(self, pid, name):
+        if isinstance(pid, bool) or not isinstance(pid, int) or not 1 <= pid <= L.MAX_PATTERN_ID:
+            # 4.9.1: never a slot that isn't a pattern (numbered 0 or past 60)
+            raise LocalError("That isn't one of the controller's patterns, so nothing was deleted.")
         link = self._open()
         try:
             st = self._start(link)
