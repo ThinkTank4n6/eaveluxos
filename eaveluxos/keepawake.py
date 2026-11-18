@@ -11,7 +11,15 @@ On Windows this asks for what a video player asks for while it plays
 its own, the screen can still turn off, and pressing the power button or
 choosing Sleep still works. The request belongs to the thread that made it
 and ends with it, so a thread of its own holds it, and quitting the app
-lets the computer sleep again. Elsewhere it does nothing.
+lets the computer sleep again.
+
+On a Mac (4.7.2) it asks the way the built-in caffeinate -i command does: an
+IOKit power assertion, PreventUserIdleSystemSleep, named for this app (it
+shows in `pmset -g assertions`). The Mac doesn't sleep on its own; the screen
+can still turn off, and closing a laptop's lid, the Apple menu's Sleep and
+the power button still work. It ends when the app lets go or quits.
+
+Elsewhere (Linux) it does nothing.
 
 On by default; the choice is kept in keepawake.json in the data folder."""
 import json
@@ -40,12 +48,83 @@ def _windows_setter():
         return None
 
 
+class _MacAssertion:
+    """A caffeinate -i style power assertion (IOKit), called like Windows'
+    SetThreadExecutionState so KeepAwake treats both alike: asked with
+    ES_SYSTEM_REQUIRED it takes the assertion (non-zero when it got it),
+    asked with ES_CONTINUOUS alone it lets go."""
+    NAME = "EaveLuxOS: following the lights' schedule"
+    LEVEL_ON = 255                       # kIOPMAssertionLevelOn
+    UTF8 = 0x08000100                    # kCFStringEncodingUTF8
+
+    def __init__(self, iokit, cf):
+        import ctypes
+        self.c = ctypes
+        self.cf, self.iokit = cf, iokit
+        cf.CFStringCreateWithCString.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_uint32]
+        cf.CFStringCreateWithCString.restype = ctypes.c_void_p
+        cf.CFRelease.argtypes = [ctypes.c_void_p]
+        cf.CFRelease.restype = None
+        iokit.IOPMAssertionCreateWithName.argtypes = [ctypes.c_void_p, ctypes.c_uint32, ctypes.c_void_p,
+                                                      ctypes.POINTER(ctypes.c_uint32)]
+        iokit.IOPMAssertionCreateWithName.restype = ctypes.c_int32
+        iokit.IOPMAssertionRelease.argtypes = [ctypes.c_uint32]
+        iokit.IOPMAssertionRelease.restype = ctypes.c_int32
+        self.id = None
+
+    def _cfstr(self, text):
+        return self.cf.CFStringCreateWithCString(None, text.encode("utf-8"), self.UTF8)
+
+    def __call__(self, flags):
+        if flags & ES_SYSTEM_REQUIRED:
+            if self.id is not None:
+                return 1
+            kind, name = self._cfstr("PreventUserIdleSystemSleep"), self._cfstr(self.NAME)
+            try:
+                if not kind or not name:
+                    return 0
+                out = self.c.c_uint32(0)
+                rc = self.iokit.IOPMAssertionCreateWithName(kind, self.LEVEL_ON, name, self.c.byref(out))
+            finally:
+                for x in (kind, name):
+                    if x:
+                        self.cf.CFRelease(x)
+            if rc != 0:
+                log.warning("The Mac refused to stay awake (IOKit error %#x).", rc & 0xFFFFFFFF)
+                return 0
+            self.id = out.value
+            return 1
+        if self.id is not None:
+            self.iokit.IOPMAssertionRelease(self.id)
+            self.id = None
+        return 1
+
+
+def _mac_setter():
+    if platform.system() != "Darwin":
+        return None
+    try:
+        import ctypes
+        iokit = ctypes.cdll.LoadLibrary("/System/Library/Frameworks/IOKit.framework/IOKit")
+        cf = ctypes.cdll.LoadLibrary("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")
+        return _MacAssertion(iokit, cf)
+    except Exception as e:     # an unusual Mac: nothing to do, and the switch is hidden
+        log.info("Keep awake isn't available on this Mac: %s", e)
+        return None
+
+
+def _system_setter():
+    return _windows_setter() or _mac_setter()
+
+
 class KeepAwake:
-    def __init__(self, data_dir, setter="windows"):
+    def __init__(self, data_dir, setter="auto"):
         self.path = Path(data_dir) / "keepawake.json"
-        self.setter = _windows_setter() if setter == "windows" else setter
+        self.setter = {"auto": _system_setter, "windows": _windows_setter, "mac": _mac_setter}[setter]() \
+            if isinstance(setter, str) else setter
         self.lock = threading.Lock()
         self.stop = None              # threading.Event of the holding thread
+        self.thread = None            # the holding thread, kept until it has let go
         self.holding = False
 
     @property
@@ -73,10 +152,19 @@ class KeepAwake:
         with self.lock:
             want = self.supported and self.enabled()
             if want and self.stop is None:
+                # Review #1 (4.7.2): turned off and straight back on, the last
+                # holder lets go first; otherwise it could release what the
+                # new one holds (one assertion on a Mac) and clear "holding".
+                if self.thread is not None:
+                    self.thread.join(5)
+                    if self.thread.is_alive():
+                        log.warning("Keep awake: the last request is still being let go of; not asking again yet.")
+                        return
                 self.stop = threading.Event()
                 ready = threading.Event()
-                threading.Thread(target=self._hold, args=(self.stop, ready), daemon=True,
-                                 name="keep-awake").start()
+                self.thread = threading.Thread(target=self._hold, args=(self.stop, ready), daemon=True,
+                                               name="keep-awake")
+                self.thread.start()
                 ready.wait(2)
             elif not want and self.stop is not None:
                 self.stop.set()
@@ -87,7 +175,7 @@ class KeepAwake:
             got = self.setter(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)
         except Exception as e:
             got = 0
-            log.warning("Couldn't ask Windows to stay awake: %s", e)
+            log.warning("Couldn't ask this computer to stay awake: %s", e)
         self.holding = bool(got)
         if self.holding:
             log.info("Keeping this computer awake while the app runs, so the schedule is followed "

@@ -1015,7 +1015,9 @@ class App:
         return {"address": loc.host, "device": dev, "ports": st["ports"], "daily": daily,
                 "patterns": [{"id": p["id"], "name": p["name"], "mode": p["mode"], "speed": p["speed"],
                               "brightness": p["brightness"],
-                              "colors": [[c, col] for c, col, on in p["slots"] if c and on]} for p in st["patterns"]]}
+                              "colors": [[c, col] for c, col, on in p["slots"] if c and on],
+                              # 4.7.1: in the cloud's layout, for Patterns › In the Trimlight app
+                              "effect": localmode.cloud_effect(p)} for p in st["patterns"]]}
 
     def _local_read(self, fresh: bool = False, dev: str | None = None):
         """(Local, device, what the controller holds), read now or a read from
@@ -2382,6 +2384,11 @@ def make_server(app: App, host: str, port: int):
                 st["slot_limit"] = TrimlightAPI.slot_limit     # bulbs per color slot this controller takes (90 or 60)
                 st["coming"] = app.coming_up()                  # next holiday and game, for the panel summaries (4.0.1)
                 st["lan"] = app.lan_home()                      # each controller's home-network address, for Home (4.1.2; 4.5)
+                # 4.7.1: every controller on the account, and which ones this app
+                # runs (Home shows those as active and the others greyed out)
+                st["account"] = app._account()
+                st["controlled"] = [d.get("deviceId") for d in list(app.ctrl.devices)] or \
+                    (list(app.ctrl.cfg.devices) if app.ctrl.cfg.devices else [d["id"] for d in st["account"]])
                 return st
             if path == "/api/catalog":
                 return catalog.catalog()

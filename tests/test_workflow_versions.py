@@ -28,6 +28,14 @@ class WorkflowVersionTests(unittest.TestCase):
                     self.assertGreaterEqual(int(ver), NODE24[action])
         self.assertEqual(seen, set(NODE24))
 
+    def test_tests_run_on_each_system(self):
+        """4.7.2: the Mac too, not only built."""
+        wf = (ROOT / ".github" / "workflows" / "tests.yml").read_text(encoding="utf-8")
+        line = next(l for l in wf.splitlines() if l.strip().startswith("os: ["))
+        for system in ("ubuntu-", "windows-", "macos-"):
+            with self.subTest(system=system):
+                self.assertIn(system, line)
+
     def test_no_moving_ubuntu_label(self):
         # ubuntu-latest moves to a new Ubuntu without warning; Python builds can lag behind it.
         for wf in WORKFLOWS:

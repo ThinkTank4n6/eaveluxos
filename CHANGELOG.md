@@ -1,5 +1,71 @@
 # Changelog
 
+## 4.7.3: review of 4.7.2
+
+- **Keep awake, turned off and straight back on** (two quick taps, or two
+  phones at once) now stays on. Before, the request being let go of could
+  take the new one with it: on a Mac, which has one request for the app,
+  the Mac could then sleep while Setup › App said it was being kept awake.
+  Now the old request is let go of before the new one is made.
+- The Mac release is built on macOS 15, the same Mac the tests run on,
+  rather than whichever Mac GitHub calls "latest" at the time.
+
+## 4.7.2: Macs stay awake, and get tested
+
+- **Keep this computer awake while the app runs** (Setup › App) now works
+  on a Mac too, on by default, the way the built-in `caffeinate -i` command
+  does it: the Mac doesn't go to sleep on its own while the app runs; the
+  screen can still turn off, and Sleep, the power button and closing a
+  laptop's lid still work. `pmset -g assertions` lists it as *EaveLuxOS:
+  following the lights' schedule*. Quitting the app lets the Mac sleep again.
+- **GitHub tests on a Mac** as well as Windows and Linux (before, the Mac
+  build was made but nothing tested it). On the Mac, a test also checks that
+  the keep-awake request really appears and goes away.
+
+## 4.7.1: each controller's patterns, and which one is active
+
+- **Patterns › In the Trimlight app** has a **Controller** choice when the
+  account has two or more, listing every controller, including ones this
+  app doesn't run. Before, it showed only one controller's patterns.
+  Administrators get the list read over the home network when the
+  controller has an address there (what it holds now), with Trimlight's
+  cloud as the fallback; the note says which. **Add to my patterns** names
+  a second "Christmas" *Christmas (Front)*.
+- **Home › Controllers** marks the controllers this app runs **Active**
+  (green) and grays out the others on the account, labeled **Not run by
+  this app**.
+- Built-in effects saved in the Trimlight app are read as built-in effects
+  over the home network. Before, a backup taken over the home network called
+  them patterns of their own colors, and putting one back would have
+  written a blank pattern by that name (now it's skipped by name, as from
+  the cloud). Patterns of their own colors keep their gaps of bulbs left
+  off.
+- The controller cards under Setup › Lights & controller no longer count
+  ports marked as not connected in the bulb total (a deck showed 1500
+  bulbs).
+- Review of the new code before release: choosing another controller while
+  one is still being read works; adding the same pattern twice numbers the
+  name; **Try** on a pattern known only by its name says when it can't be
+  shown on the controllers this app runs; two different built-in effects are
+  no longer taken for the same look.
+
+## 4.7.0: combine patterns by zone
+
+- **Combine patterns by zone** (Create): a different one of your patterns
+  along each zone of the house, for example Christmas on the garage,
+  Thanksgiving on the main roof and American Flag on the porch, as one
+  pattern. Still (each zone stays in place) or moving with a motion of your
+  choice; a strip shows the result, then Preview on house, Try and Save as
+  for any pattern. When the zones together need more than the controller's
+  30 color blocks, the busiest zone's colors are made longer until it fits,
+  and the note says which zones and how much. A dimmer pattern's zone is
+  darkened to keep its look (a controller has one brightness).
+- Review of the new code before release: it uses the controller's own limit
+  per color block (60 on some controllers, as scenes do), keeps bulbs that
+  are off in a painted pattern dark, says so when the chosen zones are
+  outside the lights' bulb count, notes when only some of the patterns use
+  exact colors, and fits a phone screen.
+
 ## 4.6.1: the month first
 
 - Schedule › Coming up opens as the month, and **Month** comes before

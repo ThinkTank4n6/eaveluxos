@@ -2,6 +2,8 @@
 # Copyright (c) 2026 Christopher A. Tankelewicz (ThinkTank4n6)
 """4.4.4: keep the computer awake while the app runs (Nov 16: the mini PC
 slept from 5:33 to 8:03 AM, past the time 0-Security turns the lights off)."""
+import platform
+import subprocess
 import tempfile
 import threading
 import time
@@ -88,6 +90,108 @@ class KeepAwakeTests(unittest.TestCase):
         js = (ROOT / "eaveluxos" / "static" / "app.js").read_text(encoding="utf-8")
         self.assertIn('id="awake"', js)
         self.assertIn("api('awake'", js)
+
+
+class Fn:
+    """A stand-in for a C function (ctypes sets argtypes and restype on it)."""
+    def __init__(self, impl):
+        self.impl = impl
+
+    def __call__(self, *a):
+        return self.impl(*a)
+
+
+class FakeMac:
+    """IOKit and CoreFoundation, as far as the keep-awake assertion uses them."""
+    def __init__(self, rc=0):
+        self.rc, self.held, self.released, self.strings, self.freed = rc, {}, [], {}, []
+        self.next = 41
+
+        def cfstr(_alloc, text, _enc):
+            self.next += 1
+            self.strings[self.next] = text.decode()
+            return self.next
+
+        def create(kind, level, name, out):
+            if self.rc:
+                return self.rc
+            self.next += 1
+            out._obj.value = self.next
+            self.held[self.next] = (self.strings[kind], level, self.strings[name])
+            return 0
+        self.CFStringCreateWithCString = Fn(cfstr)
+        self.CFRelease = Fn(self.freed.append)
+        self.IOPMAssertionCreateWithName = Fn(create)
+        self.IOPMAssertionRelease = Fn(lambda i: self.released.append(self.held.pop(i)) or 0)
+
+
+class Mac(unittest.TestCase):
+    """4.7.2: on a Mac, the caffeinate -i power assertion."""
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+
+    def test_held_and_let_go(self):
+        f = FakeMac()
+        k = K.KeepAwake(self.dir.name, setter=K._MacAssertion(f, f))
+        k.apply()
+        self.assertTrue(k.status()["holding"])
+        self.assertEqual(list(f.held.values()), [("PreventUserIdleSystemSleep", 255, K._MacAssertion.NAME)])
+        self.assertEqual(len(f.freed), 2, "its two strings are let go of")
+        k.apply()
+        self.assertEqual(len(f.held), 1, "asked again: still one")
+        k.set_enabled(False)
+        self.assertTrue(settle(lambda: not f.held and f.released))
+        self.assertTrue(settle(lambda: not k.holding))
+        k.set_enabled(True)
+        self.assertTrue(settle(lambda: len(f.held) == 1 and k.holding), "and again when turned back on")
+        k.stop.set()
+        self.assertTrue(settle(lambda: not f.held))
+
+    def test_off_and_straight_back_on_stays_held(self):
+        """Review #1 (4.7.2): the old holder letting go slowly didn't take
+        the new one's assertion with it (tests/repro_awake_reenable.py)."""
+        f = FakeMac()
+        slow = f.IOPMAssertionRelease.impl
+        f.IOPMAssertionRelease.impl = lambda i: (time.sleep(0.15), slow(i))[1]
+        k = K.KeepAwake(self.dir.name, setter=K._MacAssertion(f, f))
+        k.apply()
+        k.set_enabled(False)
+        k.set_enabled(True)
+        time.sleep(0.4)
+        self.assertEqual(len(f.held), 1)
+        self.assertTrue(k.status()["holding"])
+        k.stop.set()
+
+    def test_refused_isnt_holding(self):
+        f = FakeMac(rc=-536870201)          # kIOReturnNotPermitted, as a signed 32-bit number
+        k = K.KeepAwake(self.dir.name, setter=K._MacAssertion(f, f))
+        with self.assertLogs("eaveluxos.keepawake", "WARNING") as logs:
+            k.apply()
+        self.assertFalse(k.status()["holding"])
+        self.assertIn("0xe00002c7", logs.output[0])
+        k.stop.set()
+
+    def test_not_a_mac_asks_nothing(self):
+        if platform.system() == "Darwin":
+            self.skipTest("this is a Mac")
+        self.assertIsNone(K._mac_setter())
+
+    @unittest.skipUnless(platform.system() == "Darwin", "a Mac only")
+    def test_on_a_real_mac(self):
+        """GitHub's Mac test run: the Mac lists the assertion while it's held
+        (as `pmset -g assertions` does for caffeinate) and not after."""
+        k = K.KeepAwake(self.dir.name, setter="mac")
+        self.assertTrue(k.supported)
+        listed = lambda: K._MacAssertion.NAME in subprocess.run(["pmset", "-g", "assertions"], capture_output=True,
+                                                                text=True, encoding="utf-8", timeout=20).stdout
+        k.apply()
+        self.addCleanup(lambda: k.stop and k.stop.set())
+        self.assertTrue(k.status()["holding"])
+        self.assertTrue(listed(), "pmset lists it")
+        k.set_enabled(False)
+        self.assertTrue(settle(lambda: not k.holding))
+        self.assertFalse(listed(), "and not after")
 
 
 if __name__ == "__main__":

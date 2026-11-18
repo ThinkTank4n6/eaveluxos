@@ -1049,16 +1049,39 @@ VIEWS.patterns = async (tab) => {
     draw();
     $('#comq').oninput = e => { S.comq = e.target.value; draw(); };
   } else if (S.ptab === 'controller') {
+    // 4.7.1: every controller on the account, chosen here; read over the home
+    // network when the controller has an address (what it holds now), else
+    // from what Trimlight's cloud last heard from it.
     let devs;
     try { devs = await loadDevices(); } catch (e) { body.innerHTML = `<p class="callout warn">${esc(e.message)}</p>`; return; }
-    const d = devs.find(x => x.selected && x.effects) || devs.find(x => x.effects);
-    if (!d) { body.innerHTML = '<p class="callout">No controller reported its pattern library.</p>'; return; }
-    S.ctrlEffects = d.effects;
-    body.innerHTML = `<p class="note" style="margin-bottom:12px">Patterns saved in the Trimlight app on <b>${esc(d.name)}</b>. Add them to your patterns to use them in schedules.</p>
-      <div class="cards">${d.effects.map((e, i) => { const def = fromController(e); return `<div class="card">
+    if (!devs.length) { body.innerHTML = '<p class="callout">No controller reported its pattern library.</p>'; return; }
+    const d = devs.find(x => x.id === S.ptabDev) || devs.find(x => x.selected && x.effects) || devs.find(x => x.effects) || devs[0];
+    S.ptabDev = d.id;
+    const pick = devs.length > 1 ? `<label class="field" style="max-width:340px;margin-bottom:12px">Controller<select id="ptdev">${devs.map(x =>
+      `<option value="${esc(x.id)}" ${x.id === d.id ? 'selected' : ''}>${esc(x.name || 'Controller')}${x.selected ? '' : ' (not run by this app)'}</option>`).join('')}</select></label>` : '';
+    const bindPick = () => { const sel = $('#ptdev', body); if (sel) sel.onchange = () => { S.ptabDev = sel.value; VIEWS.patterns('controller'); }; };
+    let effects = d.effects, from = 'cloud', why = '';
+    if (role() === 'admin' && lanFor(d.id)) {
+      body.innerHTML = `${pick}<p class="muted">Reading ${esc(d.name || 'the controller')} over your home network…</p>`;
+      bindPick();         // another can be chosen while this one is read
+      try {
+        const r = await api('local' + (devs.length > 1 ? `?device=${encodeURIComponent(d.id)}` : ''));
+        effects = r.patterns.map(p => ({ id: p.id, ...p.effect })); from = 'lan';
+      } catch (e) { why = e.message; }
+      if (S.ptab !== 'controller' || S.ptabDev !== d.id || !document.body.contains(body)) return;    // moved on meanwhile
+    }
+    S.ctrlEffects = effects || []; S.ctrlDev = d;
+    const src = from === 'lan' ? `read just now from <b>${esc(d.name)}</b> over your home network`
+      : `on <b>${esc(d.name)}</b>, as Trimlight’s cloud last heard${why ? ` (the home network didn’t answer: ${esc(why)})` : ''}`;
+    const ours = (S.status && S.status.controlled) || devs.filter(x => x.selected).map(x => x.id);
+    const tryNote = devs.length > 1 ? ` Try shows a pattern on ${ours.length === 1 && ours[0] === d.id ? 'this controller' : 'the controllers this app runs'}${ours.includes(d.id) ? '' : `, not on ${esc(d.name)}`}.` : '';
+    body.innerHTML = `${pick}<p class="note" style="margin-bottom:12px">Patterns saved in the Trimlight app, ${src}. Add them to your patterns to use them in schedules.${tryNote}</p>
+      ${effects && effects.length ? `<div class="cards">${effects.map((e, i) => { const def = fromController(e); return `<div class="card">
         <div class="title"><b>${esc(e.name)}</b></div>${def.colors ? strand(def.colors, def.counts) : strand(effectSwatches(def))}
         <p class="small muted">${esc(effectKind(def))}</p>
-        <div class="actions"><button class="small" data-ctry="${i}">Try</button><button class="small ghost" data-cadd="${i}">Add to my patterns</button></div></div>`; }).join('')}</div>`;
+        <div class="actions"><button class="small" data-ctry="${i}">Try</button><button class="small ghost" data-cadd="${i}">Add to my patterns</button></div></div>`; }).join('')}</div>`
+        : `<p class="callout">${effects ? `No patterns are saved on ${esc(d.name)}.` : `${esc(d.name)} didn’t report its pattern library${d.error ? `: ${esc(d.error)}` : ''}.`}</p>`}`;
+    bindPick();
   } else {
     S.bgroup = S.bgroup || 'All';
     const groups = ['All', ...S.catalog.groups];
@@ -1115,8 +1138,29 @@ VIEWS.patterns = async (tab) => {
     if (d.comtry) return busy(b, async () => (await api('community/pattern?id=' + encodeURIComponent(d.comtry))).pattern)
       .then(def => tryDef(def, null)).catch(() => {});
     if (d.comadd) return busy(b, async () => addPattern((await api('community/pattern?id=' + encodeURIComponent(d.comadd))).pattern)).catch(() => {});
-    if (d.ctry) return tryDef(fromController(S.ctrlEffects[+d.ctry]), b);
-    if (d.cadd) { const def = fromController(S.ctrlEffects[+d.cadd]); return busy(b, () => addPattern(def)).catch(() => {}); }
+    if (d.ctry) {
+      const def = fromController(S.ctrlEffects[+d.ctry]);
+      // Review #2 (4.7.1): a pattern known only by its name is shown by name,
+      // which only works on a controller that has it.
+      const ours = (S.status && S.status.controlled) || [];
+      if (def.saved && S.ctrlDev && ours.length && !(ours.length === 1 && ours[0] === S.ctrlDev.id)) {
+        return toast(`“${def.label}” is shown by its name, so only ${S.ctrlDev.name} can show it, and this app runs ${ours.includes(S.ctrlDev.id) ? 'other controllers too' : 'other controllers'}.`, true);
+      }
+      return tryDef(def, b);
+    }
+    if (d.cadd) {
+      const def = fromController(S.ctrlEffects[+d.cadd]);
+      // 4.7.1: two controllers can each have a "Christmas"; the second is
+      // added as "Christmas (Front)" so both stay easy to tell apart.
+      const taken = new Set(Object.values(S.settings.effects || {}).map(e => String(e.label || '').trim().toLowerCase()));
+      if (taken.has(def.label.trim().toLowerCase()) && S.ctrlDev) {
+        const base = `${def.label} (${S.ctrlDev.name || 'controller'})`;
+        let label = base, n = 2;
+        while (taken.has(label.toLowerCase())) label = `${base} ${n++}`;      // review #3: added twice
+        def.label = label;
+      }
+      return busy(b, () => addPattern(def)).catch(() => {});
+    }
     if (d.brecreate) return go('create', { recreate: +d.brecreate });
     if (d.btry) { const bi = S.catalog.builtin.find(x => x.mode === +d.btry); return tryDef({ label: bi.name, builtin: bi.mode, speed: 128, brightness: 200, pixel_len: 30 }, b); }
     if (d.badd) { const bi = S.catalog.builtin.find(x => x.mode === +d.badd);
@@ -1164,7 +1208,7 @@ VIEWS.create = async (opts = {}) => {
             ${D.paint ? `</div>${painterHtml(D)}<div hidden>` : ''}
             <div class="row" style="justify-content:space-between"><h3>Colors in order</h3>
               <span class="small ${D.segs.length > 30 ? 'callout warn' : 'muted'}">${D.segs.length} of 30 color slots</span></div>
-            <div class="row"><button class="small ghost" data-onhouse>Preview on house</button><button class="small ghost" data-paintbulbs>Paint bulbs</button><button class="small ghost" data-paintzones>Paint by zone</button><span class="note">Paint single bulbs, ranges or every Nth bulb, or color named sections of the house (zones from the House tab).</span></div>
+            <div class="row"><button class="small ghost" data-onhouse>Preview on house</button><button class="small ghost" data-paintbulbs>Paint bulbs</button><button class="small ghost" data-paintzones>Paint by zone</button><button class="small ghost" data-combinezones>Combine patterns by zone</button><span class="note">Paint single bulbs, ranges or every Nth bulb, or color named sections of the house (zones from the House tab).</span></div>
             <div><p class="note">Each circle is one color; the number is how many bulbs it covers (up to 90). The sequence repeats along your roofline. Black is a dark color that moves with the pattern; ✕ zones bulbs off so they stay dark and are skipped by any movement, for example over a bedroom window.</p></div>
             <div class="segs">${D.segs.map((g, i) => `<button class="segbtn ${g.c === 'off' ? 'off' : ''}" data-seg="${i}" aria-pressed="${i === D.sel}" aria-label="${g.c === 'off' ? 'Zoned off' : 'Color ' + (i + 1)}, ${g.n} bulbs"
                style="${g.c === 'off' ? '' : `background:${g.c};`}color:${lum(g.c) > .55 ? '#111' : '#fff'}">${g.n}</button>`).join('')}
@@ -1271,6 +1315,7 @@ VIEWS.create = async (opts = {}) => {
     else if (d.newd !== undefined) { VIEWS.create({ fresh: true }); }
     else if (d.backpat !== undefined) go('patterns');
     else if (d.paintzones !== undefined) zonePainter(D, render);
+    else if (d.combinezones !== undefined) zoneCombiner(D, render);
     else if (d.try !== undefined) busy(b, () => api('action', { body: { action: 'try', effect: def() } })).then(() => toast('Showing on your lights for 15 minutes, then back to the schedule')).catch(() => {});
     else if (d.save !== undefined) busy(b, async () => {
       const label = D.label.trim(); if (!label) { $('#dname').focus(); throw new Error('Give the pattern a name first.'); }
@@ -2287,20 +2332,40 @@ function colorPanel(box) {
    cloud doesn't report it; the app checks every few minutes it answers there). */
 function controllerCards(st) {
   const lan = st.lan || {}, homes = lan.devices || {}, admin = role() === 'admin';
+  const live = st.devices || [], account = st.account || [], ours = st.controlled || live.map(d => d.id);
   const card = d => {
     const h = homes[d.id];
-    const net = h ? `<b class="num">${esc(h.address)}</b> \u00b7 ${h.ok === true ? '<span class="ok">answering</span>' : h.ok === false ? '<span class="bad">not answering</span>' : '<span class="muted">checking\u2026</span>'}`
-      : `<span class="muted">not set</span>${admin ? ' (<a href="#lights">Setup \u203a Lights &amp; controller \u203a Local mode</a>)' : ''}`;
-    return `<div class="item"><div class="grow"><div class="name">${esc(d.name || 'Controller')}
-        ${d.error || d.unknown ? '' : `<span class="badge ${d.online ? 'hi' : ''}">${d.online ? 'Online' : 'Offline'}</span> <span class="small">${esc(d.switch || '')}</span>`}</div>
+    const net = h ? `<b class="num">${esc(h.address)}</b> · ${h.ok === true ? '<span class="ok">answering</span>' : h.ok === false ? '<span class="bad">not answering</span>' : '<span class="muted">checking…</span>'}`
+      : `<span class="muted">not set</span>${admin ? ' (<a href="#lights">Setup › Lights &amp; controller › Local mode</a>)' : ''}`;
+    // 4.7.1: with two or more, the ones this app runs are marked Active (green)
+    // and the rest greyed out, like the Trimlight app's controller list.
+    const state = many ? (d.idle ? 'idle' : 'active') : '';
+    const tag = state === 'active' ? '<span class="pill ok">Active</span>'
+      : state === 'idle' ? `<span class="badge">Not run by this app</span>` : '';
+    return `<div class="item ${state}"><div class="grow"><div class="name">${esc(d.name || 'Controller')} ${tag}
+        ${d.error || d.unknown || d.idle ? '' : `<span class="badge ${d.online ? 'hi' : ''}">${d.online ? 'Online' : 'Offline'}</span> <span class="small">${esc(d.switch || '')}</span>`}</div>
       ${d.error ? `<div class="sub warning">${esc(d.error)}</div>` : ''}
-      <div class="sub">Home network: ${net}${d.firmware ? ` \u00b7 firmware ${esc(d.firmware)}` : ''}</div></div></div>`;
+      ${d.idle ? `<div class="sub">This app leaves it alone${admin ? '; to run it too, turn it on in <a href="#lights">Setup › Lights &amp; controller › Controlled by this app</a>' : ''}.</div>` : ''}
+      <div class="sub">Home network: ${net}${d.firmware ? ` · firmware ${esc(d.firmware)}` : ''}</div></div></div>`;
   };
-  // Controllers the cloud hasn't reported on yet still show with their address.
-  const devs = [...(st.devices || []), ...Object.entries(homes).filter(([id]) => !(st.devices || []).some(d => d.id === id))
-    .map(([id, h]) => ({ id, name: h.name, error: null, online: null, unknown: true }))];
-  return `<div class="panel ctlcards"><h2>${devs.length > 1 ? `Controllers (${devs.length})` : 'Controller'}</h2>
-    ${lan.unassigned && admin ? `<p class="callout small">The home-network address saved before, <b class="num">${esc(lan.unassigned)}</b>, isn\u2019t known to be any one controller\u2019s yet. Choose which in <a href="#lights">Setup \u203a Lights &amp; controller \u203a Local mode</a>.</p>` : ''}
+  // Controllers the cloud hasn't reported on yet still show with their
+  // address; the ones on the account that this app doesn't run come last.
+  const shown = new Set(live.map(d => d.id));
+  const devs = [...live];
+  for (const [id, h] of Object.entries(homes)) {
+    if (shown.has(id)) continue;
+    shown.add(id);
+    devs.push({ id, name: h.name, error: null, online: null, unknown: true, idle: account.some(a => a.id === id) && !ours.includes(id) });
+  }
+  for (const a of account) {
+    if (shown.has(a.id)) continue;
+    shown.add(a.id);
+    devs.push({ id: a.id, name: a.name, error: null, online: null, unknown: true, idle: !ours.includes(a.id) });
+  }
+  devs.sort((a, b) => !!a.idle - !!b.idle);
+  const many = devs.length > 1;
+  return `<div class="panel ctlcards"><h2>${many ? `Controllers (${devs.length})` : 'Controller'}</h2>
+    ${lan.unassigned && admin ? `<p class="callout small">The home-network address saved before, <b class="num">${esc(lan.unassigned)}</b>, isn’t known to be any one controller’s yet. Choose which in <a href="#lights">Setup › Lights &amp; controller › Local mode</a>.</p>` : ''}
     <div class="list">${devs.map(card).join('') || '<p class="muted small">No controller reported yet.</p>'}</div></div>`;
 }
 
@@ -2637,7 +2702,8 @@ function showDialog(idx) {
    app's Devices list). The cloud doesn't report IP addresses, so the cards
    show what it does report: online, what the lights are doing, bulbs. */
 function devCards(devs, cur, chosen) {
-  const bulbs = x => Math.max(0, ...(x.ports || []).filter(p => p.start > 0 && p.end > 0).map(p => p.end));
+  // 4.7.1: not-connected ports don't count, as in totalBulbs (a deck showed 1500)
+  const bulbs = x => Math.max(0, ...(x.ports || []).filter(p => p.start > 0 && p.end > 0 && !p.unused).map(p => p.end));
   const doing = x => x.error ? 'Couldn\u2019t read it' : x.switch === 0 ? 'Off' : x.switch === 2 ? 'On its own timer' : x.switch === 1 ? 'On' : '';
   return `<div class="devcards" role="tablist" aria-label="Controllers">${devs.map(x => {
     const run = !chosen.length || chosen.includes(x.id), n = bulbs(x), what = doing(x);
@@ -3079,7 +3145,7 @@ VIEWS.settings = async (sec) => {
           ${a.autostart.supported ? `<label class="check"><input type="checkbox" id="auto" ${a.autostart.enabled ? 'checked' : ''}> Start this app when the computer starts</label>
             ${a.autostart.note ? `<p class="note">${esc(a.autostart.note)}</p>` : ''}` : '<p class="muted">Not available on this system.</p>'}
           ${a.awake && a.awake.supported ? `<label class="check"><input type="checkbox" id="awake" ${a.awake.enabled ? 'checked' : ''}> Keep this computer awake while the app runs</label>
-            <p class="note">A sleeping computer can't follow the schedule. With this on, Windows won't put it to sleep on its own; the screen can still turn off, and the power button and Sleep still work. Quitting the app lets it sleep again.</p>` : ''}</div>` : ''}
+            <p class="note">A sleeping computer can't follow the schedule. With this on, the computer won't go to sleep on its own; the screen can still turn off, and the power button and Sleep still work. Quitting the app lets it sleep again.</p>` : ''}</div>` : ''}
         ${admin ? fold('ai', 'AI pattern ideas', '<div class="panel stack" id="aibox"></div>') : ''}
         ${admin ? fold('history', 'Version history', `<div class="panel stack"><h2>Version history</h2>
           <p class="note">Every save is kept (the last 100). Restoring brings back the patterns, schedule and house map from that moment; your account, phones and app address stay as they are.</p>
@@ -4098,6 +4164,64 @@ function zonePainter(D, rerender) {
       $('[data-slots]', f).textContent = n ? `Uses ${n} of ${MAX_SLOTS} color slots.${n > MAX_SLOTS ? ' Too many.' : ''}` : '';
     };
     f.addEventListener('change', upd); f.addEventListener('input', upd); upd();
+  } });
+}
+
+/* Combine patterns by zone (4.7): a different one of your patterns along each
+   zone (Christmas on the garage, the flag on the porch), as one pattern with
+   one motion. The fitting is in zonemix.js; this fills the designer, where
+   Preview on house, Try and Save work as for any pattern. */
+const combinable = e => !!(e && Array.isArray(e.colors) && e.colors.length && !e.split && !e.saved && e.builtin === undefined);
+function zoneCombiner(D, rerender) {
+  const md = mapData(), T = addressSpace();
+  if (!md.zones.length) return confirmBox('No zones yet', 'Open the <b>House</b> tab, select a range with the bulb finder and save it as a zone (for example \u201cGarage roof\u201d). Then come back here to give each zone a pattern.', 'OK');
+  const pats = Object.entries(S.settings.effects || {}).filter(([, e]) => combinable(e));
+  if (!pats.length) return confirmBox('No patterns to combine', 'Combine uses patterns of your own colors (made in Create). Built-in effects and patterns saved only on the controller can\u2019t be laid along a zone.', 'OK');
+  const opts = `<option value="">Leave as the rest</option>${pats.map(([k, e]) => `<option value="${esc(k)}">${esc(e.label || k)}</option>`).join('')}`;
+  const modes = S.catalog.custom_modes;
+  const read = f => {
+    const picks = md.zones.map((z, i) => { const e = (S.settings.effects || {})[f['p' + i].value]; return combinable(e) ? e : null; });
+    // Review #1 (4.7): the controller's own limit per block, as scenes use
+    // (60 on some), so what fits here also fits there.
+    const perSlot = (S.status && S.status.slot_limit) || PER_SLOT;
+    return { picks, r: ZoneMix.combine({ zones: md.zones, picks, base: f.base.value, total: T, maxSlots: MAX_SLOTS, perSlot }) };
+  };
+  dialog(`<h2>Combine patterns by zone</h2>
+    <p class="note">${T} bulbs. Each zone shows the pattern you choose, repeated along that zone only. Later zones in the list win where zones overlap.</p>
+    <div class="stack">${md.zones.map((z, i) => `<div class="row"><div class="grow" style="min-width:9em"><b>${esc(z.name)}</b><div class="small muted">Bulbs ${z.start}\u2013${z.end}</div></div>
+      <select name="p${i}" style="flex:1 1 11em;min-width:0;max-width:100%" aria-label="Pattern for ${esc(z.name)}">${opts}</select></div>`).join('')}</div>
+    <label class="field">Everything else<select name="base"><option value="off">\u2715 Off (dark, never moves)</option><option value="#000000">Black</option>${S.catalog.palette.filter(p => p.hex !== '#000000').map(p => `<option value="${p.hex}">${esc(p.name)}</option>`).join('')}</select></label>
+    <fieldset class="stack" style="border:0;padding:0;margin:0"><legend class="small" style="font-weight:650">Motion</legend>
+      <label class="check"><input type="radio" name="mv" value="still" checked> Still: each zone stays in place (looks best)</label>
+      <label class="check"><input type="radio" name="mv" value="move"> Moving: <select name="mode" style="width:auto">${modes.map((m, i) => i ? `<option value="${i}">${esc(m)}</option>` : '').join('')}</select></label>
+      <p class="note">A controller has one motion for all its bulbs, so a moving pattern carries each zone\u2019s colors into the next zone.</p></fieldset>
+    <div data-cmprev></div><p class="note" data-cmnote></p>`,
+  async f => {
+    const { picks, r } = read(f);
+    const first = picks.find(Boolean);
+    D.segs = r.segs; D.sel = 0;
+    D.mode = f.mv.value === 'move' ? +f.mode.value : 0;
+    D.speed = first.speed ?? 100;
+    D.brightness = r.brightness;
+    D.exact = picks.filter(Boolean).every(e => e.exact_colors);
+    const names = [...new Set(picks.filter(Boolean).map(e => e.label))];
+    if (!D.key) D.label = names.join(' + ').slice(0, 40);
+    toast('Combined. Preview it on the house, then save it.'); rerender();
+  }, { ok: 'Combine', onOpen: f => {
+    const upd = () => {
+      f.mode.disabled = f.mv.value !== 'move';
+      let out;
+      try { out = read(f).r; } catch (e) {
+        $('[data-cmprev]', f).innerHTML = ''; $('[data-cmnote]', f).textContent = e.message; return;
+      }
+      $('[data-cmprev]', f).innerHTML = strand(out.segs.map(s => s.c), out.segs.map(s => s.n));
+      const st = Object.entries(out.stretched).map(([i, k]) => `${md.zones[i].name} (colors ${k}\u00d7 as long)`);
+      const chosen = read(f).picks.filter(Boolean), exact = chosen.filter(e => e.exact_colors).length;
+      $('[data-cmnote]', f).textContent = `Uses ${out.segs.length} of ${MAX_SLOTS} color blocks.` +
+        (st.length ? ` To fit, these zones' colors were made longer: ${st.join(', ')}.` : ' Every zone keeps its pattern exactly.') +
+        (exact && exact < chosen.length ? ' One of these patterns is set to use its colors exactly; the combined one follows Color correction like the others.' : '');
+    };
+    f.addEventListener('change', upd); upd();
   } });
 }
 

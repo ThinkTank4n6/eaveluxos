@@ -1,7 +1,7 @@
 # EaveLuxOS: User Manual
 ### The Intelligent Lighting Control Platform
 
-Version 4.6.1 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
+Version 4.7.3 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
 
 > **Downloaded the ready-made app? You can skip most of the setup.**
 > The downloads on the project's GitHub **Releases** page
@@ -298,12 +298,15 @@ can use them (see section 10).
 On Linux, it starts when you log in. To make it start at power-on without
 anyone logging in, see section 25.
 
-A sleeping computer can't follow the schedule. On Windows, **Keep this
-computer awake while the app runs** (same panel, on by default, 4.4.4) stops
-Windows from putting it to sleep on its own while the app is running: the
-screen can still turn off, and the power button and **Sleep** still work.
-Quitting the app lets it sleep again. On other systems, turn off sleep in
-the computer's power settings. On Windows it doesn't hurt to do that too:
+A sleeping computer can't follow the schedule. On Windows and on a Mac
+(4.7.2), **Keep this computer awake while the app runs** (same panel, on by
+default, 4.4.4) stops the computer from going to sleep on its own while the
+app is running: the screen can still turn off, and the power button and
+**Sleep** still work (on a Mac laptop, so does closing the lid). Quitting the
+app lets it sleep again. On a Mac it works the way the built-in `caffeinate
+-i` command does; `pmset -g assertions` in Terminal lists it as
+*EaveLuxOS: following the lights' schedule*. On Linux, turn off sleep in the
+computer's power settings. On Windows it doesn't hurt to do that too:
 
 ```
 powercfg /change standby-timeout-ac 0
@@ -415,6 +418,10 @@ door, and the tabs are along the bottom of the screen.
   controller (nothing is sent). **Not answering** usually means the router
   gave the controller a new address: the Trimlight app shows the current
   one when it opens. Reserve it in the router so it stays the same.
+  With two or more controllers on the account (4.7.1), the ones this app
+  runs are marked **Active** with a green edge, and the others are grayed out
+  with **Not run by this app** and come last. To run one too, tick it under
+  **Setup › Lights & controller › Controlled by this app**.
 - **Activity:** a log of everything the app did.
 
 ## 10. Patterns
@@ -432,9 +439,21 @@ The buttons at the top switch between three lists.
 
 **In the Trimlight app** lists the patterns saved in your Trimlight Edge app,
 read from your controller.
-- **Try** shows one on the lights.
+- With two or more controllers (4.7.1), **Controller** at the top chooses
+  whose patterns to list, including ones this app doesn't run. Each
+  controller keeps its own patterns, so the lists can differ.
+- For Administrators, a controller with an address under **Setup › Lights &
+  controller › Local mode** is read over your home network, so the list is
+  what it holds right now. Otherwise, or if it doesn't answer, the list is
+  what Trimlight's cloud last heard from it. The note above the list says
+  which.
+- **Try** shows one on the lights, on the controllers this app runs (the
+  note says so when that isn't the one listed).
 - **Add to my patterns** copies it here so your schedule can use it.
-  Colors and bulb counts carry over exactly.
+  Colors, bulb counts and the gaps of bulbs left off carry over exactly; a
+  built-in effect keeps its effect, speed and brightness. If you already
+  have a pattern with that name, it's added with the controller's name after
+  it, for example *Christmas (Front)*.
 
 **Built-in (180)** lists all of Trimlight's built-in effects. Search by color,
 for example "red green", or filter by family (Wave, Snake, Stars, Fire and so
@@ -585,6 +604,32 @@ The circles become a strip with one dot per bulb (numbers every 10).
    bulbs can run out. Past 30 the app explains why and won't apply it; use
    fewer separate bulbs, or paint one repeat instead of the whole house.
 5. Tap **Use this pattern**, check the preview, then **Save pattern**.
+
+### Combine patterns by zone
+
+(4.7.) Show a different one of your patterns along each zone, for example
+**Christmas** on the garage, **Thanksgiving** on the main roof and
+**American Flag** on the porch, as one pattern.
+
+1. Save your zones on the House tab first (section 12).
+2. In **Create**, tap **Combine patterns by zone**.
+3. Choose a pattern for each zone, or leave a zone as **the rest**. Choose
+   what **Everything else** shows: off (dark) or a color.
+4. Choose the **Motion**: **Still** (each zone stays in place; looks best) or
+   **Moving** with a motion. A controller has one motion for all its bulbs,
+   so a moving pattern carries each zone's colors into the next zone.
+5. The strip shows the result. Tap **Combine**, then **Preview on house** or
+   **Try on my lights**, name it and tap **Save pattern**.
+
+A controller shows at most 30 color blocks. When the zones together would
+need more, the busiest zone's colors are made longer until it fits (for
+example 6 bulbs of each color instead of 3); the note under the strip says
+which zones and how much. A zone's pattern that is dimmer than the brightest
+one chosen is darkened to keep its look, since a controller has one
+brightness. Only patterns of your own colors can be combined: built-in
+effects and patterns saved only on the controller can't be laid along a
+zone. The combined pattern is an ordinary pattern and doesn't follow later
+changes to the zones or the patterns: combine again to update it.
 
 ### Paint by zone
 

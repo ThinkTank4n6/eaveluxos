@@ -10,7 +10,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, windows-latest]   # Windows: the app's most common home
+        # Windows: the app's most common home. macOS (4.7.2): the Mac build was
+        # made but never tested; this also checks keep-awake on a real Mac.
+        os: [ubuntu-24.04, windows-latest, macos-15]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6

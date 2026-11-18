@@ -377,9 +377,15 @@ def preview_message(e: dict):
 
 
 def read_record(r: bytes) -> dict:
+    """One saved pattern. kind (r[26]) is 2 for a pattern of its own colors
+    and 1 for a built-in effect, whose number is r[30] and direction r[31]
+    (4.7.1; seen in the Nov 17, 2026 capture)."""
     slots = [[r[32 + 5 * i], "#%02X%02X%02X" % tuple(r[33 + 5 * i:36 + 5 * i]), r[36 + 5 * i]] for i in range(SLOTS)]
-    return {"id": r[0], "name": r[1:1 + NAME_LEN].split(b"\0")[0].decode("ascii", "replace"),
-            "mode": r[27], "speed": r[28], "brightness": r[29], "slots": slots}
+    out = {"id": r[0], "name": r[1:1 + NAME_LEN].split(b"\0")[0].decode("ascii", "replace"),
+           "kind": r[26], "mode": r[27], "speed": r[28], "brightness": r[29], "slots": slots}
+    if r[26] == 1:
+        out.update(effect=r[30], reverse=bool(r[31]))
+    return out
 
 
 def read_state(body: bytes) -> dict:

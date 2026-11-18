@@ -46,14 +46,23 @@ ONE_AT_A_TIME = (" If the Trimlight Edge app is open on a phone or tablet, close
 def as_backup(st: dict) -> dict:
     """The controller as read over the home network, in the shape of a cloud
     backup, so Pattern backups can list it and put patterns back from it."""
-    effects = []
-    for p in st["patterns"]:
-        effects.append({"id": p["id"], "name": p["name"], "category": 1, "mode": p["mode"], "speed": p["speed"],
-                        "brightness": p["brightness"],
-                        "pixels": [{"index": i, "count": c, "color": int(col[1:], 16), "disable": not on}
-                                   for i, (c, col, on) in enumerate(p["slots"])]})
+    effects = [{"id": p["id"], **cloud_effect(p, every_slot=True)} for p in st["patterns"]]
     return {"source": "home network (local mode)", "ports": [dict(x) for x in st["ports"]], "effects": effects,
             "controller_raw": st.get("raw", "")}
+
+
+def cloud_effect(p: dict, every_slot: bool = False) -> dict:
+    """A pattern read over the home network in the layout Trimlight's cloud
+    reports patterns. 4.7.1: a built-in effect (kind 1) is category 0 with
+    its effect number; before, backups called it a pattern of its own colors
+    and would have put it back as one. Off slots stay ('disable'), so the
+    spacing between colors stays; every_slot keeps the empty ones too."""
+    e = {"name": p["name"], "speed": p["speed"], "brightness": p["brightness"]}
+    if p.get("kind") == 1:
+        return {**e, "category": 0, "mode": p.get("effect", 0), "reverse": bool(p.get("reverse")), "pixelLen": 30}
+    return {**e, "category": 1, "mode": p["mode"],
+            "pixels": [{"index": i, "count": c, "color": int(col[1:], 16), "disable": not on}
+                       for i, (c, col, on) in enumerate(p["slots"]) if c or every_slot]}
 
 
 def _essence(p: dict) -> tuple:
@@ -61,7 +70,7 @@ def _essence(p: dict) -> tuple:
     slots that hold bulbs. Review #2 (4.3.1): the bytes of an unused slot (a
     color left from editing) aren't compared, in case the controller tidies
     them; a correct save must never be called a failure."""
-    return (p["name"], p["mode"], p["speed"], p["brightness"],
+    return (p["name"], p.get("kind"), p.get("effect"), p.get("reverse"), p["mode"], p["speed"], p["brightness"],
             tuple((i, c, col, on) for i, (c, col, on) in enumerate(p["slots"]) if c))
 
 
@@ -72,7 +81,8 @@ def _clock(t) -> str:
 def _look(p: dict) -> tuple:
     """What a pattern shows, without its name or number (4.4.2): two
     patterns with the same look are the same on the house."""
-    return (p["mode"], p["speed"], p["brightness"], tuple((c, col, on) for c, col, on in p["slots"] if c))
+    return (p.get("kind"), p.get("effect"), p["mode"], p["speed"], p["brightness"],
+            tuple((c, col, on) for c, col, on in p["slots"] if c))
 
 
 def look_of(payload: dict):

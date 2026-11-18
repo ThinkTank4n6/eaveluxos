@@ -28,7 +28,8 @@ jobs:
     needs: test
     strategy:
       matrix:
-        os: [windows-latest, macos-latest, ubuntu-22.04, ubuntu-22.04-arm]
+        # macOS 15 (4.7.3): the same Mac the tests run on, not a label that moves
+        os: [windows-latest, macos-15, ubuntu-22.04, ubuntu-22.04-arm]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
