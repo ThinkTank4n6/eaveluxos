@@ -1,5 +1,31 @@
 # Changelog
 
+## 4.9.0: a sound when your team scores
+
+- **Schedule › Game-day lights**: a team with celebrations on can play a
+  sound when it scores (a goal horn, a fight song) through the speakers of
+  the computer EaveLuxOS runs on. Choose an MP3 or WAV file you have (up
+  to 15 MB), where it starts and how long it plays (1 to 30 seconds, 20 to
+  start). **Listen here** plays it in your browser, **Play on the app
+  computer** through that computer's speakers. **Play the sound** turns it
+  off without losing the file. The file stays in the app's data folder; the
+  app comes with no team sounds.
+- Plays through Windows' own media player or the Mac's `afplay`; on Linux
+  with `paplay`, `aplay`, `mpg123` or `ffplay`. The part that plays is cut
+  without re-encoding, so nothing else is needed.
+- Review of 4.9 before release: a second score while the first sound still
+  plays now plays it again (on Windows the open file couldn't be rewritten,
+  and the error reached the score check); a problem with the sound never
+  stops the lights celebrating; and an MP3 with large cover art is taken as
+  an MP3.
+
+## 4.8.1: a test that was too strict on Windows
+
+- No change to the app. A test of the short pause after greeting a
+  controller over the home network measured 0.297 seconds on GitHub's
+  Windows for a 0.3-second pause (Windows' clock ticks about every 15 ms)
+  and failed. It now allows for that.
+
 ## 4.8.0: each controller on its own
 
 - **A schedule for each controller.** With two or more controllers, a rule

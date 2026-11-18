@@ -1,7 +1,7 @@
 # EaveLuxOS: User Manual
 ### The Intelligent Lighting Control Platform
 
-Version 4.8.0 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
+Version 4.9.0 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
 
 > **Downloaded the ready-made app? You can skip most of the setup.**
 > The downloads on the project's GitHub **Releases** page
@@ -1129,6 +1129,31 @@ when one switch ran both, keep working as they were.
   point), every MLB run and NHL goal, and NBA 3-pointers (ordinary baskets are
   too frequent).
 - The panel shows the live score during the game.
+
+#### A sound when they score (4.9)
+
+A team with celebrations on can also play a sound, such as a goal horn or a
+fight song, through the speakers of the computer EaveLuxOS runs on.
+
+1. Under the team, **Sound when they score** › choose an **MP3** or **WAV**
+   file you have (up to 15 MB). It's kept in this app's data folder on that
+   computer, not in the settings, so a settings backup or share doesn't
+   carry it.
+2. **Start at** (seconds into the file) and **Play for** (1 to 30 seconds;
+   20 to start) choose the part that plays.
+3. **Listen here** plays that part in the browser you're using. **Play on the
+   app computer** plays it through that computer's speakers, to check the
+   volume.
+
+**Play the sound** turns it off and on without losing the file; **Remove
+sound** deletes the file. The sound plays with the light celebration, so
+**Only while the lights are on** applies to it too. A second score while
+it's playing starts it again. EaveLuxOS doesn't come with any team's sounds,
+and it can't take them from Spotify or a website: use a file you have.
+
+On Windows it plays through Windows' own media player, on a Mac through
+`afplay`. On Linux it needs `paplay`, `aplay`, `mpg123` or `ffplay`; without
+one, the lights celebrate without sound.
 
 Live scores come from ESPN's public scoreboard, asked only on your team's game
 days: every 20 seconds during the game, less often before it, and not at all

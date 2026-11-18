@@ -38,7 +38,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from zoneinfo import available_timezones
 
-from . import alerts, autostart, catalog, community, gameday, holidays, keepawake, lanlink, localmode, restore, scores, sharecode, updates, winfirewall
+from . import alerts, autostart, catalog, community, gameday, holidays, keepawake, lanlink, localmode, restore, scores, sharecode, sound, updates, winfirewall
 from .api import TrimlightAPI, TrimlightError, port_base
 from .controller import Controller
 from . import safety
@@ -201,6 +201,7 @@ REAUTH_SECONDS = 300
 # household's location, controllers, weather or safety-net settings, accounts,
 # or anything on the admin list. Viewers can look but not change anything.
 EDITOR_POSTS = {"/api/action", "/api/settings", "/api/photo", "/api/photo/upload", "/api/photo/delete", "/api/device/save_effect", "/api/import",
+                "/api/sound/upload", "/api/sound/delete", "/api/sound/test",     # 4.9: celebration sounds
                 "/api/textpattern", "/api/mood", "/api/holidays/refresh", "/api/share", "/api/share/open",
                 "/api/musiclink"}    # 4.1: a music show from this computer (address, finding and tests: Administrators)
 # Viewers may make a share code: it only reads patterns (3.19.1).
@@ -327,6 +328,7 @@ class App:
         lanlink.DUMP_DIR = self.store.dir      # unreadable messages from the controller are kept (4.3.10)
         self.updates = updates.UpdateChecker(self.store.dir)   # "a new version is out"
         self.awake = keepawake.KeepAwake(self.store.dir)        # no sleeping while the schedule runs (4.4.4)
+        self.player = sound.Player()                            # celebration sounds (4.9)
         self.alerts = alerts.Alerts(self.store.dir, probe=self.alert_probe)   # phone alerts (ntfy)
         self.gameday = gameday.GameDays(self.store.dir, on_change=self.rebuild)  # game-day lights
         self.country = holidays.CountryHolidays(self.store.dir, on_change=self.rebuild)  # public holidays (3.19)
@@ -1481,9 +1483,92 @@ class App:
                          colors=list(eff.colors))
         started = c.start_flash(seconds=team["seconds"], effect=eff, label=f"{team['name']} scored!", kind="score",
                                 only_if_on=team.get("only_when_on", True))
+        if started and (team.get("sound") or {}).get("on"):
+            self._play_sound(team["key"], team["sound"])          # 4.9: the goal horn
         if not started:
             c.note(f"{team['name']} scored ({points} points); no celebration because the lights are off.")
         return started
+
+    # --- 4.9: celebration sounds (sound.py) -------------------------------------
+
+    def _sound_file(self, team: str) -> Path:
+        if not re.fullmatch(r"[a-z]{2,8}-[a-z0-9]{1,6}", team or ""):
+            raise ApiError("That isn't a team.")
+        return self.store.dir / "sounds" / f"{team}.sound"
+
+    def _team_sound(self, team: str) -> dict | None:
+        gd = self.store.settings.get("gameday") or {}
+        for t in gd.get("teams") or []:
+            if isinstance(t, dict) and f"{t.get('league')}-{t.get('team')}" == team:
+                return t.get("sound") if isinstance(t.get("sound"), dict) else None
+        raise ApiError("Add the team under Schedule › Game-day lights first.", 404)
+
+    def sound_upload(self, team: str, data: bytes, name: str) -> dict:
+        """Keep a sound file for a team. The settings say which part plays;
+        the page saves those once this returns."""
+        f = self._sound_file(team)
+        self._team_sound(team)
+        try:
+            kind, secs = sound.check_upload(data)
+        except sound.SoundError as e:
+            raise ApiError(str(e), 415 if "MP3 or WAV" in str(e) else 400) from None
+        f.parent.mkdir(parents=True, exist_ok=True)
+        tmp = f.with_suffix(".tmp")
+        tmp.write_bytes(data)
+        os.replace(tmp, f)
+        return {"kind": kind, "length": secs, "name": re.sub(r"[\x00-\x1f]", "", name)[:120]}
+
+    def sound_delete(self, team: str) -> dict:
+        f = self._sound_file(team)
+        f.unlink(missing_ok=True)
+        for old in f.parent.glob(f"{team}-*.*") if f.parent.is_dir() else ():
+            if old.suffix in (".mp3", ".wav"):
+                try:
+                    old.unlink()
+                except OSError:
+                    pass
+        return {"ok": True}
+
+    def sound_clip(self, team: str) -> tuple[bytes, str]:
+        f, snd = self._sound_file(team), self._team_sound(team)
+        if not snd or not f.is_file():
+            raise ApiError("No sound for that team yet.", 404)
+        try:
+            return sound.cut(f.read_bytes(), snd.get("kind", "mp3"), float(snd.get("start", 0)),
+                             float(snd.get("seconds", 20))), snd.get("kind", "mp3")
+        except (sound.SoundError, TypeError, ValueError) as e:
+            raise ApiError(str(e) or "That sound can't be cut.", 400) from None
+
+    def _play_sound(self, team: str, snd: dict) -> bool:
+        """Never raises: the lights celebrate whatever happens to the sound.
+        Review #1 (4.9): the clip is named for what it holds and written
+        only when it's new, because on Windows the player keeps the file
+        open while it plays (a second goal couldn't rewrite it)."""
+        try:
+            data, kind = self.sound_clip(team)
+            clip = self._sound_file(team).with_name(f"{team}-{hashlib.sha256(data).hexdigest()[:12]}.{kind}")
+            if not clip.is_file():
+                tmp = clip.with_suffix(".tmp")
+                tmp.write_bytes(data)
+                os.replace(tmp, clip)
+                for old in clip.parent.glob(f"{team}-*.*"):
+                    if old != clip and old.suffix in (".mp3", ".wav"):
+                        try:
+                            old.unlink()
+                        except OSError:
+                            pass         # still playing; it goes next time
+            return self.player.play(clip, kind, float(snd.get("seconds", 20)))
+        except (ApiError, OSError, ValueError) as e:
+            log.warning("Celebration sound for %s didn't play: %s", team, e)
+            return False
+
+    def sound_test(self, team: str) -> dict:
+        snd = self._team_sound(team)
+        if not snd:
+            raise ApiError("Choose a sound file first.")
+        if not self.player.supported(snd.get("kind", "mp3")):
+            raise ApiError("This computer has no sound player the app can use.", 409)
+        return {"played": self._play_sound(team, snd)}
 
     def alert_probe(self) -> dict:
         """What phone alerts look at, once a minute (alerts.py)."""
@@ -2177,7 +2262,7 @@ def make_server(app: App, host: str, port: int):
             self.send_header("X-Frame-Options", "DENY")
             self.send_header("Referrer-Policy", "no-referrer")
             self.send_header("Content-Security-Policy",
-                             "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; "
+                             "default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; "
                              "script-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; "
                              "form-action 'self'; frame-ancestors 'none'")
             self.send_header("Cross-Origin-Opener-Policy", "same-origin")
@@ -2215,10 +2300,12 @@ def make_server(app: App, host: str, port: int):
                 raise ApiError("Bad Content-Length.", 400)
             n = int(cl)
             limit = MAX_BODY
-            if urllib.parse.urlparse(self.path).path == "/api/photo/upload":
+            up = urllib.parse.urlparse(self.path).path
+            if up in ("/api/photo/upload", "/api/sound/upload"):
                 u = self._user()
                 if u and u.get("role") in ("admin", "editor"):
-                    limit = PHOTO_UPLOAD_MAX      # only people who may save photos send a big body
+                    # only people who may save photos (and sounds, 4.9) send a big body
+                    limit = PHOTO_UPLOAD_MAX if up == "/api/photo/upload" else sound.UPLOAD_MAX
             if n > limit:
                 self.close_connection = True
                 raise ApiError("Request is too large.", 413)
@@ -2375,6 +2462,9 @@ def make_server(app: App, host: str, port: int):
                     return self._json(401, {"error": "Sign in first."})
                 if path in ADMIN_GETS and not self._is_admin():
                     return self._json(403, {"error": "Only an Administrator can see that."})
+                if path == "/api/sound/clip":      # 4.9: to listen in the browser
+                    data, kind = app.sound_clip(q.get("team", ""))
+                    return self._send(200, data, "audio/mpeg" if kind == "mp3" else "audio/wav")
                 if path.startswith("/api/photo/"):
                     f = app.photo_path(path.rsplit("/", 1)[-1])
                     if not f.is_file():
@@ -2551,6 +2641,9 @@ def make_server(app: App, host: str, port: int):
                     return self._json(401, {"error": "Sign in first."})
                 if path == "/api/photo/upload":   # the photo's own bytes, not JSON
                     b = {"side": urllib.parse.parse_qs(url.query).get("side", [""])[0]}
+                elif path == "/api/sound/upload":   # 4.9: the sound file's own bytes
+                    qs = urllib.parse.parse_qs(url.query)
+                    b = {"team": qs.get("team", [""])[0], "name": qs.get("name", [""])[0]}
                 else:
                     b = self._body()
                 self._authorize_post(path, b)
@@ -2882,6 +2975,12 @@ def make_server(app: App, host: str, port: int):
                     raise ApiError("No photo was sent.")
                 app.save_photo(f, shrink_photo(raw))
                 return {"ok": True}
+            if path == "/api/sound/upload":
+                return app.sound_upload(str(b.get("team", "")), self._read_raw(), str(b.get("name", "")))
+            if path == "/api/sound/delete":
+                return app.sound_delete(str(b.get("team", "")))
+            if path == "/api/sound/test":
+                return app.sound_test(str(b.get("team", "")))
             if path == "/api/photo/delete":
                 f = app.photo_path(str(b.get("side", "")))
                 f.unlink(missing_ok=True)

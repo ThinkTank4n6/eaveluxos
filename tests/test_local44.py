@@ -304,7 +304,9 @@ class Connection(ServerBase):
         self.addCleanup(setattr, L, "GREET_PAUSE", old)
         t = time.monotonic()
         L.Link("127.0.0.1").open().close()
-        self.assertGreaterEqual(time.monotonic() - t, 0.3)
+        # Windows' clock ticks about every 15 ms, so a 0.3 s pause can measure
+        # a little short (0.297 on GitHub's Windows, 4.8.0); it still pauses.
+        self.assertGreaterEqual(time.monotonic() - t, 0.25)
         self.assertIn("GREET_PAUSE = 0.5", (ROOT / "eaveluxos" / "lanlink.py").read_text(encoding="utf-8"))
 
     def test_the_reachability_check_waits_its_turn(self):

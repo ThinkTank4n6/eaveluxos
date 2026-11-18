@@ -929,8 +929,21 @@ def _celebrations(gd, effects: dict) -> dict:
         mp = t.get("min_points", CELEBRATE_POINTS[c["league"]])
         if not isinstance(mp, int) or isinstance(mp, bool) or not 1 <= mp <= 10:
             raise ConfigError(f"{c['name']}: celebrate scores of 1 to 10 points or more.")
+        snd = t.get("sound")
+        if snd is not None:
+            # 4.9: a clip of a sound file played when they score (sound.py)
+            from .sound import CLIP_MAX, START_MAX
+            ok = isinstance(snd, dict) and all(isinstance(snd.get(k), (int, float)) and not isinstance(snd.get(k), bool)
+                                                for k in ("start", "seconds"))
+            if not ok or not 0 <= snd["start"] <= START_MAX or not 1 <= snd["seconds"] <= CLIP_MAX \
+                    or snd.get("kind") not in ("mp3", "wav") or not isinstance(snd.get("name", ""), str) \
+                    or len(snd.get("name", "")) > 120:
+                raise ConfigError(f"{c['name']}: a celebration sound plays from a start in the file for 1 to {CLIP_MAX} seconds.")
+            snd = {"start": float(snd["start"]), "seconds": float(snd["seconds"]), "kind": snd["kind"],
+                   "on": snd.get("on", True) is not False, "name": snd.get("name", "")}
         out[team_key(c["league"], c["team"])] = {**c, "effect": eff, "seconds": seconds, "min_points": mp,
-                                                 "only_when_on": bool(gd.get("celebrate_only_when_on", True))}
+                                                 "only_when_on": bool(gd.get("celebrate_only_when_on", True)),
+                                                 "sound": snd}
     return out
 
 

@@ -1790,6 +1790,23 @@ async function holidayPanel(box) {
   };
 }
 
+/* Schedule › Game-day lights (4.9): a sound when this team scores, played
+   through the speakers of the computer EaveLuxOS runs on. */
+function soundRow(t, i, ro) {
+  const snd = t.sound;
+  if (!snd) return ro ? '' : `<div class="stack soundrow" style="gap:6px"><label class="field small">Sound when they score (optional)
+      <input type="file" accept=".mp3,.wav,audio/mpeg,audio/wav" data-gdsndfile="${i}"></label>
+    <p class="small muted" style="margin:0">An MP3 or WAV file you have, up to 15 MB, such as a goal horn or a fight song. You choose the part that plays (up to 30 seconds) on the computer EaveLuxOS runs on.</p></div>`;
+  const len = snd.length ? ` (${Math.round(snd.length)} s long)` : '';
+  return `<div class="stack soundrow" style="gap:6px;border-top:1px solid var(--line);padding-top:8px">
+    <label class="check small"><input type="checkbox" data-gdsndon="${i}" ${snd.on !== false ? 'checked' : ''} ${ro ? 'disabled' : ''}> <span>Play the sound: <b>${esc(snd.name || 'sound file')}</b>${esc(len)}</span></label>
+    <div class="row" style="gap:8px">
+      <label class="row small" style="gap:6px">Start at<input type="number" min="0" max="3600" step="0.5" value="${esc(snd.start ?? 0)}" data-gdsndstart="${i}" style="width:6em" ${ro ? 'disabled' : ''}> s</label>
+      <label class="row small" style="gap:6px">Play for<input type="number" min="1" max="30" step="1" value="${esc(snd.seconds ?? 20)}" data-gdsndsecs="${i}" style="width:5em" ${ro ? 'disabled' : ''}> s</label></div>
+    <div class="row" style="gap:6px"><button class="small" data-gdsndhere="${i}">Listen here</button>
+      ${ro ? '' : `<button class="small ghost" data-gdsndpc="${i}">Play on the app computer</button><button class="small ghost danger" data-gdsnddel="${i}">Remove sound</button>`}</div>
+    <p class="small muted" style="margin:0">Plays with the celebration, through the speakers of the computer EaveLuxOS runs on; turn its volume up.</p></div>`;
+}
 async function gamePanel(box) {
   if (!box) return;
   let g; try { g = await api('gameday'); } catch (e) { box.innerHTML = `<h2>Game-day lights</h2><p class="muted small">${esc(e.message)}</p>`; return; }
@@ -1810,6 +1827,7 @@ async function gamePanel(box) {
         <label class="field" style="flex:1;min-width:110px">Off<input type="text" data-gdoff="${i}" value="${esc(t.off || '23:00')}" ${ro ? 'disabled' : ''}></label></div>
       <p class="small muted" style="margin:0">On and Off are for game-day lights. ${gd.enabled ? '' : '<b>Game-day lights are off.</b>'}</p>
       <label class="check small"><input type="checkbox" data-gdcel="${i}" ${t.celebrate ? 'checked' : ''} ${ro ? 'disabled' : ''}> Celebrate this team\u2019s scores${party ? '' : ' <span class="muted">(Celebrate scores is off above)</span>'}${t.league === 'nfl' ? ' (field goals and touchdowns)' : t.league === 'nba' ? ' (3-pointers; baskets are too frequent)' : ''}</label>
+      ${t.celebrate ? soundRow(t, i, ro) : ''}
       ${inf.live && inf.live.state === 'missing' ? `<p class="small warn">Not on ESPN’s scoreboard today under “${esc(inf.live.code)}”, so scores can’t be followed. Check the team code (the letters in the team’s address on espn.com).</p>`
         : inf.live ? `<p class="small"><b>${inf.live.state === 'in' ? 'Live' : inf.live.state === 'post' ? 'Final' : 'Today'}</b>: ${esc(t.name || t.team.toUpperCase())} ${inf.live.score}${inf.live.vs ? ` – ${esc(inf.live.vs)} ${inf.live.them ?? ''}` : ''} ${inf.live.detail ? '· ' + esc(inf.live.detail) : ''}</p>` : ''}
       <p class="small ${inf.error && !inf.known ? 'warn' : 'muted'}">${inf.next && inf.next.length ? 'Next games: ' + inf.next.map(day).map(esc).join(', ') : inf.error ? 'Schedule not available yet: ' + esc(inf.error) : inf.known ? 'No more games this season.' : !gd.enabled && !(party && t.celebrate) ? 'Not checked while this team has neither game-day lights nor celebrations on.' : 'Schedule not checked yet (within a minute of turning it on).'}</p></div>`; }).join('')}
@@ -1826,6 +1844,27 @@ async function gamePanel(box) {
   box.onchange = e => {
     const t = e.target, ds = t.dataset, n = clone(S.settings);
     n.gameday = n.gameday || { enabled: false, teams: [] };
+    if (ds.gdsndfile !== undefined) {
+      // 4.9: keep the file on the app computer, then say which part plays
+      const team = n.gameday.teams[+ds.gdsndfile], f = t.files && t.files[0];
+      if (!f) return;
+      return busy(null, async () => {
+        const r = await fetch(`api/sound/upload?team=${encodeURIComponent(team.league + '-' + team.team)}&name=${encodeURIComponent(f.name)}`,
+          { method: 'POST', cache: 'no-store', body: f, headers: { 'X-Requested-With': 'eaveluxos', 'Content-Type': 'application/octet-stream', ...authHeaders() } });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(j.error || `Upload failed (${r.status}).`);
+        team.sound = { name: j.name, kind: j.kind, length: j.length, start: 0, seconds: Math.min(20, Math.max(1, Math.floor(j.length))), on: true };
+        await save(n, `Sound saved for ${team.name}`);
+      }).catch(err => { toast(err.message, true); t.value = ''; });
+    }
+    if (ds.gdsndstart !== undefined || ds.gdsndsecs !== undefined || ds.gdsndon !== undefined) {
+      const team = n.gameday.teams[+(ds.gdsndstart ?? ds.gdsndsecs ?? ds.gdsndon)];
+      if (!team || !team.sound) return;
+      if (ds.gdsndon !== undefined) team.sound.on = t.checked;
+      if (ds.gdsndstart !== undefined) team.sound.start = Math.max(0, Math.min(3600, +t.value || 0));
+      if (ds.gdsndsecs !== undefined) team.sound.seconds = Math.max(1, Math.min(30, Math.round(+t.value) || 20));
+      return busy(null, () => save(n)).catch(() => {});
+    }
     if (t.id === 'gdon') {
       if (n.gameday.celebrate_enabled === undefined) n.gameday.celebrate_enabled = !!n.gameday.enabled;   // keep celebrations as they were
       n.gameday.enabled = t.checked; return busy(null, () => save(n, t.checked ? 'Game-day lights on' : 'Game-day lights off')).catch(() => { t.checked = !t.checked; });
@@ -1850,6 +1889,23 @@ async function gamePanel(box) {
     const n = clone(S.settings);
     n.gameday = n.gameday || { enabled: false, teams: [] };
     if (b.dataset.gddel !== undefined) { n.gameday.teams.splice(+b.dataset.gddel, 1); return busy(b, () => save(n, 'Removed')).catch(() => {}); }
+    const sk = x => { const tm = n.gameday.teams[+x]; return tm ? `${tm.league}-${tm.team}` : ''; };
+    if (b.dataset.gdsndhere !== undefined) return busy(b, async () => {
+      // Listen in this browser: the part that plays, as the app computer cuts it.
+      const r = await fetch('api/sound/clip?team=' + encodeURIComponent(sk(b.dataset.gdsndhere)), { cache: 'no-store', headers: { 'X-Requested-With': 'eaveluxos', ...authHeaders() } });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `Couldn't get the sound (${r.status}).`);
+      if (S.soundUrl) URL.revokeObjectURL(S.soundUrl);
+      S.soundUrl = URL.createObjectURL(await r.blob());
+      if (S.soundEl) S.soundEl.pause();
+      S.soundEl = new Audio(S.soundUrl);
+      await S.soundEl.play();
+    }).catch(err => toast(err.message, true));
+    if (b.dataset.gdsndpc !== undefined) return busy(b, () => api('sound/test', { body: { team: sk(b.dataset.gdsndpc) } }))
+      .then(r => toast(r.played ? 'Playing on the app computer\u2019s speakers' : 'It couldn\u2019t be played there; see Activity.', !r.played)).catch(() => {});
+    if (b.dataset.gdsnddel !== undefined) {
+      const tm = n.gameday.teams[+b.dataset.gdsnddel];
+      return busy(b, async () => { await api('sound/delete', { body: { team: sk(b.dataset.gdsnddel) } }); delete tm.sound; await save(n, 'Sound removed'); }).catch(() => {});
+    }
     if (b.dataset.gdrefresh !== undefined) return busy(b, () => api('gameday/refresh', { body: {} })).then(() => {
       toast('Checking the schedules\u2026');
       setTimeout(() => { if (S.view === 'schedule') gamePanel(box); }, 8000);
