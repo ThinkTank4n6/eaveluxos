@@ -180,10 +180,15 @@ class SameAsSaved(ServerBase):
         self.assertEqual(self.app.ctrl.lan_sent[DEV], {"pattern"})
         self.assertIn("showed saved pattern 19", cm.output[-1])
 
-    def test_a_different_brightness_goes_through_the_cloud(self):
+    def test_a_different_brightness_is_shown_live(self):
+        """4.6: no saved match: shown live over the home network (it went
+        through the cloud before)."""
         self.apply({**FALL, "brightness": 255})                  # American Flag on Nov 16: 255 here, 188 there
         self.assertEqual(self.shown(), [])
-        self.assertEqual(self.cloud(), ["/device/effect/preview"])
+        self.assertEqual(self.cloud(), [])
+        previews = [b for _, _, b in self.ctl.frames(L.CMD_REQUEST) if b[0] == L.SUB_PREVIEW]
+        self.assertEqual(len(previews), 1)
+        self.assertEqual(previews[0][3:6], bytes([0, 128, 255]), "mode, speed, brightness")
         self.assertIsNone(self.app.ctrl.lan.failed_at.get(DEV), "no match isn't a failure")
 
     def test_not_on_the_controller_isnt_read_again_for_a_while(self):

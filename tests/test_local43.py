@@ -329,6 +329,34 @@ class Reliability436(ServerBase):
     def test_panels_opened_together_share_one_connection(self):
         import threading
         out, errs = [], []
+        # 4.6: counted on this app's side, from opening a connection to
+        # closing it; the stand-in controller notices closes late on a busy
+        # computer, which made this test fail now and then.
+        lock, held = threading.Lock(), [0, 0]
+        real_open, real_close = L.Link.open, L.Link.close
+
+        def opened(link):
+            with lock:
+                held[0] += 1
+                held[1] = max(held[1], held[0])
+            link._held = True
+            try:
+                return real_open(link)
+            except Exception:
+                closed(link)
+                raise
+
+        def closed(link):
+            try:
+                return real_close(link)
+            finally:
+                if getattr(link, "_held", False):
+                    link._held = False
+                    with lock:
+                        held[0] -= 1
+        L.Link.open, L.Link.close = opened, closed
+        self.addCleanup(setattr, L.Link, "open", real_open)
+        self.addCleanup(setattr, L.Link, "close", real_close)
 
         def read():
             try:
@@ -339,7 +367,7 @@ class Reliability436(ServerBase):
         [t.start() for t in ts]
         [t.join() for t in ts]
         self.assertEqual((len(out), errs), (3, []))
-        self.assertEqual(self.ctl.most_active, 1, "one connection at a time")
+        self.assertEqual(held[1], 1, "one connection at a time")
         n = len([1 for _, _, b in self.ctl.frames(L.CMD_REQUEST) if b[0] == L.SUB_TIME])
         self.app.local_state()
         self.assertEqual(len([1 for _, _, b in self.ctl.frames(L.CMD_REQUEST) if b[0] == L.SUB_TIME]), n,

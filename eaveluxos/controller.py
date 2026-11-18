@@ -385,6 +385,12 @@ class Controller:
                     self._sent(dev, "pattern", True)
                     self.sent_effect[dev] = {**payload, "id": pid}
                     continue
+                # 4.6: otherwise shown live over the home network, as the
+                # Trimlight app previews; the cloud only when that can't be done.
+                if self.lan is not None and effect.kind != "split" and self.lan.preview(dev, payload):
+                    self._sent(dev, "pattern", True)
+                    self.sent_effect[dev] = payload
+                    continue
                 self.api.preview_effect(dev, payload)
                 self._sent(dev, "pattern", False)       # this one went through the cloud
                 self.sent_effect[dev] = payload

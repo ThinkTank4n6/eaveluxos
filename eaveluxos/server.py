@@ -1009,7 +1009,10 @@ class App:
 
     def local_state(self, fresh: bool = False, dev: str | None = None) -> dict:
         loc, dev, st = self._local_read(fresh, dev)
-        return {"address": loc.host, "device": dev, "ports": st["ports"],
+        names = {p["id"]: p["name"] for p in st["patterns"]}
+        daily = [{**t, "pattern": names.get(t["effectId"]), "repeat": lanlink.REPEAT.get(t["repetition"])}
+                 for t in st.get("daily") or []] or None          # 4.6: read only
+        return {"address": loc.host, "device": dev, "ports": st["ports"], "daily": daily,
                 "patterns": [{"id": p["id"], "name": p["name"], "mode": p["mode"], "speed": p["speed"],
                               "brightness": p["brightness"],
                               "colors": [[c, col] for c, col, on in p["slots"] if c and on]} for p in st["patterns"]]}

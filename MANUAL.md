@@ -1,7 +1,7 @@
 # EaveLuxOS: User Manual
 ### The Intelligent Lighting Control Platform
 
-Version 4.5.1 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
+Version 4.6.0 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
 
 > **Downloaded the ready-made app? You can skip most of the setup.**
 > The downloads on the project's GitHub **Releases** page
@@ -1677,7 +1677,10 @@ added to the account later shows up with an empty row.
   without an address, or not answering, uses the cloud; the others carry
   on).
 3. The panel lists the ports and every pattern saved on the controller, with
-   its number and colors, read from the controller itself.
+   its number and colors, read from the controller itself, and the
+   controller's own two **daily timers** (the Trimlight app's: on or off,
+   times, repeat and pattern; 4.6, shown only, so change them in the
+   Trimlight app). This app's schedule doesn't use them.
 4. **Send on/off and saved patterns over the home network** (4.4, marked
    *Try it*): the schedule then turns the lights on and off, and shows
    patterns saved on the controller, straight over your home network instead
@@ -1687,11 +1690,16 @@ added to the account later shows up with an empty row.
    doesn't answer there, the app uses the cloud as before and tries again
    every 5 minutes; the log says so once, then once an hour, and says when
    it works again.
-   This app's own patterns go this way too when one saved on the controller
-   looks exactly the same: same colors and bulb counts, motion, speed and
-   brightness (4.4.2; the controller is read first, so the right number is
-   shown). If any of those differ (say you set a pattern brighter here), or
-   it's a built-in effect, it goes through the cloud. Nothing is sent this
+   This app's own patterns go this way too. When one saved on the
+   controller looks exactly the same (same colors and bulb counts, motion,
+   speed and brightness), that one is shown by its number (4.4.2; the
+   controller is read first, so the right number is shown). Any other
+   pattern of your own colors, and the built-in effects, are shown live, the
+   way the Trimlight app shows a pattern while you edit it (4.6): like
+   Trimlight's cloud preview, that isn't saved on the controller. The
+   **Brightness and speed** sliders on Home go the same way. Only a built-in
+   effect with a length other than 30, or a pattern over 30 colors or 255
+   bulbs in one color, still goes through the cloud. Nothing is sent this
    way during a music show from this computer. When Trimlight's cloud
    disagrees about whether the lights are on, the app asks the controller
    itself (4.5.1: only then, so the controller isn't read all night).

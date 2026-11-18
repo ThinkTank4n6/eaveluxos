@@ -133,7 +133,8 @@ class FakeController:
                     h = self.holds
                     pats = [h["patterns"][k] for k in sorted(h["patterns"])]
                     payload = L.state_payload([(0, 0) if self.off_reads_zero and not on else (a, b)
-                                               for a, b, on in h["ports"]], pats)
+                                               for a, b, on in h["ports"]], pats,
+                                              **({"tail": h["tail"]} if h.get("tail") else {}))   # its timers (4.6)
                     if self._late_left and self._shown is not None:
                         self._late_left -= 1
                         payload = self._shown

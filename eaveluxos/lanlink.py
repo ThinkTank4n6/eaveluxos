@@ -69,6 +69,7 @@ CMD_REQUEST, CMD_FIND, CMD_LEVELS, CMD_PING = 0x04, 0x06, 0x0A, 0x0B
 SUB_TIME, SUB_MUSIC, SUB_POWER = 0x15, 0x0C, 0x02
 SUB_SHOW, SUB_DELETE, SUB_PORT = 0x04, 0x05, 0x0A      # show / delete saved pattern N; port pixels
 SUB_PATTERN_NEW, SUB_PATTERN_SAVE, SUB_PREVIEW = 0x0F, 0x0E, 0x0D
+SUB_LIVE = 0x03                 # a built-in effect, shown live (seen Nov 17, 2026, 4.6)
 GREETING_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
 BANDS = 16
 SOURCE_LEVELS, SOURCE_CONTROLLER = 1, 2   # who listens: this app (sends levels) or the controller
@@ -352,6 +353,29 @@ def record_from_effect(pid: int, e: dict) -> bytes:
                           int(e.get("brightness", 255)), slots)
 
 
+def preview_message(e: dict):
+    """(sub, data) that shows a pattern live, without saving it, as the
+    Trimlight app does while you edit (seen Nov 17, 2026, 4.6):
+      own colors (0x0D): mode, speed, brightness, then the 30 color slots
+        (count, red, green, blue, on), laid out as in a saved pattern;
+      built-in effect (0x03): 0, speed, brightness, effect number, reverse.
+    Moving its brightness or speed slider sends the same with the new value.
+    Raises ValueError for what doesn't fit (over 30 colors, 255 bulbs in a
+    slot, a built-in effect with a length other than 30: not seen yet)."""
+    def byte(v, what):
+        v = int(v)
+        if not 0 <= v <= 255:
+            raise ValueError(f"{what} must be 0-255")
+        return v
+    if e.get("category") == 0:
+        if int(e.get("pixelLen", 30) or 30) != 30:
+            raise ValueError("a built-in effect's length isn't known to go over the home network")
+        return SUB_LIVE, bytes([0, byte(e.get("speed", 128), "speed"), byte(e.get("brightness", 255), "brightness"),
+                                byte(e.get("mode") or 0, "effect"), 1 if e.get("reverse") else 0])
+    rec = record_from_effect(1, {**e, "name": "preview"})
+    return SUB_PREVIEW, rec[27:30] + rec[32:]
+
+
 def read_record(r: bytes) -> dict:
     slots = [[r[32 + 5 * i], "#%02X%02X%02X" % tuple(r[33 + 5 * i:36 + 5 * i]), r[36 + 5 * i]] for i in range(SLOTS)]
     return {"id": r[0], "name": r[1:1 + NAME_LEN].split(b"\0")[0].decode("ascii", "replace"),
@@ -375,7 +399,39 @@ def read_state(body: bytes) -> dict:
     # raw: everything it sent, kept with backups (4.3.10) so the parts not
     # decoded yet (its timers) can be looked at.
     # switch: the first byte, 1 with the lights on and 0 off (seen Nov 15-16, 2026).
-    return {"head": d[:3].hex(" "), "switch": d[0], "ports": ports, "patterns": pats, "raw": body.hex()}
+    return {"head": d[:3].hex(" "), "switch": d[0], "ports": ports, "patterns": pats, "raw": body.hex(),
+            "daily": read_daily(d[HEAD + RECORD * n:])}
+
+
+REPEAT = {0: "today only", 1: "every day", 2: "weekdays", 3: "weekends"}
+
+
+def read_daily(tail: bytes):
+    """The controller's two daily timers, from the part of its state after the
+    saved patterns (4.6, read only). Laid out as seen Nov 16-17, 2026, and
+    matching what Trimlight's cloud reported for the same timers: a pattern
+    rotation (count, pattern numbers, minutes), one more byte, then each timer
+    as on/off, pattern number, repeat, start hour, minute, end hour, minute;
+    then the pattern showing now, starting with its kind (1 or 2). The Trimlight
+    app sets one with sub 0x13: number, the same seven bytes, then the date.
+    None when it doesn't look like that (nothing is guessed)."""
+    try:
+        n = tail[0]
+        if not 1 <= n <= 30:
+            return None
+        at = 2 + n + 1
+        out = []
+        for i in range(2):
+            en, eff, rep, sh, sm, eh, em = tail[at + 7 * i:at + 7 * i + 7]
+            if en not in (0, 1) or sh > 24 or eh > 24 or sm > 59 or em > 59:
+                return None
+            out.append({"id": i, "enable": bool(en), "effectId": eff, "repetition": rep,
+                        "start": f"{sh:02d}:{sm:02d}", "end": f"{eh:02d}:{em:02d}"})
+        if tail[at + 14] not in (1, 2):
+            return None
+        return out
+    except (IndexError, ValueError):
+        return None
 
 
 def state_payload(ports, patterns, head=b"\x01\x00\x00", tail=b"\x00" * 37) -> bytes:
@@ -600,6 +656,11 @@ class Link:
 
     def power(self, on: bool):
         self._send(frame(CMD_REQUEST, request(SUB_POWER, b"\x01" if on else b"\x00")))
+
+    def preview(self, e: dict):
+        """Show a pattern live without saving it (4.6; see preview_message)."""
+        sub, data = preview_message(e)
+        self._write(sub, data)
 
     def show_saved(self, pid: int):
         """Show saved pattern number pid (sub 0x04, as the Trimlight app does)."""

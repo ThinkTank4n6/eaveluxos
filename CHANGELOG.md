@@ -1,5 +1,39 @@
 # Changelog
 
+## 4.6.0: everything over the home network
+
+From the Trimlight app's own traffic, captured on Nov 17, 2026:
+
+- **Patterns of your own colors and built-in effects go over the home
+  network** too (with "Send on/off and saved patterns over the home
+  network" on), shown live the way the Trimlight app shows a pattern while
+  you edit it. Like Trimlight's cloud preview, that isn't saved on the
+  controller. Before, only patterns saved on the controller went this way;
+  American Flag (brighter here than there), HALLOWEEN, Christmas and the
+  rest went through the cloud. The cloud is still used when the controller
+  doesn't answer, and for what wasn't seen in the capture: a built-in
+  effect with a length other than 30, over 30 colors, or over 255 bulbs in
+  one color.
+- **Brightness and speed sliders** on Home go the same way, as the
+  Trimlight app's sliders do.
+- **The controller's daily timers** (its own two, the Trimlight app's) are
+  shown in Local mode: on or off, times, repeat and pattern, read from the
+  controller. Shown only for now; writing them waits for one more test.
+- **Waits 12 seconds before reconnecting** after the controller ignores a
+  read. The capture showed the Trimlight app's own read going unanswered
+  ("Failed to sync" at 7:20 PM) and its next connection, 12 seconds later,
+  answered at once; this app tried again after 1 second.
+- Learned, not changed: opening the Trimlight app shows pattern 14 on the
+  controller by itself (it did each time it connected), so the lights come
+  on. This app notices a changed pattern only when it sent its own through
+  the cloud; over the home network it can't tell yet, so after using the
+  Trimlight app, tap Run schedule (or wait for the next scheduled change). The
+  controller's own pattern rotation isn't needed: this app's rotation
+  changes patterns itself, and now each change goes over the home network.
+  Renaming the controller stays with Trimlight's cloud: over the home
+  network the controller can't confirm it, and it dropped the connection a
+  minute after a rename.
+
 ## 4.5.1: review of 4.5, the controllers' health first
 
 Nothing in 4.5 saves or deletes anything through Trimlight's cloud, the

@@ -29,3 +29,5 @@ _safety.PAUSED = False
 import eaveluxos.lanlink as _lanlink
 _lanlink.GREET_PAUSE = 0               # no half-second pause after each greeting (4.4)
 _lanlink.ASK_AGAIN = 0.3               # ask again sooner (4.4.3)
+from eaveluxos import localmode as _localmode
+_localmode.RECONNECT_WAIT = 0.2         # a short wait, not 12 seconds (4.6); a real gap, as the controller sees one

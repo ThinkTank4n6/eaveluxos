@@ -115,6 +115,13 @@ def _check(before: dict, after: dict, *, added=None, removed=None, port=None):
         raise LocalError("the controller's ports didn't read back as expected")
 
 
+# 4.6: after a read the controller ignored, wait this long before a new
+# connection. On Nov 17 the Trimlight app's own read went unanswered ("Failed
+# to sync"); its next connection, 12 seconds after the first closed, was
+# answered at once. A retry 1 second later often went unanswered too.
+RECONNECT_WAIT = 12
+
+
 class Local:
     def __init__(self, host: str, now=datetime.now, backup=None, link_factory=L.Link, gap: float = GAP,
                  lock=None, busy=None, io=None, blocked=None):
@@ -192,7 +199,7 @@ class Local:
                     raise LocalError(f"Couldn't read the controller: {str(e).rstrip('.')}.{ONE_AT_A_TIME}") from None
             finally:
                 self._close(link)
-            time.sleep(1)
+            time.sleep(RECONNECT_WAIT)
 
     def _start(self, link) -> dict:
         try:
@@ -462,9 +469,13 @@ class Commands:
                 except L.LinkError:
                     # It sometimes ignores a request on a new connection ("0
                     # bytes came"); these commands can be sent again safely
-                    # (4.4.2: once more, on a fresh connection).
+                    # (4.4.2: once more, on a fresh connection; 4.6: after
+                    # RECONNECT_WAIT, as the Trimlight app's retry was).
                     if attempt == 2:
                         raise
+                    link.close()
+                    time.sleep(RECONNECT_WAIT)
+                    continue
                 finally:
                     link.close()
         except Exception as e:          # never keep the cloud from doing it instead (4.4.1)
@@ -535,6 +546,23 @@ class Commands:
             log.info("Over the home network (%s): showed saved pattern %d (the same as this app's).", self.host(dev), pid)
             return pid
         return None
+
+    def preview(self, dev, payload: dict) -> bool:
+        """Show this app's own pattern (or a built-in effect) live over the
+        home network, as the Trimlight app does while editing (4.6). Like
+        the cloud's preview, it isn't saved on the controller. False when it
+        can't go this way (then the cloud is used)."""
+        try:
+            L.preview_message(payload)
+        except (ValueError, TypeError, KeyError):
+            return False
+        done = self._do(dev, lambda link: link.preview(payload) or True) is True
+        if done:
+            what = (f"built-in effect {payload.get('mode')}" if payload.get("category") == 0
+                    else "a pattern of this app's")
+            log.info("Over the home network (%s): showed %s, brightness %s, speed %s.", self.host(dev), what,
+                     payload.get("brightness"), payload.get("speed"))
+        return done
 
     def switch(self, dev):
         """1 on, 0 off, as the controller itself says; None if unknown."""

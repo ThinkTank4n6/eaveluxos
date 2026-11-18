@@ -2745,7 +2745,7 @@ async function localPanel(box, fresh = false) {
   // The setting is reachable even when the controller can't be read just
   // now (4.4.1: it used to show only after a good read).
   const cmd = lanAny() ? `<label class="check" style="margin-top:8px"><input type="checkbox" id="lccmd" ${l.commands ? 'checked' : ''}>
-          <span><b>Send on/off and saved patterns over the home network</b> <span class="pill">Try it</span><br><span class="small muted">The schedule turns the lights on and off, and shows patterns saved on the controller, straight over your home network instead of through Trimlight’s cloud${many ? ', each controller at its own address (one without an address uses the cloud)' : ''}. If that doesn’t work, it uses the cloud as before. This app’s own patterns go this way too when one saved on the controller looks exactly the same (same colors, motion, speed and brightness); others, and built-in effects, still go through the cloud.</span></span></label>` : '';
+          <span><b>Send on/off and saved patterns over the home network</b> <span class="pill">Try it</span><br><span class="small muted">The schedule turns the lights on and off, and shows patterns saved on the controller, straight over your home network instead of through Trimlight’s cloud${many ? ', each controller at its own address (one without an address uses the cloud)' : ''}. If that doesn’t work, it uses the cloud as before. This app’s own patterns and the built-in effects go this way too (shown live, as the Trimlight app does while you edit), and so do the brightness and speed sliders.</span></span></label>` : '';
   const pick = many && withAddr.length ? `<div class="row" style="margin-top:8px"><label class="field">Controller to read<select id="lcdev">${withAddr.map(d => `<option value="${esc(d.id)}" ${d.id === S.lcDev ? 'selected' : ''}>${esc(d.name || d.id)} (${esc(lanFor(d.id))})</option>`).join('')}</select></label></div>` : '';
   const q = many && S.lcDev ? 'device=' + encodeURIComponent(S.lcDev) : '';
   const dev = many ? S.lcDev : undefined;
@@ -2758,6 +2758,10 @@ async function localPanel(box, fresh = false) {
         <h3 style="margin:8px 0 4px">On ${many ? esc((devs.find(d => d.id === S.lcDev) || {}).name || 'the controller') : 'the controller'} now (${st.patterns.length})</h3>
         <div class="list">${st.patterns.map(p => `<div class="item"><div class="grow"><b>${esc(p.name)}</b> <span class="small muted">#${p.id}</span>
           <div>${swatches(p.colors.map(c => c[1]), 10)}</div></div><button class="small ghost danger" data-lcdel="${p.id}" data-name="${esc(p.name)}">Delete</button></div>`).join('') || '<p class="muted small">No saved patterns.</p>'}</div>
+        ${st.daily ? `<h3 style="margin:12px 0 4px">Daily timers on the controller</h3>
+          <p class="small muted">The controller\u2019s own two daily timers (the Trimlight app\u2019s), as it holds them now. Shown only; change them in the Trimlight app for now. This app\u2019s schedule doesn\u2019t use them.</p>
+          <div class="list">${st.daily.map(t => `<div class="item"><div class="grow"><b>Timer ${t.id + 1}</b> <span class="small ${t.enable ? 'ok' : 'muted'}">${t.enable ? 'on' : 'off'}</span>
+            <div class="small">${esc(hm12(t.start))} \u2013 ${esc(hm12(t.end))} \u00b7 ${esc(t.repeat || 'repeat ' + t.repetition)} \u00b7 ${esc(t.pattern || 'pattern #' + t.effectId)}</div></div></div>`).join('')}</div>` : ''}
         <div class="row" style="margin-top:8px"><button class="small ghost" data-lcread>Read again</button>
           <button class="small" data-lcbackup>Back up now</button><span class="small muted">Saves these patterns and ports on this computer (listed under Pattern backups).</span></div>`;
     } catch (e) { $('#lcbody', box).innerHTML = `<p class="callout warn small">${esc(e.message)}</p><div><button class="small ghost" data-lcread>Try again</button></div>`; }
