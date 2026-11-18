@@ -1,5 +1,10 @@
 # Changelog
 
+## 4.6.1: the month first
+
+- Schedule › Coming up opens as the month, and **Month** comes before
+  **List** in its switch.
+
 ## 4.6.0: everything over the home network
 
 From the Trimlight app's own traffic, captured on Nov 17, 2026:

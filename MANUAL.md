@@ -1,7 +1,7 @@
 # EaveLuxOS: User Manual
 ### The Intelligent Lighting Control Platform
 
-Version 4.6.0 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
+Version 4.6.1 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
 
 > **Downloaded the ready-made app? You can skip most of the setup.**
 > The downloads on the project's GitHub **Releases** page
@@ -861,11 +861,11 @@ next scheduled change.
 9. Tap **Save**.
 
 **Coming up** on the right shows what will run, two ways:
+- **Month** (what it opens to): a calendar. Each rule has its own color, so
+  seasons, game nights and gaps stand out. Use **‹ ›** to change month (up to
+  two years ahead) and tap a day for its exact times.
 - **List:** the next three weeks, with on and off times. Daylight saving
   changes are marked.
-- **Month:** a calendar. Each rule has its own color, so seasons, game nights
-  and gaps stand out. Use **‹ ›** to change month (up to two years ahead) and
-  tap a day for its exact times.
 
 If a rule shows **"Never runs in the next year"**, another rule wins on every
 one of its nights, usually one with the same priority that is listed first.

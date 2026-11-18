@@ -1974,12 +1974,12 @@ function ruleColor(name) {
 }
 function upcomingPanel(box) {
   if (!box) return;
-  const view = S.upcView || 'list';
+  const view = S.upcView || 'month';          // 4.6.1: the month first
   const now = new Date(), ym = S.calMonth || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   const [y, mo] = ym.split('-').map(Number);
   const title = new Date(y, mo - 1, 1).toLocaleDateString([], { month: 'long', year: 'numeric' });
   box.innerHTML = `<div class="panel-head"><h2>Coming up</h2><div class="seg" role="group" aria-label="Show as">
-      <button data-upv="list" aria-pressed="${view === 'list'}">List</button><button data-upv="month" aria-pressed="${view === 'month'}">Month</button></div></div>
+      <button data-upv="month" aria-pressed="${view === 'month'}">Month</button><button data-upv="list" aria-pressed="${view === 'list'}">List</button></div></div>
     ${view === 'month' ? `<div class="calnav"><button class="small ghost" data-calm="-1" aria-label="Previous month">‹</button><b>${esc(title)}</b><button class="small ghost" data-calm="1" aria-label="Next month">›</button></div>` : ''}
     <div id="upc" style="margin-top:8px"><p class="muted">Loading…</p></div>`;
   const day = d => new Date(d.date + 'T12:00');
