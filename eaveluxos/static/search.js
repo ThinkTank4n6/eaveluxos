@@ -29,6 +29,8 @@
     { t: 'Share patterns', w: 'Patterns', v: 'patterns', x: 'mine', k: 'share code send friend export' },
     { t: 'Open a share code', w: 'Patterns', v: 'patterns', x: 'mine', k: 'import share code receive' },
     { t: 'Split by controller', w: 'Patterns', v: 'patterns', x: 'mine', k: 'split multiple controllers different each' },
+    { t: 'A schedule for each controller', w: 'Schedule › a rule › Controllers', v: 'schedule', k: 'controllers each separate individually own rule deck front' },
+    { t: 'One controller on or off', w: 'Home › Controllers', v: 'home', k: 'controller own on off individually separately card deck front' },
     // Schedule
     { t: 'Right now', w: 'Schedule', v: 'schedule', h: 'Right now', k: 'current override resume back to schedule' },
     { t: 'Coming up', w: 'Schedule', v: 'schedule', f: 'upcoming', k: 'next upcoming tonight tomorrow' },

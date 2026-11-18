@@ -34,7 +34,7 @@ from datetime import date, datetime, timedelta
 from .api import TrimlightAPI, TrimlightError
 from .runtime import Runtime
 from .safety import _same_effect
-from .schedule import add_real, ts
+from .schedule import Effect, add_real, ts
 from .triggers import FLASH_MAX_S, FLASH_MIN_S, PRESETS, AlertWatch
 from .weather import WeatherService
 
@@ -91,6 +91,8 @@ class Target:
     adjusted: bool = False       # slider levels set by hand apply to this target
     hands_off: bool = False      # a music show: the controller's music mode runs the lights
     curve: tuple | None = None   # night curve now (3.18): (kelvin or None, level %)
+    parts: dict | None = None    # 4.8: each controller's own: deviceId -> {"on", "effect", "rule", "manual", "until"}
+    part_keys: dict | None = None  # 4.8: deviceId -> what that controller shows, as a key (unchanged: not sent again)
 
 
 class Controller:
@@ -107,6 +109,9 @@ class Controller:
         self.account: list[dict] = []          # every controller on the account, run here or not (4.5)
         self.saved: dict[str, dict] = {}      # deviceId -> {name lower: effect dict}
         self.override = None                  # {"on": bool, "effect": key, "since": dt}
+        # 4.8: a manual choice for one controller: deviceId -> {"on", "effect",
+        # "obj", "since", "wkey"}; it ends when that controller's schedule changes.
+        self.dev_override: dict = {}
         self.adjust: dict = {}                # slider levels {"brightness": n, "speed": n}
         self.flash = None                     # the flash showing: {"until", "eff", "label", "kind", "rank", "since"}
         self.flash_held: list = []            # longer flashes a shorter one interrupted; they resume after it
@@ -120,6 +125,7 @@ class Controller:
         self.last_on = None                   # last pattern turned on by hand (for the On button)
         self.sched_key = None
         self.applied_key = None
+        self.applied_parts: dict = {}         # 4.8: deviceId -> part key last sent, while applied_key holds
         self.fail_count = 0
         self.next_try = 0.0
         self.last_error = None
@@ -194,7 +200,6 @@ class Controller:
             log.warning("Couldn't save dismissed weather alerts: %s", e)
 
     def _alert_effect(self):
-        from .schedule import Effect
         key = self.cfg.weather_alerts["effect"]
         if key in self.cfg.effects:
             return self.cfg.effects[key]
@@ -217,6 +222,7 @@ class Controller:
     def _invalidate(self):
         """Send the target again on the next pass, in full. Lock held."""
         self.applied_key = None
+        self.applied_parts = {}
         self.known_on = False
         self.apply_gen += 1
         self._kick()
@@ -335,7 +341,8 @@ class Controller:
         if not got:
             self.lan_sent.pop(dev, None)
 
-    def _apply(self, on: bool, effect, levels: dict | None = None, timer_off: bool = False, delegated: bool = False):
+    def _apply(self, on: bool, effect, levels: dict | None = None, timer_off: bool = False, delegated: bool = False,
+               skip=frozenset()):
         """timer_off: when off, use Timer mode (safety net) instead of Off.
         delegated: lights on, run by the controller's own timer (Timer mode).
         Returns whether the controllers are now switched on by this app; the
@@ -351,6 +358,12 @@ class Controller:
         some_off = False
         for d in self.devices:
             dev = d["deviceId"]
+            if dev in skip:
+                # 4.8: this controller already shows its part (only another
+                # controller's rule changed); sending it again would only
+                # restart its motion and add commands.
+                some_off = some_off or not on or (effect is not None and effect.for_device(dev) is None)
+                continue
             self.sent_effect.pop(dev, None)
             part = effect.for_device(dev) if on and effect is not None else effect
             if not on or (effect is not None and effect.kind == "split" and part is None):
@@ -363,6 +376,8 @@ class Controller:
             # set by a rule or the slider scales each part by the same ratio,
             # so upstairs stays dimmer than the garage (3.17.1).
             lv = levels if effect.kind != "split" else {k: v for k, v in levels.items() if k == "brightness"}
+            if effect.part_levels is not None:
+                lv = dict(effect.part_levels.get(dev) or {})    # 4.8: this controller's own rule's levels
             # (switch-on is skipped when we already turned it on; effect calls follow)
             if not self.known_on or (effect.kind == "split"):
                 self._switch(dev, 1)
@@ -373,7 +388,7 @@ class Controller:
             else:
                 payload = (self._payload_from_saved(self._saved_effect(dev, effect_d))
                            if effect_d.kind == "saved" else dict(effect_d.payload))
-                if effect.kind == "split" and lv:
+                if effect.kind == "split" and lv and effect.part_levels is None:
                     base = self.base_levels(effect).get("brightness") or 255
                     payload["brightness"] = max(1, min(255, round(payload.get("brightness", 255) * lv["brightness"] / max(1, base))))
                 else:
@@ -425,9 +440,39 @@ class Controller:
         (a flash or preview ending, manual settings ending at a scheduled
         change); status reads pass commit=False and change nothing."""
         now = self.cfg.loc.now()
-        w = self.cfg.schedule.active_window(now)
-        sched_key = w.key if w else "off"
+        sch = self.cfg.schedule
         override, adjust, flash, held, notes = self.override, self.adjust, self.flash, self.flash_held, []
+        devs = [d["deviceId"] for d in self.devices]
+        # Review #2 (4.8): a choice for a controller this app no longer runs is
+        # kept for when it does, but doesn't count now; it made every night
+        # "each controller on its own" (no handing nights to the controllers'
+        # timers) until the app restarted.
+        dov = {dev: o for dev, o in self.dev_override.items() if dev in devs}
+        kept = {dev: o for dev, o in self.dev_override.items() if dev not in devs}
+        ws = None
+        if devs and (sch.per_controller or dov or len(devs) > 1):
+            # 4.8: each controller follows its own rules (and its own manual
+            # choice). When they all agree, it's one window, as before.
+            ws = {dev: sch.for_controller(dev).active_window(now) for dev in devs}
+            wkeys = {dev: (x.key if x else "off") for dev, x in ws.items()}
+            for dev in list(dov):
+                if dev not in wkeys:
+                    continue                      # not run right now; kept for when it is
+                if dov[dev].get("wkey") != wkeys[dev]:
+                    notes.append(f"Scheduled change reached for {self._dev_name(dev)}, so its manual setting ended.")
+                    dov.pop(dev)
+            if len(set(wkeys.values())) == 1:
+                w = ws[devs[0]]
+                sched_key = wkeys[devs[0]]
+            else:
+                w = None
+                sched_key = "multi|" + "|".join(f"{dev}={k}" for dev, k in sorted(wkeys.items()))
+        else:
+            # Before the controllers are known (the first pass after starting),
+            # only rules for all of them count: a rule for one controller must
+            # never reach the others, even once.
+            w = (sch.for_controller("\0") if sch.per_controller else sch).active_window(now)
+            sched_key = w.key if w else "off"
         if sched_key != self.sched_key:
             # The first check after startup isn't a scheduled *change*; don't
             # throw away something the user set in the app's first seconds.
@@ -448,9 +493,16 @@ class Controller:
                                alert["ends"].astimezone(now.tzinfo) if alert["ends"] else None,
                                weather_match=t.weather_match)
             t.adjusted = bool(adjust) and t.reason not in ("flash", "alert") and t.on
+            if ws is not None and t.part_keys is None and t.reason in ("schedule", "weather") \
+                    and not t.delegated and t.key != "off|timer":
+                # 4.8: one window for all: each controller's part is the same,
+                # under the same key a controller's own window would have, so
+                # moving to (or from) different rules sends only what changed.
+                t.part_keys = {dev: t.key for dev in ws}
             if commit:
                 self.sched_key = sched_key
                 self.override, self.adjust, self.flash, self.flash_held = override, adjust, flash, held
+                self.dev_override = {**kept, **dov}
                 self.weather_match = t.weather_match
                 for n in notes:
                     self.note(n)
@@ -515,10 +567,32 @@ class Controller:
                 lv = json.dumps(adjust, sort_keys=True)
                 return done(Target(f"manual|{o['on']}|{o.get('effect')}|{o['since'].isoformat()}|{lv}",
                                    o["on"], eff, dict(adjust) if o["on"] else {}, "manual"))
+        if ws is not None and (dov or len({(x.key if x else "off") for x in ws.values()}) > 1):
+            return done(self._each_own(ws, dov, now, adjust))
         if not w:
             _, match = self._weather_pick(None)
             return done(Target("off|timer" if self._safety_ready() else "off", False, weather_match=match))
         # 4. weather / 5. schedule, with rotation
+        wr, match, rule, eff, step, levels, reason, cv = self._scheduled(w, now, adjust)
+        # Hand plain scheduled nights to the controller's own timer (safety
+        # net), so the lights still go OFF if this app dies mid-evening. Only
+        # when entering the window from armed-off (or already handed over):
+        # switching to Timer mode part-way through a night is avoided because
+        # it isn't confirmed that the controller re-lights immediately.
+        if not wr and not adjust and not w.rule.curve:      # a curve needs the app to change it
+            entry_end = self._delegation_end(w, eff, now)
+            prev = self.applied_key or ""
+            if entry_end and ts(now) < ts(entry_end) - 120 and (prev == "off|timer" or prev.startswith(w.key + "|timer")):
+                return done(Target(f"{w.key}|timer|{step}", True, eff, levels, "schedule", rule.name, w.end,
+                                   delegated=True, weather_match=match))
+        key = f"{w.key}|{reason}|{rule.name}|{step}|{json.dumps(levels, sort_keys=True)}" + (f"|k{cv[0]}" if cv else "")
+        return done(Target(key, True, eff, levels, reason, rule.name, w.end, weather_match=match, curve=cv))
+
+    def _scheduled(self, w, now, adjust):
+        """What window w shows now: (weather rule or None, best weather
+        match, the rule in charge, pattern, rotation step, levels, reason,
+        night curve now). Shared by one window for all controllers and by
+        each controller's own (4.8)."""
         wr, match = self._weather_pick(w)
         rule = wr or w.rule
         eff, step = rule.pick(w.start, now)   # the weather rule's own rotation, or the schedule's
@@ -542,19 +616,75 @@ class Controller:
             if "brightness" not in adjust:
                 levels = curve_levels(self.base_levels(eff).get("brightness"), levels, lvl)
             cv = (k, lvl)
-        # Hand plain scheduled nights to the controller's own timer (safety
-        # net), so the lights still go OFF if this app dies mid-evening. Only
-        # when entering the window from armed-off (or already handed over):
-        # switching to Timer mode part-way through a night is avoided because
-        # it isn't confirmed that the controller re-lights immediately.
-        if not wr and not adjust and not w.rule.curve:      # a curve needs the app to change it
-            entry_end = self._delegation_end(w, eff, now)
-            prev = self.applied_key or ""
-            if entry_end and ts(now) < ts(entry_end) - 120 and (prev == "off|timer" or prev.startswith(w.key + "|timer")):
-                return done(Target(f"{w.key}|timer|{step}", True, eff, levels, "schedule", rule.name, w.end,
-                                   delegated=True, weather_match=match))
-        key = f"{w.key}|{reason}|{rule.name}|{step}|{json.dumps(levels, sort_keys=True)}" + (f"|k{cv[0]}" if cv else "")
-        return done(Target(key, True, eff, levels, reason, rule.name, w.end, weather_match=match, curve=cv))
+        return wr, match, rule, eff, step, levels, reason, cv
+
+    def _dev_name(self, dev: str) -> str:
+        return next((str(d.get("name") or dev) for d in self.devices + self.account if d.get("deviceId") == dev), dev)
+
+    def _each_own(self, ws: dict, dov: dict, now, adjust) -> Target:
+        """4.8: the controllers follow different rules (or one has its own
+        manual choice). Each one's pattern, with its own rule's brightness
+        and speed, is put together as a split pattern and sent the way Split
+        by controller is: one controller can be off while another is on.
+        The controller's own timer isn't handed the night (each controller's
+        night is different), so the app runs it, as for a night curve."""
+        parts, levels_of, info, keys, reasons, ends, match = {}, {}, {}, [], set(), [], None
+        for dev, wd in sorted(ws.items()):
+            o = dov.get(dev)
+            if o is not None:
+                eff = (o.get("obj") or self.cfg.effects.get(o.get("effect"))) if o["on"] else None
+                eff, _ = self._own_part(eff, dev, {})
+                parts[dev], levels_of[dev] = eff, {}
+                info[dev] = {"on": eff is not None, "effect": eff.label if eff else None, "rule": None,
+                             "manual": True, "until": wd.end if wd else None}
+                keys.append(f"{dev}=manual|{o['on']}|{o.get('effect')}|{o['since'].isoformat()}")
+                reasons.add("manual")
+                if wd:
+                    ends.append(wd.end)
+                continue
+            if wd is None:
+                parts[dev], levels_of[dev] = None, {}
+                info[dev] = {"on": False, "effect": None, "rule": None, "manual": False, "until": None}
+                keys.append(f"{dev}=off")
+                continue
+            wr, m, rule, eff, step, lv, reason, cv = self._scheduled(wd, now, adjust)
+            match = match or m
+            eff, lv = self._own_part(eff, dev, lv)
+            parts[dev], levels_of[dev] = eff, lv
+            info[dev] = {"on": eff is not None, "effect": eff.label if eff else None, "rule": rule.name,
+                         "manual": False, "until": wd.end}
+            keys.append(f"{dev}={wd.key}|{reason}|{rule.name}|{step}|{json.dumps(lv, sort_keys=True)}"
+                        + (f"|k{cv[0]}" if cv else ""))
+            reasons.add(reason)
+            ends.append(wd.end)
+        if match is None:
+            _, match = self._weather_pick(None)
+        pkeys = dict(k.split("=", 1) for k in keys)
+        if all(p is None for p in parts.values()):
+            return Target("multi|" + "|".join(keys), False, weather_match=match, parts=info, part_keys=pkeys)
+        label = " \u00b7 ".join(f"{self._dev_name(dev)}: {p.label if p else 'off'}" for dev, p in parts.items())
+        eff = Effect("each", label, "split", parts=parts, rest=None, part_levels=levels_of)
+        eff.payload = {"parts": {dev: (p.kind, p.payload, p.saved_name, p.saved_id, levels_of[dev]) if p else None
+                                 for dev, p in parts.items()}}
+        reason = "manual" if "manual" in reasons else "weather" if "weather" in reasons else "schedule"
+        rules = sorted({i["rule"] for i in info.values() if i["rule"]})
+        return Target("multi|" + "|".join(keys), True, eff, {}, reason, " \u00b7 ".join(rules) or None,
+                      min(ends, key=ts) if ends else None, weather_match=match, parts=info, part_keys=pkeys)
+
+    def _own_part(self, eff, dev: str, lv: dict):
+        """A split pattern chosen for one controller (by its rule or by
+        hand) is that controller's part of it, and a brightness the rule sets
+        scales the part as Split by controller does (3.17.1); its speed stays
+        the part's own. Returns (pattern or None for off, levels)."""
+        if eff is None or eff.kind != "split":
+            return eff, lv
+        part = eff.for_device(dev)
+        out = {}
+        if part is not None and "brightness" in lv:
+            base = self.base_levels(eff).get("brightness") or 255
+            own = self.base_levels(part).get("brightness") or 255
+            out["brightness"] = max(1, min(255, round(own * lv["brightness"] / max(1, base))))
+        return part, out
 
     def _delegation_end(self, w, eff, now):
         """When the controller holds a verified timer entry matching this
@@ -583,10 +713,20 @@ class Controller:
         the scheduler's own pass a few seconds later, so a button press never
         waits on them."""
         with self.apply_lock:
+            if not self.devices and time.time() >= self.next_try:
+                # 4.8: each controller's own rules need to know them first. Not
+                # while waiting out a failure (review #1): that asked the cloud
+                # every pass instead of backing off.
+                try:
+                    self._ensure_devices()
+                except TrimlightError:
+                    pass                         # sending below fails the same way and backs off
             with self.lock:
                 t = self._target()
                 due = t.key != self.applied_key and time.time() >= self.next_try
                 gen = self.apply_gen
+                skip = frozenset(dev for dev, k in (t.part_keys or {}).items()
+                                 if self.applied_key is not None and self.applied_parts.get(dev) == k)
             if t.hands_off and self.safety:
                 self.safety.hold()           # and none for 15 minutes after it (4.2.1)
             if due and t.hands_off:
@@ -596,6 +736,7 @@ class Controller:
                 with self.lock:
                     if self.apply_gen == gen:
                         self.applied_key = t.key
+                        self.applied_parts = {}
                     self.known_on = False
                     self.fail_count = 0
                     self.last_error = None
@@ -606,10 +747,11 @@ class Controller:
             if due:
                 try:
                     switched_on = self._apply(t.on, t.effect, t.levels, timer_off=t.key == "off|timer",
-                                              delegated=t.delegated)
+                                              delegated=t.delegated, skip=skip)
                     with self.lock:
                         if self.apply_gen == gen:
                             self.applied_key = t.key
+                            self.applied_parts = dict(t.part_keys or {})
                             self.known_on = switched_on
                         # else: new settings (or a resend request) arrived while
                         # this was being sent; leave applied_key unset so the
@@ -692,8 +834,11 @@ class Controller:
             if now_ts >= self.safety.retry_at and not self.safety.remove(self.api, ids, now, self.note):
                 self.safety.retry_at = now_ts + 1800  # don't retry (and back up) every few seconds
             return
-        entries, slots = self.safety.plan(self.cfg, now, getattr(self.api, "clock_offset_min", 0))
-        h = self.safety.plan_hash(entries, slots)
+        off = getattr(self.api, "clock_offset_min", 0)
+        if self.cfg.schedule.per_controller:      # 4.8: each controller's own nights
+            h = {dev: self.safety.plan_hash(*self.safety.plan(self.cfg, now, off, dev)) for dev in ids}
+        else:
+            h = self.safety.plan_hash(*self.safety.plan(self.cfg, now, off))
         if self.safety.due(ids, h, now.date(), now_ts):
             was = self._safety_ready()
             self.safety.sync(self.api, self.cfg, ids, now, self.note)
@@ -778,6 +923,21 @@ class Controller:
             self.note(f"{restored} was changed outside this app (power blip or the Trimlight app). Restoring it.",
                       logging.WARNING)
 
+    def _plans_all(self, d) -> list:
+        """[(plan, controller names or None for all)] for windows starting on
+        date d. With rules for some controllers only (4.8), each controller's
+        own nights together, a window shared by all of them listed once."""
+        sch = self.cfg.schedule
+        devs = [(x["deviceId"], str(x.get("name") or x["deviceId"])) for x in list(self.devices)]
+        if not sch.per_controller or not devs:
+            return [(p, None) for p in sch.day_plans(d)]
+        got = {}
+        for dev, name in devs:
+            for p in sch.for_controller(dev).day_plans(d):
+                got.setdefault((p.rule.name, ts(p.start), ts(p.end)), (p, []))[1].append(name)
+        out = sorted(got.values(), key=lambda x: (ts(x[0].start), ts(x[0].end)))
+        return [(p, None if len(names) == len(devs) else names) for p, names in out]
+
     def _tonight(self, now: datetime, fmt) -> list[dict]:
         """Home's "Tonight" timeline (3.15): what the schedule does in the
         next 24 hours (sunset, on, a switch to another rule, off), with
@@ -785,13 +945,14 @@ class Controller:
         the countdown."""
         sch, loc = self.cfg.schedule, self.cfg.loc
         horizon = ts(now) + 24 * 3600
-        seen, plans = set(), []
+        seen, plans, whose = set(), [], {}
         for dd in (now.date() - timedelta(days=1), now.date(), now.date() + timedelta(days=1)):
-            for p in sch.day_plans(dd):
-                k = (ts(p.start), ts(p.end))
+            for p, names in self._plans_all(dd):
+                k = (ts(p.start), ts(p.end), p.rule.name)
                 if k not in seen and ts(p.end) > ts(now) and ts(p.start) < horizon:
                     seen.add(k)
                     plans.append(p)
+                    whose[id(p)] = f" ({', '.join(names)})" if names else ""
         plans.sort(key=lambda p: ts(p.start))
         ev = []
         for dd in (now.date(), now.date() + timedelta(days=1)):
@@ -801,11 +962,11 @@ class Controller:
                 break
         for i, p in enumerate(plans):
             prev_end = ts(plans[i - 1].end) if i else None
-            what = f"{p.rule.name}: {p.effect_label()}" if p.effect_label() != p.rule.name else p.rule.name
+            what = (f"{p.rule.name}: {p.effect_label()}" if p.effect_label() != p.rule.name else p.rule.name) + whose[id(p)]
             if ts(p.start) > ts(now):
                 ev.append((ts(p.start), "switch" if prev_end == ts(p.start) else "on", p.start, what))
             if not (i + 1 < len(plans) and ts(plans[i + 1].start) == ts(p.end)) and ts(p.end) < horizon:
-                ev.append((ts(p.end), "off", p.end, p.rule.name))
+                ev.append((ts(p.end), "off", p.end, p.rule.name + whose[id(p)]))
         ev.sort(key=lambda e: e[0])
         return [{"kind": k, "at": fmt(at), "day": at.strftime("%a") if at.date() != now.date() else None,
                  "in_min": max(0, round((t0 - ts(now)) / 60)), "text": text} for t0, k, at, text in ev[:6]]
@@ -922,13 +1083,22 @@ class Controller:
         self.next_try = 0.0
         self.fail_count = 0
 
-    def manual(self, on: bool, effect_key: str | None = None, obj=None, expires_min: int | None = None):
+    def manual(self, on: bool, effect_key: str | None = None, obj=None, expires_min: int | None = None,
+               device: str | None = None):
         """obj: an unsaved Effect to try out (pattern designer, built-in
         browser, bulb finder). expires_min: previews end by themselves, so a
-        forgotten bulb-finder highlight can't replace the lights all night."""
+        forgotten bulb-finder highlight can't replace the lights all night.
+        device (4.8): for that one controller only (Home's controller cards);
+        without it, for all of them, and any one controller's choice ends."""
+        if device is not None:
+            return self.manual_one(device, on, effect_key)
         with self.lock:
             if on and obj is None and effect_key not in self.cfg.effects:
                 raise ValueError(f"Unknown pattern '{effect_key}'")
+            if not expires_min:
+                # Review #3 (4.8): a preview (Try, the bulb finder) ends by
+                # itself and leaves each controller's own choice as it was.
+                self.dev_override = {}
             self._end_music("a pattern was chosen")
             # Choosing On, Off or a pattern by hand during a weather alert
             # means "not now": dismiss it, so the choice actually shows (3.16.1).
@@ -944,6 +1114,40 @@ class Controller:
             self.override = {"on": on, "effect": key, "obj": obj, "since": self.cfg.loc.now(),
                              "expires": time.time() + expires_min * 60 if expires_min else None}
             self.adjust = {}
+            self._kick()
+        self.tick(maintenance=False)
+
+    def manual_one(self, dev: str, on: bool | None, effect_key: str | None = None):
+        """4.8: On, Off or a pattern for one controller; on=None puts it back
+        on the schedule. It lasts until that controller's schedule changes
+        (its rule starts or ends), as a choice for all of them does. A choice
+        for all of them made earlier ends: that controller leaves it, and the
+        others go back to the schedule, so the top of Home says what's on."""
+        with self.lock:
+            if dev not in [d["deviceId"] for d in self.devices]:
+                raise ValueError("This app doesn't run that controller. Turn it on under Setup \u203a Lights & "
+                                 "controller \u203a Controlled by this app.")
+            if on and effect_key not in self.cfg.effects:
+                raise ValueError(f"Unknown pattern '{effect_key}'")
+            self._end_music("a pattern was chosen")
+            if self._target(commit=False).reason == "alert":
+                a = self.active_alert()
+                if a:
+                    self.alert_dismissed[a["event"].lower()] = time.time()
+                    self._save_dismissed()
+                    self.note(f"Weather alert dismissed by a manual change: {a['event']}")
+            if self.override:
+                self.override, self.adjust = None, {}
+            name = self._dev_name(dev)
+            if on is None:
+                if self.dev_override.pop(dev, None) is not None:
+                    self.note(f"{name}: back on the schedule.")
+            else:
+                w = self.cfg.schedule.for_controller(dev).active_window(self.cfg.loc.now())
+                self.dev_override[dev] = {"on": bool(on), "effect": effect_key if on else None, "obj": None,
+                                          "since": self.cfg.loc.now(), "wkey": w.key if w else "off"}
+                if on:
+                    self.last_on = effect_key
             self._kick()
         self.tick(maintenance=False)
 
@@ -992,7 +1196,7 @@ class Controller:
             o["expires"] = time.time() + expires_min * 60
             return True
 
-    def default_on_effect(self) -> str:
+    def default_on_effect(self, dev: str | None = None) -> str:
         """The pattern the On button uses: tonight's scheduled one (the window
         now, or the next one within a week), else the last pattern turned on
         by hand, else Warm white, else the first pattern."""
@@ -1000,7 +1204,7 @@ class Controller:
         if not effects:
             raise ValueError("There are no patterns yet. Add one on the Patterns tab.")
         now = self.cfg.loc.now()
-        sch = self.cfg.schedule
+        sch = self.cfg.schedule.for_controller(dev)     # 4.8: that controller's own, when asked for one
         w = sch.active_window(now)
         if w is None:
             for k in range(8):
@@ -1045,10 +1249,11 @@ class Controller:
                 self._invalidate()
             if force:
                 self.note("Running the schedule: the scheduled lights were sent to the controller again.")
-            elif self.override or self.adjust:
+            elif self.override or self.adjust or self.dev_override:
                 self.note("Back on the schedule.")
             self.override = None
             self.adjust = {}
+            self.dev_override = {}
             if force:
                 self._invalidate()
             self._kick()
@@ -1350,8 +1555,8 @@ class Controller:
         for i in range(8):
             d = now.date() + timedelta(days=i)
             s = loc.sun(d)
-            plans = sch.day_plans(d)
-            wins = [{"on": fmt(p.start), "off": fmt(p.end), "rule": p.rule.name, "effect": p.effect_label()} for p in plans]
+            wins = [{"on": fmt(p.start), "off": fmt(p.end), "rule": p.rule.name, "effect": p.effect_label(),
+                     **({"controllers": names} if names else {})} for p, names in self._plans_all(d)]
             first = wins[0] if wins else {}
             days.append({"date": d.isoformat(), "dow": d.strftime("%a"), "label": d.strftime("%b %d").replace(" 0", " "),
                          "sunrise": fmt(s["sunrise"]), "sunset": fmt(s["sunset"]),
@@ -1366,7 +1571,12 @@ class Controller:
         if cached_key == memo_key:
             strip = cached
         for m in rng:
-            aw = sch.active_window(midnight + timedelta(minutes=m)) if m < 1440 else None
+            at = midnight + timedelta(minutes=m)
+            aw = None
+            if m < 1440:
+                # 4.8: with rules for some controllers, the first controller that's on
+                aw = sch.active_window(at) if not sch.per_controller or not self.devices else next(
+                    (x for d in list(self.devices) if (x := sch.for_controller(d["deviceId"]).active_window(at))), None)
             name = aw.rule.name if aw else None
             if seg and seg["rule"] != name:
                 seg["end"] = m
@@ -1398,7 +1608,9 @@ class Controller:
                        "effect_key": t.effect.key if t.effect else None,
                        "reason": t.reason, "source": t.source, "applied": synced, "delegated": t.delegated,
                        "until": fmt(t.until),
-                       "curve": {"kelvin": t.curve[0], "level": t.curve[1]} if t.curve else None},
+                       "curve": {"kelvin": t.curve[0], "level": t.curve[1]} if t.curve else None,
+                       # 4.8: what each controller shows, when they differ
+                       "parts": {dev: {**p, "until": fmt(p["until"])} for dev, p in t.parts.items()} if t.parts else None},
             "levels": {"brightness": levels.get("brightness"), "speed": levels.get("speed"), "adjusted": adjusted},
             "rotation": rot, "weather": wx,
             "flash": {"available": bool(self.cfg.security["effect"]), "minutes": self.cfg.security["minutes"],

@@ -254,6 +254,19 @@ def env_allowed_hosts() -> list[str]:
 
 
 _lan_cache: tuple[float, list] = (0.0, [])
+NAME_WAIT = 1.0     # seconds to wait for this computer's own name to be looked up (4.7.4)
+_name_ips: list = []           # what the last finished lookup found
+_name_thread = None
+_name_lock = threading.Lock()
+
+
+def _look_up_own_name():
+    global _name_ips
+    try:
+        found = [info[4][0] for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET)]
+    except (OSError, UnicodeError):
+        found = []
+    _name_ips = found
 
 
 def lan_addresses() -> list[str]:
@@ -286,11 +299,21 @@ def _lan_addresses() -> list[str]:
                 add(s.getsockname()[0])
         except OSError:
             pass
-    try:
-        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
-            add(info[4][0])
-    except OSError:
-        pass
+    # 4.7.4: looking up this computer's own name waits on the network. On a
+    # Mac whose name the network doesn't know it can take half a minute, and
+    # Setup, sign-in and Phones and tablets waited with it (GitHub's first Mac
+    # test run timed out on them). It's asked in the background, a second at
+    # most is waited, one lookup runs at a time, and an answer that comes
+    # late is used next time (review #1).
+    global _name_thread
+    with _name_lock:
+        if _name_thread is None or not _name_thread.is_alive():
+            _name_thread = threading.Thread(target=_look_up_own_name, daemon=True, name="own-name")
+            _name_thread.start()
+        t = _name_thread
+    t.join(NAME_WAIT)
+    for ip in list(_name_ips):
+        add(ip)
     private = [ip for ip in found if ipaddress.ip_address(ip).is_private]
     return (private or found)[:4]
 
@@ -1909,12 +1932,29 @@ class App:
         return {"ok": True, "saved": saved, "missing": missing}
 
     # ------------------------------------------------------------ misc
-    def upcoming(self, days: int, month: str | None = None):
+    def upcoming(self, days: int, month: str | None = None, device: str | None = None):
         """What runs each night from today (or, with month="YYYY-MM", that
-        whole month: the Schedule tab's month view, 3.15)."""
+        whole month: the Schedule tab's month view, 3.15). device (4.8): as
+        that controller runs it. Without one, when some rules run only some
+        controllers, each controller's nights together, each time naming
+        the controllers it's for."""
         if not self.cfg:
             return []
         sch, loc = self.cfg.schedule, self.cfg.loc
+        if device:
+            sch = sch.for_controller(str(device)[:80])
+        devs = [(d["deviceId"], str(d.get("name") or d["deviceId"])) for d in (self.ctrl.devices if self.ctrl else [])]
+
+        def plans_of(d):
+            if device or not sch.per_controller or not devs:
+                return [(p, None) for p in sch.day_plans(d)]
+            got = {}
+            for dev, name in devs:
+                for p in sch.for_controller(dev).day_plans(d):
+                    k = (p.rule.name, p.start.isoformat(), p.end.isoformat())
+                    got.setdefault(k, (p, []))[1].append(name)
+            out = sorted(got.values(), key=lambda x: x[0].start.isoformat())
+            return [(p, None if len(names) == len(devs) else names) for p, names in out]
         out = []
         start = loc.now().date()
         from datetime import timedelta
@@ -1931,9 +1971,9 @@ class App:
         for i in range(days):
             d = start + timedelta(days=i)
             s = loc.sun(d)
-            plans = sch.day_plans(d)
             wins = [{"on": p.start.isoformat(), "off": p.end.isoformat(), "on_label": p.start.strftime("%H:%M"),
-                     "off_label": p.end.strftime("%H:%M"), "rule": p.rule.name, "effect": p.effect_label()} for p in plans]
+                     "off_label": p.end.strftime("%H:%M"), "rule": p.rule.name, "effect": p.effect_label(),
+                     **({"controllers": names} if names else {})} for p, names in plans_of(d)]
             abbr = s["noon"].tzname() if s["noon"] else ""
             first = wins[0] if wins else {}
             out.append({"date": d.isoformat(), "sunrise": s["sunrise"] and s["sunrise"].strftime("%H:%M"),
@@ -2397,7 +2437,7 @@ def make_server(app: App, host: str, port: int):
             if path == "/api/devices":
                 return app.devices()
             if path == "/api/upcoming":
-                return app.upcoming(max(1, min(400, int(q.get("days", 14)))), q.get("month"))
+                return app.upcoming(max(1, min(400, int(q.get("days", 14)))), q.get("month"), q.get("device"))
             if path == "/api/timezones":
                 rest = sorted(z for z in available_timezones() if "/" in z and not z.startswith(("Etc/", "SystemV/")))
                 return {"common": COMMON_TZ, "all": rest}
@@ -2662,6 +2702,19 @@ def make_server(app: App, host: str, port: int):
                     ctrl.manual(True, b.get("effect") or ctrl.default_on_effect())
                 elif a == "off":
                     ctrl.manual(False)
+                elif a == "one":
+                    # 4.8: Home's controller cards: On, Off, a pattern or back to
+                    # the schedule for one controller only.
+                    dev, state = str(b.get("device") or ""), b.get("state")
+                    if state not in ("on", "off", "schedule"):
+                        raise ApiError("Choose on, off or schedule.")
+                    try:
+                        if state == "on":
+                            ctrl.manual_one(dev, True, b.get("effect") or ctrl.default_on_effect(dev))
+                        else:
+                            ctrl.manual_one(dev, False if state == "off" else None)
+                    except ValueError as e:
+                        raise ApiError(str(e)) from None
                 elif a == "resume":
                     # force: the Schedule tab's "Run the schedule" (resend in full).
                     ctrl.resume(force=b.get("force") is True or str(b.get("force")).lower() == "true")

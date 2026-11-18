@@ -221,6 +221,10 @@ class Effect:
     # controllers not named get `rest` (by default the first pattern that's on).
     parts: dict = field(default_factory=dict)
     rest: object = None
+    # 4.8: when each controller follows its own rule or its own manual
+    # choice, the parts are put together as a split, and each part carries
+    # its own rule's brightness and speed (None for a split pattern).
+    part_levels: dict | None = None
 
     def for_device(self, dev_id: str):
         """The pattern this controller shows (None = this controller off)."""
@@ -482,6 +486,7 @@ class Rule:
     only_dates: frozenset | None = None      # game-day rules: just these dates (3.15); holidays (3.19): any `in`-able set
     holiday: str | None = None               # holiday rules (3.19): the holiday's name
     curve: list | None = None                # night curve (3.18): [(TimeExpr, kelvin|None, level %)]
+    controllers: frozenset | None = None     # 4.8: the controllers this rule runs (None: all of them)
 
     @property
     def effect(self):
@@ -558,6 +563,14 @@ class Rule:
         rule.rotate_each = _rotate_each(c, len(effs), where)
         from .circadian import parse_curve
         rule.curve = parse_curve(c, where)
+        cs = c.get("controllers")
+        if cs is not None:
+            # 4.8: a rule for some controllers only. An empty list is refused,
+            # not taken as "none": a rule that runs nothing is a mistake.
+            if not isinstance(cs, list) or not cs or not all(isinstance(x, str) and 1 <= len(x) <= 80 for x in cs) \
+                    or len(cs) > 20:
+                raise ConfigError(f"{where}: controllers should list one or more controllers")
+            rule.controllers = frozenset(cs)
         return rule
 
     def applies_on(self, d: date) -> bool:
@@ -629,6 +642,25 @@ class Schedule:
         self.loc = loc
         self.away = away if away and away.get("enabled") else None   # {"until": date, "minutes": n, "seed": str}
         self._wcache: dict = {}
+        self._views: dict = {}
+
+    @property
+    def per_controller(self) -> bool:
+        """4.8: does any rule run only some of the controllers?"""
+        return any(r.controllers is not None for r in self.rules)
+
+    def for_controller(self, dev: str | None) -> "Schedule":
+        """The schedule as one controller follows it: its own rules and the
+        rules for all controllers, by the same priorities (4.8). Without
+        rules for some controllers only, that's this schedule itself."""
+        if dev is None or not self.per_controller:
+            return self
+        v = self._views.get(dev)
+        if v is None:
+            v = Schedule([r for r in self.rules if r.controllers is None or dev in r.controllers], self.loc)
+            v.away = self.away
+            self._views[dev] = v
+        return v
 
     def away_on(self, d: date) -> bool:
         return bool(self.away) and d <= self.away["until"]

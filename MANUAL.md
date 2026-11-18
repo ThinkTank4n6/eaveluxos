@@ -1,7 +1,7 @@
 # EaveLuxOS: User Manual
 ### The Intelligent Lighting Control Platform
 
-Version 4.7.3 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
+Version 4.8.0 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
 
 > **Downloaded the ready-made app? You can skip most of the setup.**
 > The downloads on the project's GitHub **Releases** page
@@ -422,6 +422,13 @@ door, and the tabs are along the bottom of the screen.
   runs are marked **Active** with a green edge, and the others are grayed out
   with **Not run by this app** and come last. To run one too, tick it under
   **Setup › Lights & controller › Controlled by this app**.
+  Each Active card (4.8) says what that controller shows now and gives it
+  its own **On**, **Off** and **Show a pattern…**. That choice is for that
+  controller only and lasts until its schedule changes (its rule starts or
+  ends); **Back to schedule** ends it sooner. The **On** and **Off** at the
+  top of the page still mean all of them, and end any one controller's own
+  choice. When the controllers show different things, the headline lists
+  each one.
 - **Activity:** a log of everything the app did.
 
 ## 10. Patterns
@@ -1147,6 +1154,38 @@ From highest to lowest:
    the same priority, the one listed first wins. This only decides
    overlapping time: rules at different times of day (morning and evening)
    each run.
+
+With two or more controllers, each controller goes down this list on its
+own (4.8). A rule with **Controllers** set to some of them (below) only
+counts for those, and a choice made on one controller's Home card only for
+that one.
+
+### A schedule for each controller
+
+With two or more controllers, a rule has **Controllers** (4.8): untick the
+ones it isn't for. All ticked (the usual) means every controller, including
+one added later. Each controller follows the rules that are for it, by the
+usual priorities, so for example:
+
+- **Everyday**, sunset to 11:00 PM, all controllers, and **Deck early**,
+  sunset to 9:00 PM, Deck only, priority 200: the Front runs to 11:00, and
+  the Deck switches to *Deck early*'s pattern and goes off at 9:00.
+- Two rules at the same time, one for the Deck and one for the Front, each
+  with its own pattern and brightness.
+
+In the rule list, a rule for some controllers says so (*Front only*).
+**Coming up** on the Schedule tab has a controller choice: **All
+controllers** lists each controller's nights, naming whose they are when
+they differ; choosing one shows that controller's own month. Home's week
+does the same.
+
+How it's sent: when the controllers follow different rules, each one's
+pattern goes out together the way **Split by controller** does, and a
+controller whose own pattern didn't change isn't sent anything (its motion
+doesn't restart, and it gets no extra commands). On those nights the app
+runs both controllers itself rather than handing the night to the
+controllers' own timers, as for a night curve. The backup timer copies each
+controller's own nights to it.
 
 ## 14. Alerts: weather rules
 

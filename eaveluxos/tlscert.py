@@ -34,7 +34,10 @@ def make_cert(tls_dir: Path, extra_names=(), addresses=(), force=False) -> Path:
     san = [x509.DNSName(n) for n in dict.fromkeys(n for n in names if n)]
     san += [x509.IPAddress(ipaddress.ip_address(a)) for a in sorted(ips)]
     key = ec.generate_private_key(ec.SECP256R1())
-    subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, f"EaveLuxOS on {host}")])
+    # 4.7.4: a certificate's name holds 64 characters at most; a Mac's name
+    # can be longer (GitHub's test Mac: 74 with "EaveLuxOS on "), and making
+    # the certificate failed. The full name is still in the list above.
+    subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, f"EaveLuxOS on {host}"[:64])])
     now = datetime.datetime.now(datetime.timezone.utc)
     cert = (x509.CertificateBuilder().subject_name(subject).issuer_name(subject).public_key(key.public_key())
             .serial_number(x509.random_serial_number())

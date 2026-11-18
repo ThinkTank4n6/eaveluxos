@@ -287,11 +287,13 @@ class SafetyNet:
             return out
 
     # ---------------------------------------------------------------- plan
-    def plan(self, cfg, now: datetime, offset_min: int = 0):
+    def plan(self, cfg, now: datetime, offset_min: int = 0, dev: str | None = None):
         """Calendar entries for today and the next days, plus the patterns
         they need. Today's entry is kept even after it ends, so the plan (and
-        the writes) only change once a day or when settings change."""
-        loc, sch = cfg.loc, cfg.schedule
+        the writes) only change once a day or when settings change. dev
+        (4.8): the nights as that controller runs them, when some rules run
+        only some controllers."""
+        loc, sch = cfg.loc, cfg.schedule.for_controller(dev)
         entries, slots = [], {}
         today = now.date()
         off = timedelta(minutes=offset_min)
@@ -329,13 +331,14 @@ class SafetyNet:
                                                for k, v in slots.items()}}, sort_keys=True, default=str)
         return hashlib.sha256(blob.encode()).hexdigest()[:16]
 
-    def due(self, dev_ids, h: str, today: date, now_ts: float) -> bool:
+    def due(self, dev_ids, h, today: date, now_ts: float) -> bool:
+        """h: the plan's hash, or (4.8) a hash for each controller."""
         if self.halted or self.held():
             return False
         with self.lock:
             for dev in dev_ids:
                 d = self.state["devices"].get(dev) or {}
-                if d.get("hash") != h or d.get("synced_on") != today.isoformat():
+                if d.get("hash") != (h.get(dev) if isinstance(h, dict) else h) or d.get("synced_on") != today.isoformat():
                     return now_ts >= self.retry_at
             return False
 
@@ -370,10 +373,14 @@ class SafetyNet:
     def sync(self, api, cfg, dev_ids, now: datetime, note=lambda m, lvl=logging.INFO: None):
         if self.halted:
             return False
-        entries, slots = self.plan(cfg, now, getattr(api, "clock_offset_min", 0))
+        offset = getattr(api, "clock_offset_min", 0)
+        entries, slots = self.plan(cfg, now, offset)
         h = self.plan_hash(entries, slots)
         failed, wait = False, None
         for dev in dev_ids:
+            if cfg.schedule.per_controller:      # 4.8: each controller's own nights
+                entries, slots = self.plan(cfg, now, offset, dev)
+                h = self.plan_hash(entries, slots)
             if self.halted:
                 break                    # one controller looked wrong: touch no other either
             if self.held():

@@ -779,7 +779,7 @@ VIEWS.home = async () => {
             <table class="week"><tbody>${st.days.map((d, i) => {
               const dst = prevAbbr && d.abbr !== prevAbbr ? ` <span class="dst">${esc(d.abbr)} starts</span>` : ''; prevAbbr = d.abbr;
               return `<tr class="${i === 0 ? 'today' : ''}"><td class="d">${i === 0 ? 'Today' : esc(d.dow)}<small>${esc(d.label)}</small></td>
-                <td>${(d.windows || []).length ? d.windows.map(w => `<div class="win"><span class="num">${esc(w.on)} – ${esc(w.off)}</span><div class="r">${esc(w.rule)}</div></div>`).join('') : '<span class="r">Off</span>'}${dst}</td>
+                <td>${(d.windows || []).length ? d.windows.map(w => `<div class="win"><span class="num">${esc(w.on)} – ${esc(w.off)}</span><div class="r">${esc(w.rule)}${w.controllers ? ' \u00b7 ' + esc(w.controllers.join(', ')) : ''}</div></div>`).join('') : '<span class="r">Off</span>'}${dst}</td>
                 <td class="sun num">☀ ${esc(d.sunrise ?? '—')}<br>☾ ${esc(d.sunset ?? '—')}</td></tr>`; }).join('')}</tbody></table></div>
           ${controllerCards(st)}
           <div class="panel"><details><summary>Activity</summary>
@@ -791,13 +791,17 @@ VIEWS.home = async () => {
   const act = async (body, btn) => busy(btn, async () => { S.status = await api('action', { body }); render(S.status); }).catch(() => {});
   m.onclick = e => {
     const b = e.target.closest('button'); if (!b) return;
-    if (b.dataset.on) act({ action: 'on', effect: b.dataset.on }, b);
+    if (b.dataset.one) act({ action: 'one', device: b.dataset.dev, state: b.dataset.one }, b);
+    else if (b.dataset.on) act({ action: 'on', effect: b.dataset.on }, b);
     else if (b.dataset.act) act({ action: b.dataset.act }, b);
     else if (b.dataset.tabjump) go(b.dataset.tabjump);
     else if (b.dataset.dismisswarn !== undefined) busy(b, () => api('warnings/dismiss', { body: {} })).then(async () => render(await refreshStatus())).catch(() => {});
   };
   m.oninput = e => { if (e.target.dataset.level) e.target.nextElementSibling.textContent = Math.round(e.target.value / 2.55) + '%'; };
-  m.onchange = e => { if (e.target.dataset.level) act({ action: 'levels', [e.target.dataset.level]: Number(e.target.value) }); };
+  m.onchange = e => {
+    if (e.target.dataset.level) act({ action: 'levels', [e.target.dataset.level]: Number(e.target.value) });
+    else if (e.target.dataset.onepat && e.target.value) act({ action: 'one', device: e.target.dataset.onepat, state: 'on', effect: e.target.value });
+  };
   render(await refreshStatus());
   S.timers.push(setInterval(async () => { if (!document.hidden && !$('#dlg').open && document.activeElement?.type !== 'range') render(await refreshStatus()); }, 30000));
 };
@@ -1466,6 +1470,13 @@ function mdSelect(name, val) {
     <input type="number" name="${name}_d" min="1" max="31" value="${d}" style="width:5em" aria-label="Day"></span>`;
 }
 
+/* 4.8: the controllers this app runs (for Controllers on a rule, the
+   month's controller choice and Home's cards), and how a rule names them. */
+function ctlList() { return ((S.status && S.status.devices) || []).filter(d => d.id).map(d => ({ id: d.id, name: d.name || 'Controller' })); }
+function ctlNames(ids) {
+  const all = ctlList();
+  return (ids || []).map(id => (all.find(d => d.id === id) || {}).name).filter(Boolean);
+}
 function ruleDialog(idx, template) {
   const rules = S.settings.rules || [];
   const r = idx === undefined ? (template || { name: '', on: 'sunset + 15', off: '23:00', effect: Object.keys(S.settings.effects || {})[0] }) : rules[idx];
@@ -1488,6 +1499,9 @@ function ruleDialog(idx, template) {
     <input type="range" name="brightness" min="0" max="255" value="${r.brightness ?? 120}" ${r.brightness !== undefined ? '' : 'hidden'} aria-label="Brightness">
     <label class="check"><input type="checkbox" name="usecurve" ${r.curve ? 'checked' : ''}> Night curve: change the whites and brightness through the night</label>
     <div class="stack" data-curve style="gap:6px" ${r.curve ? '' : 'hidden'}>${curveRows(r.curve || CURVE_PRESET)}</div>
+    ${ctlList().length > 1 ? `<div class="stack" style="gap:8px"><span class="small" style="font-weight:650">Controllers</span>
+      <div class="chips">${ctlList().map(d => `<label class="check" style="gap:6px"><input type="checkbox" name="ctl" value="${esc(d.id)}" ${!r.controllers || r.controllers.includes(d.id) ? 'checked' : ''}>${esc(d.name)}</label>`).join('')}</div>
+      <p class="hint">A rule for some controllers only runs those; the others follow their own rules at the same time. Where rules overlap on a controller, the higher priority wins there.</p></div>` : ''}
     <label class="field">When rules overlap, this one is
       <select name="prio">${[[200, 'Holiday: beats everyday rules (200)'], [100, 'Everyday (100)'], [90, 'Low: only when nothing else is on (90)'], ['custom', 'Custom number…']]
         .map(([v, l]) => `<option value="${v}" ${(p === undefined ? '' : (p === 200 || p === 100 || p === 90 ? p : 'custom')) == v ? 'selected' : ''}>${l}</option>`).join('')}
@@ -1509,6 +1523,14 @@ function ruleDialog(idx, template) {
     if (f.usebright.checked) out.brightness = +f.brightness.value;
     if (f.usecurve.checked) out.curve = readCurve(f);
     if (f.prio.value === 'custom') out.priority = +f.prio_n.value || 0; else if (f.prio.value !== '') out.priority = +f.prio.value;
+    if (ctlList().length > 1) {
+      // 4.8: all ticked is "all" (left out, so a controller added later runs it too);
+      // controllers named before that this app doesn't run now are kept.
+      const ticked = $$('input[name=ctl]:checked', f).map(x => x.value), here = ctlList().map(d => d.id);
+      if (!ticked.length) throw new Error('Pick at least one controller.');
+      const kept = (r.controllers || []).filter(id => !here.includes(id));
+      if (ticked.length < here.length || kept.length) out.controllers = [...ticked, ...kept];
+    } else if (r.controllers) out.controllers = r.controllers;
     const n = clone(S.settings); n.rules = n.rules || [];
     if (idx === undefined) n.rules.push(out); else n.rules[idx] = out;
     await saveSettings(n, 'Schedule saved'); VIEWS.schedule();
@@ -1619,6 +1641,12 @@ function stateLine(st) {
   if (t.reason === 'flash') { head = st.flash.label || 'Security flash'; sub = `${t.effect} until ${st.flash.until}, then back to normal.`; }
   else if (t.reason === 'alert') { head = 'Severe weather alert'; sub = `${t.source}: ${t.effect}${st.alert && st.alert.until ? ' until ' + st.alert.until : ''}, then back to normal. Dismissing it, or turning the lights on or off by hand, puts them back now.`; }
   else if (t.reason === 'music') { head = 'Music show'; sub = `${st.music.scheduled ? t.source + ': t' : 'T'}he controller\u2019s music mode runs the lights${st.music.until ? ' until ' + st.music.until : ' until the show is stopped'}. Stop it on the Music tab.`; }
+  else if (t.parts) {
+    // 4.8: the controllers show different things; one line for each
+    const ctl = ctlList(), all = Object.entries(t.parts);
+    if (t.on && all.some(([, p]) => !p.on)) head = 'Some lights are on';
+    sub = all.map(([id, p]) => `${(ctl.find(d => d.id === id) || {}).name || 'Controller'}: ${p.on ? p.effect : 'off'}${p.manual ? ' (by hand)' : p.rule ? ` (${p.rule})` : ''}`).join(' \u00b7 ') + '.';
+  }
   else if (t.reason === 'manual') sub = (t.on ? `${t.effect}, set by hand` : 'Turned off by hand') + (nextTxt ? `. The schedule takes over at ${nextTxt}.` : '.');
   else if (t.on && t.reason === 'weather') sub = `${t.source}: ${t.effect} until ${st.window.end}, instead of ${st.window.rule}.`;
   else if (t.on && st.window) sub = `${st.window.rule}: ${t.effect} until ${st.window.end}.` + (t.delegated ? ' The controller is running tonight from its own timer, so the lights go off on time even if this computer stops.' : '');
@@ -2023,13 +2051,17 @@ function upcomingPanel(box) {
   const now = new Date(), ym = S.calMonth || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   const [y, mo] = ym.split('-').map(Number);
   const title = new Date(y, mo - 1, 1).toLocaleDateString([], { month: 'long', year: 'numeric' });
-  box.innerHTML = `<div class="panel-head"><h2>Coming up</h2><div class="seg" role="group" aria-label="Show as">
+  const ctls = ctlList(), cdev = ctls.some(d => d.id === S.upcDev) ? S.upcDev : '';
+  box.innerHTML = `<div class="panel-head"><h2>Coming up</h2>${ctls.length > 1 ? `<select id="upcdev" aria-label="Controller" style="width:auto">
+      <option value="">All controllers</option>${ctls.map(d => `<option value="${esc(d.id)}" ${d.id === cdev ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}</select>` : ''}<div class="seg" role="group" aria-label="Show as">
       <button data-upv="month" aria-pressed="${view === 'month'}">Month</button><button data-upv="list" aria-pressed="${view === 'list'}">List</button></div></div>
     ${view === 'month' ? `<div class="calnav"><button class="small ghost" data-calm="-1" aria-label="Previous month">‹</button><b>${esc(title)}</b><button class="small ghost" data-calm="1" aria-label="Next month">›</button></div>` : ''}
     <div id="upc" style="margin-top:8px"><p class="muted">Loading…</p></div>`;
   const day = d => new Date(d.date + 'T12:00');
-  const times = d => (d.windows || []).length ? d.windows.map(w => `<div class="win"><span class="dot" style="background:${ruleColor(w.rule)}"></span><span class="num">${esc(hm12(w.on_label))} – ${esc(hm12(w.off_label))}</span> <span class="sub">${esc(w.rule)}${w.effect && w.effect !== w.rule ? ' · ' + esc(w.effect) : ''}</span></div>`).join('') : '<span class="sub">Off</span>';
-  const q = view === 'month' ? `upcoming?month=${ym}` : 'upcoming?days=21';
+  const times = d => (d.windows || []).length ? d.windows.map(w => `<div class="win"><span class="dot" style="background:${ruleColor(w.rule)}"></span><span class="num">${esc(hm12(w.on_label))} – ${esc(hm12(w.off_label))}</span> <span class="sub">${esc(w.rule)}${w.effect && w.effect !== w.rule ? ' · ' + esc(w.effect) : ''}${w.controllers ? ' · ' + esc(w.controllers.join(', ')) : ''}</span></div>`).join('') : '<span class="sub">Off</span>';
+  const q = (view === 'month' ? `upcoming?month=${ym}` : 'upcoming?days=21') + (cdev ? `&device=${encodeURIComponent(cdev)}` : '');
+  const sel = $('#upcdev', box);
+  if (sel) sel.onchange = () => { S.upcDev = sel.value; upcomingPanel(box); };
   api(q).then(list => {
     const out = $('#upc'); if (!out) return;
     if (!list.length) { out.innerHTML = '<p class="muted">Finish setup to see upcoming times.</p>'; return; }
@@ -2093,7 +2125,7 @@ VIEWS.schedule = async () => {
         <div class="panel"><h2>Rules</h2><p class="note" style="margin-top:4px">A day can have several rules that don't overlap, for example a morning one (6:00 AM to sunrise) and an evening one (sunset to 11:00 PM); each runs in its own time. Only where rules overlap does the higher priority win (or, with equal priority, the one higher in this list).</p>
           <div class="row" style="margin-top:6px"><button class="small ghost" data-addmorning>Add a morning schedule</button></div>
           <div class="list" style="margin-top:8px">${rules.length ? rules.map(({ r, i }) => { const pats = Array.isArray(r.effect) ? r.effect : [r.effect];
-            return `<div class="item"><div class="grow" data-rulename="${esc(r.name)}"><div class="row" style="gap:8px"><span class="name">${esc(r.name)}</span><span class="badge ${prio(r) >= 200 ? 'hi' : ''}">${prioLabel(prio(r))} · ${prio(r)}</span></div>
+            return `<div class="item"><div class="grow" data-rulename="${esc(r.name)}"><div class="row" style="gap:8px"><span class="name">${esc(r.name)}</span><span class="badge ${prio(r) >= 200 ? 'hi' : ''}">${prioLabel(prio(r))} · ${prio(r)}</span>${r.controllers ? `<span class="badge">${esc(ctlNames(r.controllers).join(', ') || 'a controller not run now')} only</span>` : ''}</div>
               <div class="sub">${esc(humanDates(r))} · ${esc(humanDays(r.days))} · ${esc(humanT(r.on))} → ${esc(humanT(r.off))}</div>
               <div class="sub">${swatches(effectSwatches(effs[pats[0]]), 4)} ${pats.length > 1 && Array.isArray(r.rotate_each) ? esc(pats.map((p, i) => `${effLabel(p)} ${r.rotate_each[i]} min`).join(' / ')) + ', in turn'
                 : esc(pats.map(effLabel).join(' / ')) + (pats.length > 1 ? (r.rotate === 'nightly' ? ', a different one each night' : `, every ${r.rotate_minutes} min`) : '')}${r.brightness !== undefined ? `, brightness ${Math.round(r.brightness / 2.55)}%` : ''}</div></div>
@@ -2330,6 +2362,26 @@ function colorPanel(box) {
 /* Home › Controllers (4.5): one card per controller, as the Trimlight app's
    first screen lists them, each with its own home-network address (Trimlight's
    cloud doesn't report it; the app checks every few minutes it answers there). */
+/* 4.8: what one controller shows, and its own On, Off and pattern. The top
+   buttons still mean all of them. */
+function ownPart(st, id) {
+  const t = st.target || {}, p = t.parts && t.parts[id];
+  return p ? p : { on: t.on, effect: t.effect, rule: t.reason === 'schedule' || t.reason === 'weather' ? t.source : null,
+    manual: t.reason === 'manual', until: t.until };
+}
+function ownLine(st, id) {
+  const p = ownPart(st, id);
+  const by = p.manual ? ' \u00b7 chosen by hand' : p.rule ? ` \u00b7 ${esc(p.rule)}` : '';
+  return `<div class="sub ownline">${p.on ? `Showing <b>${esc(p.effect || 'a pattern')}</b>${by}${p.until ? ` until ${esc(p.until)}` : ''}` : `Off${by}`}</div>`;
+}
+function ownControls(st, id) {
+  const p = ownPart(st, id), effs = st.effects || [];
+  return `<div class="row owncontrols" style="margin-top:8px;gap:6px">
+    <button class="small" data-one="on" data-dev="${esc(id)}">On</button><button class="small ghost" data-one="off" data-dev="${esc(id)}">Off</button>
+    <select data-onepat="${esc(id)}" aria-label="Pattern for this controller" style="width:auto;max-width:100%"><option value="">Show a pattern\u2026</option>
+      ${effs.map(e => `<option value="${esc(e.key)}">${esc(e.label)}</option>`).join('')}</select>
+    ${(st.target && st.target.parts && p.manual) ? `<button class="small ghost" data-one="schedule" data-dev="${esc(id)}">Back to schedule</button>` : ''}</div>`;
+}
 function controllerCards(st) {
   const lan = st.lan || {}, homes = lan.devices || {}, admin = role() === 'admin';
   const live = st.devices || [], account = st.account || [], ours = st.controlled || live.map(d => d.id);
@@ -2346,7 +2398,9 @@ function controllerCards(st) {
         ${d.error || d.unknown || d.idle ? '' : `<span class="badge ${d.online ? 'hi' : ''}">${d.online ? 'Online' : 'Offline'}</span> <span class="small">${esc(d.switch || '')}</span>`}</div>
       ${d.error ? `<div class="sub warning">${esc(d.error)}</div>` : ''}
       ${d.idle ? `<div class="sub">This app leaves it alone${admin ? '; to run it too, turn it on in <a href="#lights">Setup › Lights &amp; controller › Controlled by this app</a>' : ''}.</div>` : ''}
-      <div class="sub">Home network: ${net}${d.firmware ? ` · firmware ${esc(d.firmware)}` : ''}</div></div></div>`;
+      ${state === 'active' ? ownLine(st, d.id) : ''}
+      <div class="sub">Home network: ${net}${d.firmware ? ` · firmware ${esc(d.firmware)}` : ''}</div>
+      ${state === 'active' && role() !== 'viewer' ? ownControls(st, d.id) : ''}</div></div>`;
   };
   // Controllers the cloud hasn't reported on yet still show with their
   // address; the ones on the account that this app doesn't run come last.

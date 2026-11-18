@@ -1,5 +1,54 @@
 # Changelog
 
+## 4.8.0: each controller on its own
+
+- **A schedule for each controller.** With two or more controllers, a rule
+  has **Controllers**: untick the ones it isn't for (all ticked, the usual,
+  means every controller). Each controller follows its own rules by the
+  usual priorities, so the Deck can go off at 9:00 while the Front runs to
+  11:00, or each show its own pattern at its own brightness. Rules saved
+  before stay for all controllers.
+- **Home's controller cards** say what each controller shows and give it
+  its own **On**, **Off** and **Show a pattern…**, until its schedule
+  changes (or **Back to schedule**). The top **On** and **Off** still mean
+  all of them. The headline lists each controller when they differ, and
+  the week and the next 24 hours name whose times they are.
+- **Schedule › Coming up** has a controller choice: all controllers'
+  nights together, or one controller's own month.
+- **Sent safely.** Different patterns go out together the way Split by
+  controller already does, and a controller whose own pattern didn't change
+  is sent nothing (no restarted motion, no extra commands). A rule for one
+  controller never reaches another, also in the first moments after the
+  app starts (it learns which controllers there are first). On nights the
+  controllers differ, the app runs them itself instead of handing the night
+  to their own timers. The 5-minute check expects a controller that's off
+  by its own rule to be off, so it's never "restored". The backup timer
+  plans each controller's own nights (it stays paused, as since 4.3.9).
+- Review of 4.8 before release: while waiting to retry after Trimlight's
+  cloud failed, the app no longer asks it for the account's controllers
+  every pass; a choice made on a controller the app then stopped running
+  waits for it instead of changing how the others' nights are run; and a
+  preview (Try, the bulb finder) leaves each controller's own choice in
+  place when it ends.
+
+### Also in 4.8.0: fixes from GitHub's first Mac test run
+
+- **Setup, sign-in and Setup › Phones and tablets no longer wait on a slow
+  name lookup.** To list this computer's home-network addresses, the app
+  looks up the computer's own name. On a Mac whose name the network doesn't
+  know, that can take many seconds, and these pages waited for it (on the
+  test Mac, past 10 seconds). Now it waits a second at most; the address the
+  computer's internet traffic leaves from is still found right away.
+- **A computer with a long name gets its phone certificate** (Setup ›
+  Phones and tablets › secure connection). A certificate's name holds 64
+  characters; with a longer computer name, making it failed. The name is
+  shortened there, and the full name is still one the certificate answers
+  to.
+- A music-sync timing test allows for slower computers (GitHub's Mac).
+- Review of these fixes before release: only one name lookup runs at a
+  time, and an answer that comes in late is used the next time instead of
+  being thrown away.
+
 ## 4.7.3: review of 4.7.2
 
 - **Keep awake, turned off and straight back on** (two quick taps, or two
