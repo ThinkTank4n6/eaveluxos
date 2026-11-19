@@ -921,7 +921,7 @@ class App:
     # ------------------------------------------------------------ music from this computer (4.1)
     def _lan_address(self, dev: str | None = None) -> str:
         """A controller's address on the home network (4.5: one per
-        controller, Setup › Lights & controller › Local mode). Without dev:
+        controller, Setup › Local mode). Without dev:
         the address music from this computer uses (the one saved under Music,
         or the only controller's). An address saved before 4.5 counts for a
         controller only when the account has just that one, so with two
@@ -1002,7 +1002,7 @@ class App:
         if not addr:
             whose = (self._name_of(dev) + "\u2019s") if len(self._account()) > 1 else "the controller\u2019s"
             raise ApiError(f"Patterns are saved over your home network since 4.3, so this app needs {whose} address "
-                           "there first: Setup \u203a Lights & controller \u203a Local mode.", 409)
+                           "there first: Setup \u203a Local mode.", 409)
         if write:
             self.safety.hold()        # no backup-timer writes next to these
         return localmode.Local(addr, now=self.controller_now, backup=lambda det: self.safety._backup(dev, det),
@@ -1311,7 +1311,7 @@ class App:
             # (two or more controllers) doesn't count: nothing would go there.
             raise ApiError("Enter the controller's address on your home network first"
                            + (", or choose which controller the saved one is" if self._lan_unassigned() else "")
-                           + ": Setup \u203a Lights & controller \u203a Local mode.", 409)
+                           + ": Setup \u203a Local mode.", 409)
         s = copy.deepcopy(self.store.settings)
         if s.get("lan") or on:
             s["lan"] = {**(s.get("lan") or {}), "commands": on}
@@ -1854,7 +1854,7 @@ class App:
             why = self._not_this_one(dev, loc.host, cur)
             if why:
                 raise ApiError(f"{why} Nothing was changed. If its address changed, update it in Setup \u203a "
-                               "Lights & controller \u203a Local mode (Find controllers).", 409)
+                               "Local mode (Find controllers).", 409)
         want = []
         for p in sorted(ports, key=lambda p: p["id"]):
             off = p["start"] == 0 and p["end"] == 0

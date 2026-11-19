@@ -594,7 +594,9 @@ class NoCloudPatternWrites(unittest.TestCase):
     def test_panel(self):
         js = (ROOT / "eaveluxos" / "static" / "app.js").read_text(encoding="utf-8")
         self.assertIn("async function localPanel", js)
-        self.assertIn("fold('local'", js)
+        self.assertIn("VIEWS.local = ", js)          # its own Setup section since 4.9.2
+        nav = (ROOT / "eaveluxos" / "static" / "nav.js").read_text(encoding="utf-8")
+        self.assertIn("['local', 'Local mode']", nav)
 
 
 if __name__ == "__main__":

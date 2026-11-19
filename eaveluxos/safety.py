@@ -669,7 +669,7 @@ class SafetyNet:
                 msg = "Backup timer is off."
                 if left:
                     msg += (f" Patterns an older version saved are still on the controller: {', '.join(left)}. Delete "
-                            "them in Setup \u203a Lights & controller \u203a Local mode, or in the Trimlight Edge app.")
+                            "them in Setup \u203a Local mode, or in the Trimlight Edge app.")
                 with self.lock:
                     self.state["devices"][dev] = {"ok": False, "message": msg, "effects": {}, "calendar": []}
                     self._save()

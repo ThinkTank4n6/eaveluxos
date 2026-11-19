@@ -1,7 +1,7 @@
 # EaveLuxOS: User Manual
 ### The Intelligent Lighting Control Platform
 
-Version 4.9.1 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
+Version 4.9.2 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
 
 > **Downloaded the ready-made app? You can skip most of the setup.**
 > The downloads on the project's GitHub **Releases** page
@@ -90,7 +90,7 @@ things moved:
 | **Alerts** | Everything that reacts: weather rules, severe weather alerts, the security flash, webhooks and phone alerts (they were on Schedule and Settings). |
 | **Music** | Music shows (the controller's music mode) and mood follow. |
 | **House** | The house map: photos, rooflines, landmarks, zones, the bulb finder and bulb numbering. |
-| **Setup** | **Lights & controller** (ports, controller, the backup timer, color correction, pattern backups), **Location & time** (was Date & Time), **Accounts & access** and **App** (were Settings). |
+| **Setup** | **Lights & controller** (ports, controller, the backup timer), **Color correction**, **Local mode** and **Pattern backups** (their own sections since 4.9.2), **Location & time** (was Date & Time), **Accounts & access** and **App** (were Settings). |
 
 - On a phone, the tabs are along the **bottom** of the screen. They step
   aside while you type in a field, so they don't sit on top of the keyboard.
@@ -548,7 +548,7 @@ This works like the color circles in the Trimlight app.
      same white on every circle for an even architectural look. Trimlight
      bulbs have no separate white chip, so these whites are mixed from red,
      green and blue; if whites look too blue or too pink on your house, adjust
-     **Setup › Lights & controller › Color correction**. Whites are in **Paint bulbs** too.
+     **Setup › Color correction**. Whites are in **Paint bulbs** too.
    - Use **−** and **+** to change how many bulbs the color covers (1 to 90).
    - Use **Move left** and **Move right** to reorder, and **Remove** to delete
      the selected color.
@@ -1657,6 +1657,12 @@ speed.
 
 ## 18. Setup › Lights & controller
 
+Since 4.9.2, **Color correction**, **Local mode** and **Pattern backups** are
+sections of their own in Setup's row of buttons, next to **Lights &
+controller**, rather than folded panels at the bottom of it. They work as
+before; Local mode and Pattern backups are for Administrators. The parts of
+this section about them apply there.
+
 These settings are stored **on the controller itself**. They match the
 controller's Settings screen in the Trimlight Edge app.
 
@@ -1766,7 +1772,7 @@ the cloud's copy of a controller unreadable (code 12006) three times in
 November 2026, and deletes by number while that copy was out of step removed
 the owner's own patterns.
 
-1. Open **Setup › Lights & controller › Local mode**.
+1. Open **Setup › Local mode**.
 2. Enter the controller's address on your home network (the Trimlight Edge
    app shows it when you open the controller on your home Wi-Fi), or tap
    **Find it**, then **Save**. With one controller, it's the same address
@@ -1876,7 +1882,8 @@ one, from before EaveLuxOS ever changed the controller, is kept forever. After
 a factory reset, or after deleting a pattern by mistake, you can put patterns
 back from these backups (Administrators only):
 
-1. In **Pattern backups**, choose a **Backup** (newest first).
+1. Open **Setup › Pattern backups**. With two or more controllers, choose the
+   **Controller** at the top. Then choose a **Backup** (newest first).
 2. Tick the patterns to put back. Ones already on the controller (by name)
    are marked and can't be ticked.
 3. Tap **Put back selected**.
@@ -1900,7 +1907,7 @@ values look much brighter on the house than on the screen. Gamma correction
 Corrector for iPhone and iPad) adjusts each color before it's sent, so the
 house looks closer to what you picked.
 
-1. In **Setup › Lights & controller**, open **Color correction**.
+1. Open **Setup › Color correction**.
 2. Tick **Correct colors for the lights (gamma)**.
 3. Set **Gamma**. **2.2** is a good start. If colors still look pale, try up to
    **2.8**. **1.0** means no change.

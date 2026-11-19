@@ -271,7 +271,7 @@ function go(asked, extra, replace = false) {
   const sub = $('#subnav');
   if (sub) {
     sub.hidden = tab !== 'setup';
-    sub.innerHTML = tab === 'setup' ? SETUP_SECS.map(([k, l]) => `<button data-sec="${k}" aria-current="${k === view ? 'page' : 'false'}">${l}</button>`).join('') : '';
+    sub.innerHTML = tab === 'setup' ? SETUP_SECS.filter(([k]) => !Nav.ADMIN_SECS.includes(k) || isAdmin()).map(([k, l]) => `<button data-sec="${k}" aria-current="${k === view ? 'page' : 'false'}">${l}</button>`).join('') : '';
     sub.onclick = e => { const b = e.target.closest('[data-sec]'); if (b) go(b.dataset.sec); };
     // On a phone the sections scroll sideways: keep the current one in view (4.0.1).
     const cur = $('[aria-current=page]', sub);
@@ -1300,7 +1300,7 @@ VIEWS.create = async (opts = {}) => {
         <div class="stack">
           <div class="panel stack"><div class="panel-head"><h3>Preview</h3>${designDevPick()}</div><canvas class="preview" id="cv" height="160" aria-label="Animated preview of the pattern"></canvas>
             <p class="note" id="cvnote"></p>
-            ${gOn() && !D.exact ? `<p class="note">Color correction is on (gamma ${Number(S.settings.color.gamma || GAMMA.def).toFixed(1)}): the lights get adjusted colors so they look like this preview. Change it under Lights.</p>` : ''}</div>
+            ${gOn() && !D.exact ? `<p class="note">Color correction is on (gamma ${Number(S.settings.color.gamma || GAMMA.def).toFixed(1)}): the lights get adjusted colors so they look like this preview. Change it in <a href="#color">Setup › Color correction</a>.</p>` : ''}</div>
           <div class="panel stack">
             <button data-try>Try on my lights</button>
             <label class="check"><input type="checkbox" id="alsoapp" ${lanAny() ? '' : 'disabled'}> Also save it on the controller${(S.status && (S.status.devices || []).length > 1) ? 's this app runs' : ''} (the Trimlight app's list), over the home network${lanAny() ? '' : ' <span class="small muted">(set its address in Setup \u203a Lights & controller \u203a Local mode)</span>'}</label>
@@ -2502,7 +2502,7 @@ function controllerCards(st) {
   const card = d => {
     const h = homes[d.id];
     const net = h ? `<b class="num">${esc(h.address)}</b> · ${h.ok === true ? '<span class="ok">answering</span>' : h.ok === false ? '<span class="bad">not answering</span>' : '<span class="muted">checking…</span>'}`
-      : `<span class="muted">not set</span>${admin ? ' (<a href="#lights">Setup › Lights &amp; controller › Local mode</a>)' : ''}`;
+      : `<span class="muted">not set</span>${admin ? ' (<a href="#local">Setup › Local mode</a>)' : ''}`;
     // 4.7.1: with two or more, the ones this app runs are marked Active (green)
     // and the rest greyed out, like the Trimlight app's controller list.
     const state = many ? (d.idle ? 'idle' : 'active') : '';
@@ -2533,7 +2533,7 @@ function controllerCards(st) {
   devs.sort((a, b) => !!a.idle - !!b.idle);
   const many = devs.length > 1;
   return `<div class="panel ctlcards"><h2>${many ? `Controllers (${devs.length})` : 'Controller'}</h2>
-    ${lan.unassigned && admin ? `<p class="callout small">The home-network address saved before, <b class="num">${esc(lan.unassigned)}</b>, isn’t known to be any one controller’s yet. Choose which in <a href="#lights">Setup › Lights &amp; controller › Local mode</a>.</p>` : ''}
+    ${lan.unassigned && admin ? `<p class="callout small">The home-network address saved before, <b class="num">${esc(lan.unassigned)}</b>, isn’t known to be any one controller’s yet. Choose which in <a href="#local">Setup › Local mode</a>.</p>` : ''}
     <div class="list">${devs.map(card).join('') || '<p class="muted small">No controller reported yet.</p>'}</div></div>`;
 }
 
@@ -2881,7 +2881,7 @@ function devCards(devs, cur, chosen) {
       ${run ? '' : '<span class="dc-tag">Not run by this app</span>'}</button>`;
   }).join('')}</div>`;
 }
-/* Lights › Pattern backups (3.15): put patterns back on the controller from
+/* Setup › Pattern backups (3.15; its own section since 4.9.2): put patterns back on the controller from
    one of the backups taken before every safety-net change. Only adds; a
    pattern whose name is already there is skipped. Administrators only. */
 async function backupPanel(box, d) {
@@ -2893,7 +2893,7 @@ async function backupPanel(box, d) {
   // 4.3: put back over the home network only, checked against the controller
   // itself (not the cloud's copy, which can be out of step or unreadable).
   if (!lanFor(d.id)) {
-    box.innerHTML = `<h2>Pattern backups</h2><p class="callout small">Since 4.3 patterns are put back over your home network, never through Trimlight\u2019s cloud. Enter ${(S.devices || []).length > 1 ? esc(d.name || 'this controller') + '\u2019s' : 'the controller\u2019s'} address in <b>Local mode</b> above first.</p>`;
+    box.innerHTML = `<h2>Pattern backups</h2><p class="callout small">Since 4.3 patterns are put back over your home network, never through Trimlight\u2019s cloud. Enter ${(S.devices || []).length > 1 ? esc(d.name || 'this controller') + '\u2019s' : 'the controller\u2019s'} address in <a href="#local"><b>Setup › Local mode</b></a> first.</p>`;
     return;
   }
   // 4.3.6: if the controller can't be read just now, the backups are still
@@ -3112,17 +3112,12 @@ VIEWS.lights = async (opts = {}) => {
           <div class="row"><span class="small">Test colors:</span>${[['Red', '#FF0000'], ['Green', '#00FF00'], ['Blue', '#0000FF'], ['White', '#FFFFFF']].map(([n, c]) => `<button class="small" data-test="${c}">${swatches([c], 1)}${n}</button>`).join('')}</div>
         </div>
         ${fold('safety', 'Backup timer', '<div class="panel stack" id="safetybox"><p class="muted">Loading…</p></div>', false)}
-        ${fold('color', 'Color correction', '<div class="panel stack" id="gbox"></div>')}
-        ${isAdmin() ? fold('local', 'Local mode (home network)', '<div class="panel stack" id="lcbox"></div>') : ''}
-        ${isAdmin() ? fold('backups', 'Pattern backups', '<div class="panel stack" id="bkbox"></div>') : ''}
+        <p class="note">${isAdmin() ? '<a href="#color">Color correction</a>, <a href="#local">Local mode</a> and <a href="#backups">Pattern backups</a> have their own sections' : '<a href="#color">Color correction</a> has its own section'} in Setup (4.9.2).</p>
         ${devs.length > 1 ? `<div class="panel stack"><h2>Controlled by this app</h2>${devs.map(x => `<label class="check"><input type="checkbox" data-ctl="${esc(x.id)}" ${!chosen.length || chosen.includes(x.id) ? 'checked' : ''}>${esc(x.name)}</label>`).join('')}
           <div><button class="small" data-savectl>Save</button></div></div>` : ''}
       </div>
     </div></div>`;
   draw();
-  whenOpen('color', () => colorPanel($('#gbox')));
-  if ($('#bkbox')) whenOpen('backups', () => backupPanel($('#bkbox'), d));
-  if ($('#lcbox')) whenOpen('local', () => localPanel($('#lcbox')));
   whenOpen('safety', () => safetyPanel($('#safetybox')));
   m.oninput = e => {
     const t = e.target, ds = t.dataset;
@@ -3191,6 +3186,38 @@ VIEWS.lights = async (opts = {}) => {
       return busy(b, () => saveSettings(n)).catch(() => {});
     }
   };
+};
+
+/* ---------------------------------------------------------------- 4.9.2: Setup sections of their own
+   Color correction, Local mode and Pattern backups, which were folded panels
+   under Lights & controller. Each panel is the same as before. */
+VIEWS.color = async () => {
+  $('#main').innerHTML = '<div class="view"><div class="panel stack" id="gbox" style="max-width:760px"></div></div>';
+  colorPanel($('#gbox'));
+};
+VIEWS.local = async () => {
+  if (!isAdmin()) return go('lights', null, true);
+  const m = $('#main');
+  m.innerHTML = '<div class="view"><div class="panel stack" id="lcbox" style="max-width:900px"><p class="muted">Loading…</p></div></div>';
+  try { await loadDevices(); } catch (e) { $('#lcbox').innerHTML = `<h2>Local mode (home network)</h2><p class="callout warn">${esc(e.message)}</p>`; return; }
+  localPanel($('#lcbox'));
+};
+VIEWS.backups = async () => {
+  if (!isAdmin()) return go('lights', null, true);
+  const m = $('#main');
+  m.innerHTML = '<div class="view"><p class="muted">Loading…</p></div>';
+  let devs;
+  try { devs = await loadDevices(); } catch (e) { m.innerHTML = `<div class="view"><h2>Pattern backups</h2><p class="callout warn">${esc(e.message)}</p></div>`; return; }
+  if (!devs.length) { m.innerHTML = '<div class="view"><h2>Pattern backups</h2><p class="callout">No controllers on this account.</p></div>'; return; }
+  S.lightDev = devs.some(d => d.id === S.lightDev) ? S.lightDev : (devs.find(d => d.selected) || devs[0]).id;
+  const d = devs.find(x => x.id === S.lightDev);
+  S.lightDevObj = d;
+  m.innerHTML = `<div class="view">${devs.length > 1 ? `<div class="row" style="margin-bottom:12px"><label class="row small" style="gap:6px">Controller<select id="bkdev" style="width:auto">${devs.map(x =>
+      `<option value="${esc(x.id)}" ${x.id === d.id ? 'selected' : ''}>${esc(x.name || 'Controller')}</option>`).join('')}</select></label></div>` : ''}
+    <div class="panel stack" id="bkbox" style="max-width:900px"></div></div>`;
+  const sel = $('#bkdev');
+  if (sel) sel.onchange = () => { S.lightDev = sel.value; VIEWS.backups(); };
+  backupPanel($('#bkbox'), d);
 };
 
 /* ---------------------------------------------------------------- DATE & TIME */

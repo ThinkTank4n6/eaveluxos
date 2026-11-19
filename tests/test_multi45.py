@@ -269,10 +269,7 @@ class Browser(TwoBase):
             self.addCleanup(ctx.close)
             pg = ctx.new_page()
             pg.on("pageerror", lambda e: errors.append(str(e)))
-            pg.goto(base + "#lights")
-            pg.wait_for_selector('[data-fold="local"] .foldbar')
-            if pg.get_attribute('[data-fold="local"] .foldbar', "aria-expanded") != "true":
-                pg.click('[data-fold="local"] .foldbar')
+            pg.goto(base + "#local")                 # its own Setup section since 4.9.2
             pg.wait_for_selector("#lcbox [data-lcsavedev]")
             self.assertEqual(pg.locator("#lcbox [data-lcsavedev]").count(), 2, "one row per controller")
             if size["width"] == 390:

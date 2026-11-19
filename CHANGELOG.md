@@ -1,5 +1,18 @@
 # Changelog
 
+## 4.9.2: Color correction, Local mode and Pattern backups in their own sections
+
+- **Setup** now has buttons for **Color correction**, **Local mode** and
+  **Pattern backups** next to **Lights & controller**, instead of folded
+  panels at the bottom of it. Each works as before. Local mode and Pattern
+  backups are for Administrators, as they were, and their buttons show only
+  for them. **Pattern backups** has a **Controller** choice with two or
+  more controllers. Links elsewhere in the app, messages, the feature
+  search and the Manual point to the new places; the Lights page links to
+  them too.
+- Review before release: an Editor or Viewer who opens one of the
+  Administrator sections by its address is taken to Lights & controller.
+
 ## 4.9.1: what a user's screenshots showed, and patterns in folders
 
 - **Slots that aren't patterns are left out.** A user's Front controller
