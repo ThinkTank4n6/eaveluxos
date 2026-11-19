@@ -1,5 +1,31 @@
 # Changelog
 
+## 4.10.0: the House tab with two or more controllers
+
+- **House › Controller**: with two or more controllers, choose which one the
+  bulb finder, zone checks and scene previews light. Only that controller
+  lights up, along its own bulbs (Front 106, Deck 96); the others keep
+  showing what they were. **All controllers** works as before.
+- **This side's lights** gives a side of the house to one controller;
+  choosing the side then chooses its controller.
+- **Zones and landmarks** saved while a controller is chosen are that
+  controller's (the lists say whose). One zone name can be used once for
+  each controller.
+- **Combine patterns by zone** with a zone for one controller makes one
+  pattern for each controller, along its own bulbs, and saves them together
+  as a **Split by controller** pattern (the parts go in a **Zone parts**
+  folder). **Paint by zone** lists the zones for the controller **Bulbs of**
+  counts.
+- A preview on one controller ends by itself after 10 minutes, like the
+  finder always has.
+- Review of 4.10 before release: with every controller turned Off by hand
+  during a scheduled evening, the finder on one controller turned the others
+  back on with the schedule (`tests/repro_finder_wakes_others.py`); the
+  others now keep their Off. A scene made for one controller's bulbs no
+  longer says it was made for another count.
+- Not yet per controller: a weather or webhook alert set to light a zone
+  lights those bulb numbers on every controller.
+
 ## 4.9.2: Color correction, Local mode and Pattern backups in their own sections
 
 - **Setup** now has buttons for **Color correction**, **Local mode** and

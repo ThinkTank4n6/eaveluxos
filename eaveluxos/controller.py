@@ -22,6 +22,7 @@ scheduled change.
 - Once a day it sends the correct local time to the controller.
 """
 import hashlib
+import itertools
 import json
 import logging
 import os
@@ -112,6 +113,7 @@ class Controller:
         # 4.8: a manual choice for one controller: deviceId -> {"on", "effect",
         # "obj", "since", "wkey"}; it ends when that controller's schedule changes.
         self.dev_override: dict = {}
+        self._dov_seq = itertools.count(1)
         self.adjust: dict = {}                # slider levels {"brightness": n, "speed": n}
         self.flash = None                     # the flash showing: {"until", "eff", "label", "kind", "rank", "since"}
         self.flash_held: list = []            # longer flashes a shorter one interrupted; they resume after it
@@ -458,7 +460,10 @@ class Controller:
             for dev in list(dov):
                 if dev not in wkeys:
                     continue                      # not run right now; kept for when it is
-                if dov[dev].get("wkey") != wkeys[dev]:
+                if dov[dev].get("expires") and time.time() > dov[dev]["expires"]:
+                    notes.append(f"Preview ended on {self._dev_name(dev)}; back on the schedule.")
+                    dov.pop(dev)
+                elif dov[dev].get("wkey") != wkeys[dev]:
                     notes.append(f"Scheduled change reached for {self._dev_name(dev)}, so its manual setting ended.")
                     dov.pop(dev)
             if len(set(wkeys.values())) == 1:
@@ -637,7 +642,7 @@ class Controller:
                 parts[dev], levels_of[dev] = eff, {}
                 info[dev] = {"on": eff is not None, "effect": eff.label if eff else None, "rule": None,
                              "manual": True, "until": wd.end if wd else None}
-                keys.append(f"{dev}=manual|{o['on']}|{o.get('effect')}|{o['since'].isoformat()}")
+                keys.append(f"{dev}=manual|{o['on']}|{o.get('effect')}|{o['since'].isoformat()}|{o.get('n', 0)}")
                 reasons.add("manual")
                 if wd:
                     ends.append(wd.end)
@@ -1117,7 +1122,8 @@ class Controller:
             self._kick()
         self.tick(maintenance=False)
 
-    def manual_one(self, dev: str, on: bool | None, effect_key: str | None = None):
+    def manual_one(self, dev: str, on: bool | None, effect_key: str | None = None, obj=None,
+                   expires_min: int | None = None):
         """4.8: On, Off or a pattern for one controller; on=None puts it back
         on the schedule. It lasts until that controller's schedule changes
         (its rule starts or ends), as a choice for all of them does. A choice
@@ -1127,7 +1133,7 @@ class Controller:
             if dev not in [d["deviceId"] for d in self.devices]:
                 raise ValueError("This app doesn't run that controller. Turn it on under Setup \u203a Lights & "
                                  "controller \u203a Controlled by this app.")
-            if on and effect_key not in self.cfg.effects:
+            if on and obj is None and effect_key not in self.cfg.effects:
                 raise ValueError(f"Unknown pattern '{effect_key}'")
             self._end_music("a pattern was chosen")
             if self._target(commit=False).reason == "alert":
@@ -1137,6 +1143,18 @@ class Controller:
                     self._save_dismissed()
                     self.note(f"Weather alert dismissed by a manual change: {a['event']}")
             if self.override:
+                # Review #1 (4.10): a choice for all of them becomes each other
+                # controller's own (an Off by hand stays off), rather than ending
+                # for all; it ends for each when that one's schedule changes.
+                o, now = self.override, self.cfg.loc.now()
+                for other in [d["deviceId"] for d in self.devices]:
+                    if other == dev or other in self.dev_override:
+                        continue
+                    ow = self.cfg.schedule.for_controller(other).active_window(now)
+                    self.dev_override[other] = {"on": bool(o["on"]), "effect": o.get("effect") if o["on"] else None,
+                                                "obj": o.get("obj") if o["on"] else None, "since": now,
+                                                "wkey": ow.key if ow else "off", "expires": o.get("expires"),
+                                                "n": next(self._dov_seq)}
                 self.override, self.adjust = None, {}
             name = self._dev_name(dev)
             if on is None:
@@ -1144,9 +1162,14 @@ class Controller:
                     self.note(f"{name}: back on the schedule.")
             else:
                 w = self.cfg.schedule.for_controller(dev).active_window(self.cfg.loc.now())
-                self.dev_override[dev] = {"on": bool(on), "effect": effect_key if on else None, "obj": None,
-                                          "since": self.cfg.loc.now(), "wkey": w.key if w else "off"}
-                if on:
+                self.dev_override[dev] = {"on": bool(on), "effect": effect_key if on and obj is None else None,
+                                          "obj": obj if on else None,
+                                          "since": self.cfg.loc.now(), "wkey": w.key if w else "off",
+                                          # 4.10: a preview (the House tab's finder) ends by itself
+                                          "expires": time.time() + expires_min * 60 if expires_min else None,
+                                          # each choice its own key, so the finder moving is sent
+                                          "n": next(self._dov_seq)}
+                if on and obj is None:
                     self.last_on = effect_key
             self._kick()
         self.tick(maintenance=False)

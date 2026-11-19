@@ -1,7 +1,7 @@
 # EaveLuxOS: User Manual
 ### The Intelligent Lighting Control Platform
 
-Version 4.9.2 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
+Version 4.10.0 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
 
 > **Downloaded the ready-made app? You can skip most of the setup.**
 > The downloads on the project's GitHub **Releases** page
@@ -653,6 +653,15 @@ effects and patterns saved only on the controller can't be laid along a
 zone. The combined pattern is an ordinary pattern and doesn't follow later
 changes to the zones or the patterns: combine again to update it.
 
+With zones for one controller (4.10, section 12), each zone shows its
+pattern along its own controller's bulbs, and a zone for every controller
+shows on each. When you choose a pattern for a zone that is one
+controller's, give it a **Name**: the strip shows each controller's part,
+and **Combine** saves a pattern for each controller (in the **Zone parts**
+folder) and a **Split by controller** pattern with that name that shows
+them together. Use that one in schedules. A controller with no zone chosen
+is off in it.
+
 ### Paint by zone
 
 If you've saved zones on the House tab (section 12), you can color whole
@@ -710,6 +719,29 @@ port setup on Setup › Lights & controller (section 18), so get that right firs
 
 The House tab helps you find where each bulb is, label your house, and
 name sections of roofline.
+
+### Two or more controllers (4.10)
+
+Each controller numbers its own bulbs from 1. With two or more, the House tab
+has a **Controller** choice at the top, next to the bulb count of each:
+
+- **All controllers** works as before: the finder lights a bulb number on
+  every controller at once, and the house counts one set of numbers.
+- Choose one, and the finder, **Light these bulbs** on a zone and scene
+  previews light only that controller, along its own bulbs (for example
+  106 on the Front, 96 on the Deck). The other controllers keep showing what
+  they were. **Return to schedule** ends it for all.
+- Under the side buttons, **This side's lights** gives a side of the house to
+  one controller. Choosing that side then chooses its controller.
+- A zone or landmark saved while a controller is chosen is that
+  controller's; the list says whose. One zone name can be used once for each
+  controller.
+- **Paint by zone** in Create lists the zones for the controller **Bulbs of**
+  counts, and the zones for every controller. **Combine patterns by zone**
+  makes one pattern for each controller (section 6).
+
+A weather or webhook alert set to light a zone lights those bulb numbers on
+every controller, as before.
 
 ### Find a bulb
 

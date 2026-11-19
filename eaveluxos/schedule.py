@@ -1129,7 +1129,8 @@ def build_config(raw: dict, secrets: dict, need_secrets: bool = True, gamedates:
     from .triggers import build_alert_settings
     wx_alerts = build_alert_settings(raw, effects)
     mp = raw.get("map") or {}
-    zones = [{"name": str(z.get("name", "")).strip(), "start": int(z["start"]), "end": int(z["end"])}
+    zones = [{"name": str(z.get("name", "")).strip(), "start": int(z["start"]), "end": int(z["end"]),
+              **({"device": z["device"]} if isinstance(z.get("device"), str) else {})}
              for z in (mp.get("zones") or []) if isinstance(z, dict) and isinstance(z.get("start"), int) and isinstance(z.get("end"), int)]
     tb = mp.get("total_bulbs")
     total_bulbs = tb if isinstance(tb, int) and not isinstance(tb, bool) and 1 <= tb <= 10000 else None

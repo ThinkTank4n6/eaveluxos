@@ -541,6 +541,11 @@ class App:
     def _validate_map(m):
         if m is None:
             return
+
+        def device_ok(x):
+            # 4.10: a side, landmark or zone can be one controller's
+            d = x.get("device") if isinstance(x, dict) else None
+            return d is None or (isinstance(d, str) and 1 <= len(d) <= 80)
         if not isinstance(m, dict):
             raise ApiError("Map data is malformed.")
         tb = m.get("total_bulbs")
@@ -550,10 +555,14 @@ class App:
             if not (isinstance(side, dict) and re.fullmatch(r"[a-z0-9_-]{1,40}", str(side.get("id", "")))
                     and 1 <= len(str(side.get("name", ""))) <= 30):
                 raise ApiError("A house side has an invalid id or name.")
+            if not device_ok(side):
+                raise ApiError("A house side names an invalid controller.")
         for lm in m.get("landmarks", []) or []:
             if not (isinstance(lm, dict) and isinstance(lm.get("bulb"), int) and 1 <= lm["bulb"] <= 10000
                     and 1 <= len(str(lm.get("name", "")).strip()) <= 60):
                 raise ApiError("Each landmark needs a name (up to 60 characters) and a bulb number.")
+            if not device_ok(lm):
+                raise ApiError("A landmark names an invalid controller.")
             for k in ("x", "y"):
                 if lm.get(k) is not None and not (isinstance(lm[k], (int, float)) and 0 <= lm[k] <= 1):
                     raise ApiError("A landmark pin is outside the photo.")
@@ -592,9 +601,13 @@ class App:
             if not (isinstance(z, dict) and isinstance(z.get("start"), int) and isinstance(z.get("end"), int)
                     and 1 <= z["start"] <= z["end"] <= 10000 and 1 <= len(str(z.get("name", "")).strip()) <= 60):
                 raise ApiError("Each zone needs a name and a first and last bulb (first not after last).")
-            if z["name"].strip().lower() in names:
+            if not device_ok(z):
+                raise ApiError("A zone names an invalid controller.")
+            # 4.10: the same name may be used once for each controller
+            k = (z["name"].strip().lower(), z.get("device"))
+            if k in names:
                 raise ApiError(f"Two zones are named \u201c{z['name']}\u201d.")
-            names.add(z["name"].strip().lower())
+            names.add(k)
 
     def save_photo(self, f: Path, jpeg: bytes):
         f.parent.mkdir(exist_ok=True)
@@ -2790,7 +2803,15 @@ def make_server(app: App, host: str, port: int):
                         minutes = max(1, min(120, int(b.get("minutes", 15))))
                     except (TypeError, ValueError):
                         minutes = 15
-                    ctrl.manual(True, obj=eff, expires_min=minutes)
+                    if b.get("device"):
+                        # 4.10: the House tab's finder and scenes on one controller;
+                        # the others keep showing what they were.
+                        try:
+                            ctrl.manual_one(str(b["device"]), True, obj=eff, expires_min=minutes)
+                        except ValueError as e:
+                            raise ApiError(str(e)) from None
+                    else:
+                        ctrl.manual(True, obj=eff, expires_min=minutes)
                 elif a == "on":
                     # No pattern named (the On button): tonight's scheduled one.
                     ctrl.manual(True, b.get("effect") or ctrl.default_on_effect())

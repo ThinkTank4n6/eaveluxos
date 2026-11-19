@@ -1075,7 +1075,7 @@ VIEWS.patterns = async (tab) => {
       <div class="title"><b>${esc(e.label || k)}</b><button class="small ghost favbtn" data-fav="${esc(k)}" aria-pressed="${favs().includes(k)}" title="${favs().includes(k) ? 'Remove from Home' : 'Pin to Home (up to ' + MAX_FAVS + ')'}" aria-label="${favs().includes(k) ? 'Remove from Home' : 'Pin to Home'}">${icon('star')}</button></div>
       ${e.colors ? strand(e.colors, e.counts) : strand(effectSwatches(e))}
       <p class="small muted">${esc(effectKind(e))}${usedBy(k).length ? ` · used by ${usedBy(k).length}` : ''}</p>
-      ${e.scene && HouseFX.sceneTotal(e) !== addressSpace() ? `<p class="small warn">Made for ${HouseFX.sceneTotal(e)} bulbs; your lights now have ${addressSpace()}. Edit it and save it again.</p>` : ''}
+      ${e.scene && HouseFX.sceneTotal(e) !== addressSpace() && !houseDevs().some(x => devBulbs(x) === HouseFX.sceneTotal(e)) ? `<p class="small warn">Made for ${HouseFX.sceneTotal(e)} bulbs; your lights now have ${addressSpace()}. Edit it and save it again.</p>` : ''}
       <div class="actions"><button class="small" data-on="${esc(k)}">Turn on</button><button class="small ghost" data-edit="${esc(k)}">Edit</button>${role() !== 'viewer' ? `<button class="small ghost" data-pfold="${esc(k)}">Folder${e.folder ? ': ' + esc(e.folder) : ''}</button>` : ''}${shareable(e) ? `<button class="small ghost" data-share="${esc(k)}">Share</button>` : ''}<button class="small ghost danger" data-del="${esc(k)}">Delete</button></div>
     </div>`).join('') || '<p class="muted small">No patterns in this folder.</p>'}</div>`;
     const ps = $('#psort', body);
@@ -3603,7 +3603,23 @@ function mapData() {
   const sides = [...window.Roofline.DEFAULT_SIDES.map(d => saved.find(x => x.id === d.id) || d), ...saved.filter(x => !window.Roofline.DEFAULT_SIDES.some(d => d.id === x.id))];
   return { total_bulbs: m.total_bulbs ?? null, sides, landmarks: m.landmarks || [], zones: m.zones || [], rooflines: clone(m.rooflines || {}) };
 }
-function addressSpace() { return mapData().total_bulbs || totalBulbs(); }
+function addressSpace(dev) {
+  // 4.10: one controller's own count when asked for one; otherwise the house's
+  const d = dev && (S.devices || []).find(x => x.id === dev && x.ports);
+  return d ? devBulbs(d) : mapData().total_bulbs || totalBulbs();
+}
+/* 4.10: the House tab with two or more controllers. S.houseDev is the
+   controller the finder, scenes and new zones are for ('' for all). */
+function houseDevs() { return (S.devices || []).filter(x => x.selected && x.ports); }
+function houseDev() { return houseDevs().length > 1 && houseDevs().some(x => x.id === S.houseDev) ? S.houseDev : ''; }
+function houseSpace() { return addressSpace(houseDev()); }
+function devName(id) { return ((S.devices || []).find(x => x.id === id) || {}).name || 'a controller not run now'; }
+function housePreview(effect, minutes) {
+  const device = houseDev();
+  return api('action', { body: { action: 'try', effect, minutes, ...(device ? { device } : {}) } });
+}
+// A zone or landmark for a controller applies to it; one for all to every one.
+const forDev = (x, dev) => !x.device || !dev || x.device === dev;
 async function saveMap(mut, msg) { const n = clone(S.settings); n.map = mapData(); mut(n.map); await saveSettings(n, msg); }
 
 /* Runs of [color, count] -> designer segments, each at most 90 bulbs. */
@@ -3639,22 +3655,29 @@ VIEWS.map = async () => {
   S.finder = S.finder || { bulb: 1, end: 1, range: false, step: 1, color: '#FFC062', live: false, side: 'front', placing: false };
   const F = S.finder;
   const render = () => {
-    const md = mapData(), T = addressSpace();
+    const md = mapData(), T = houseSpace(), HD = houseDev(), many = houseDevs().length > 1;
     F.bulb = Math.max(1, Math.min(T, F.bulb)); F.end = Math.max(F.bulb, Math.min(T, F.end));
     if (!md.sides.some(x => x.id === F.side)) F.side = md.sides[0].id;
-    const pins = md.landmarks.map((l, i) => ({ ...l, i })).filter(l => l.side === F.side && l.x != null);
+    const pins = md.landmarks.map((l, i) => ({ ...l, i })).filter(l => l.side === F.side && l.x != null && forDev(l, HD));
+    const sideNow = md.sides.find(x => x.id === F.side) || {};
     const inSel = b => F.range ? b >= F.bulb && b <= F.end : b === F.bulb;
     const ports = ((S.devices || []).find(x => x.selected && x.ports) || {}).ports || [];
     if (R.tracing) F.placing = false;
     const RF = roofHtml(md, F.side);
     m.innerHTML = `<div class="view">
-      <div class="panel-head"><h2>House</h2><span class="muted small">Find a bulb, pin it on a photo, trace the roofline, name the corners and sections.</span></div>
+      <div class="panel-head"><h2>House</h2><span class="muted small">Find a bulb, pin it on a photo, trace the roofline, name the corners and sections.</span>
+        ${many ? `<label class="row small" style="gap:6px">Controller<select id="hdev" style="width:auto"><option value="">All controllers</option>${houseDevs().map(x =>
+          `<option value="${esc(x.id)}" ${x.id === HD ? 'selected' : ''}>${esc(x.name || 'Controller')} (${devBulbs(x)} bulbs)</option>`).join('')}</select></label>` : ''}</div>
+      ${many && !HD ? '<p class="note">The finder lights a bulb number on every controller at once. Choose a <b>Controller</b> above to light only that one\u2019s; the others keep showing what they were.</p>' : ''}
       ${RF.flat}
       <div class="cols wide-left">
         <div class="stack">
           <div class="panel stack">
             <div class="row" role="tablist" aria-label="Sides of the house">${md.sides.map(x => `<button class="small ${x.id === F.side ? 'current' : ''}" data-side="${esc(x.id)}">${esc(x.name)}</button>`).join('')}
               <button class="small ghost" data-addside>Add a side</button></div>
+            ${many ? `<label class="row small" style="gap:6px">This side\u2019s lights<select id="sidedev" style="width:auto"><option value="">Any controller</option>${houseDevs().map(x =>
+              `<option value="${esc(x.id)}" ${x.id === sideNow.device ? 'selected' : ''}>${esc(x.name || 'Controller')}</option>`).join('')}</select>
+              <span class="note">Choosing this side then chooses its controller.</span></label>` : ''}
             <div class="photo" id="photo" data-placing="${F.placing}" data-tracing="${R.tracing}">
               ${S.photos.has(F.side) ? `<img id="pimg" alt="Photo of the ${esc(md.sides.find(x => x.id === F.side).name)}">` : ''}
               ${RF.overlay}
@@ -3672,13 +3695,13 @@ VIEWS.map = async () => {
             ${fold('landmarks', 'Landmarks', `<div class="panel stack"><h2>Landmarks</h2>
               <div class="row"><input type="text" id="lmname" maxlength="60" placeholder="e.g. Front gable peak" class="grow" style="flex:1"><button class="small" data-savelm>Save bulb ${F.bulb}</button></div>
               <div class="list">${md.landmarks.length ? md.landmarks.map((l, i) => ({ ...l, i })).sort((a, b) => a.bulb - b.bulb).map(l => `<div class="item"><div class="grow"><div class="name">${esc(l.name)}</div>
-                <div class="sub">Bulb ${l.bulb}${l.side ? ' · ' + esc((md.sides.find(x => x.id === l.side) || {}).name || l.side) : ''}${l.x != null ? ' · pinned' : ''}</div></div>
+                <div class="sub">Bulb ${l.bulb}${many && l.device ? ' on ' + esc(devName(l.device)) : ''}${l.side ? ' · ' + esc((md.sides.find(x => x.id === l.side) || {}).name || l.side) : ''}${l.x != null ? ' · pinned' : ''}</div></div>
                 <button class="small" data-golm="${l.i}">Show</button><button class="small ghost danger" data-dellm="${l.i}" aria-label="Delete ${esc(l.name)}">✕</button></div>`).join('')
                 : '<p class="muted small">Find a corner or peak with the finder, give it a name, and save it here.</p>'}</div></div>`)}
             ${fold('zones', 'Zones', `<div class="panel stack"><h2>Zones</h2>
               <div class="row"><input type="text" id="zname" maxlength="60" placeholder="e.g. Garage roof" class="grow" style="flex:1"><button class="small" data-savezone ${F.range ? '' : 'disabled'}>Save ${F.range ? `${F.bulb}–${F.end}` : 'range'}</button></div>
               ${F.range ? '' : '<p class="note">Turn on <b>Select a range</b> in the finder to save a section of roofline.</p>'}
-              <div class="list">${md.zones.length ? md.zones.map((z, i) => `<div class="item"><div class="grow"><div class="name">${esc(z.name)}</div><div class="sub">Bulbs ${z.start}–${z.end} (${z.end - z.start + 1})</div></div>
+              <div class="list">${md.zones.length ? md.zones.map((z, i) => `<div class="item"><div class="grow"><div class="name">${esc(z.name)}</div><div class="sub">Bulbs ${z.start}–${z.end} (${z.end - z.start + 1})${many ? ' · ' + (z.device ? esc(devName(z.device)) : 'every controller') : ''}</div></div>
                 <button class="small" data-gozone="${i}">Show</button><button class="small ghost" data-editzone="${i}" aria-label="Edit ${esc(z.name)}">Edit</button><button class="small ghost danger" data-delzone="${i}" aria-label="Delete ${esc(z.name)}">✕</button></div>`).join('')
                 : '<p class="muted small">Zones are named sections, like "garage roof", that you can paint in Create.</p>'}</div></div>`)}
           </div>
@@ -3697,7 +3720,7 @@ VIEWS.map = async () => {
             <label class="check"><input type="checkbox" id="flive" ${F.live ? 'checked' : ''}> Update the house as I move</label>
             <button class="primary" data-show>Show on house</button>
             <button class="ghost" data-resume>Return to schedule</button>
-            <p class="note">Everything else goes dark while the finder shows. The schedule comes back by itself 10 minutes after your last change. Bulb numbers are pattern addresses: if two ports overlap (a mirrored run), one number lights in both places.</p>
+            <p class="note">Everything else ${HD ? `on ${esc(devName(HD))}` : ''} goes dark while the finder shows${HD ? '; the other controllers keep showing what they were' : ''}. The schedule comes back by itself 10 minutes after your last change. Bulb numbers are pattern addresses: if two ports overlap (a mirrored run), one number lights in both places.</p>
           </div>
           ${fold('numbering', 'Bulb numbering', `<div class="panel stack"><h2>Bulb numbering</h2>
             <p class="small">${ports.length ? 'From the controller: ' + ports.map(p => p.start && p.end && !p.unused ? `Port ${p.id + 1} ${p.start}–${p.end}` : `Port ${p.id + 1} not connected`).join(', ') + '.' : 'Port layout unknown until the controller answers.'}</p>
@@ -3717,8 +3740,8 @@ VIEWS.map = async () => {
   VIEWS.mapRender = render;
   let liveTimer = null;
   const show = async (btn) => {
-    const T = addressSpace(); const def = highlightDef(F.bulb, F.range ? F.end : F.bulb, T, F.color);
-    await api('action', { body: { action: 'try', effect: def, minutes: 10 } });
+    const T = houseSpace(); const def = highlightDef(F.bulb, F.range ? F.end : F.bulb, T, F.color);
+    await housePreview(def, 10);
   };
   const soft = () => {  // update numbers without rebuilding the inputs being typed in
     $('#fbulb').textContent = F.range ? `${F.bulb}–${F.end}` : F.bulb;
@@ -3749,25 +3772,28 @@ VIEWS.map = async () => {
       }, { ok: 'Save pin', onOpen: f => f.nm.focus() });
       return render();
     }
-    if (!b) return; const d = b.dataset, md = mapData(), T = addressSpace();
+    if (!b) return; const d = b.dataset, md = mapData(), T = houseSpace();
     if (d.side) {
       if (R.tracing) return toast('Save or cancel the roofline section first.', true);
-      F.side = d.side; F.placing = false; R.hint = ''; return render(); }
+      F.side = d.side; F.placing = false; R.hint = '';
+      const sd = (md.sides.find(x => x.id === d.side) || {}).device;           // 4.10: its controller too
+      if (sd && houseDevs().some(x => x.id === sd)) S.houseDev = sd;
+      return render(); }
     if (d.step) { const k = +d.step * F.step, w = F.end - F.bulb; F.bulb = Math.max(1, Math.min(T - (F.range ? w : 0), F.bulb + k)); F.end = F.range ? F.bulb + w : F.bulb; return moved(); }
     if (d.by) { F.step = +d.by; return render(); }
     if (d.show !== undefined) return busy(b, show).then(() => toast(F.range ? `Showing bulbs ${F.bulb}–${F.end}` : `Showing bulb ${F.bulb}`)).catch(() => {});
     if (d.resume !== undefined) return busy(b, () => api('action', { body: { action: 'resume' } })).then(() => toast('Back on the schedule')).catch(() => {});
     if (d.place !== undefined) { if (R.tracing) return toast('Save or cancel the roofline section first.', true); F.placing = !F.placing; return render(); }
     if (d.pin) { const l = md.landmarks[+d.pin]; F.range = false; F.bulb = F.end = l.bulb; return moved(); }
-    if (d.golm) { const l = md.landmarks[+d.golm]; F.range = false; F.bulb = F.end = l.bulb; if (l.side) F.side = l.side; render(); return busy(b, show).catch(() => {}); }
+    if (d.golm) { const l = md.landmarks[+d.golm]; F.range = false; F.bulb = F.end = l.bulb; if (l.side) F.side = l.side; if (l.device) S.houseDev = l.device; render(); return busy(b, show).catch(() => {}); }
     if (d.dellm) return busy(b, () => saveMap(mp => mp.landmarks.splice(+d.dellm, 1), 'Landmark deleted')).then(render).catch(() => {});
     if (d.savelm !== undefined) { const nm = $('#lmname').value.trim(); if (!nm) return toast('Type a name first.', true);
-      return busy(b, () => saveMap(mp => mp.landmarks.push({ name: nm, bulb: F.bulb, side: F.side }), `Saved \u201c${nm}\u201d as bulb ${F.bulb}`)).then(render).catch(() => {}); }
-    if (d.gozone) { const z = md.zones[+d.gozone]; F.range = true; F.bulb = z.start; F.end = z.end; render(); return busy(b, show).catch(() => {}); }
+      return busy(b, () => saveMap(mp => mp.landmarks.push({ name: nm, bulb: F.bulb, side: F.side, ...(houseDev() ? { device: houseDev() } : {}) }), `Saved \u201c${nm}\u201d as bulb ${F.bulb}`)).then(render).catch(() => {}); }
+    if (d.gozone) { const z = md.zones[+d.gozone]; if (z.device) S.houseDev = z.device; F.range = true; F.bulb = z.start; F.end = z.end; render(); return busy(b, show).catch(() => {}); }
     if (d.delzone) return busy(b, () => saveMap(mp => mp.zones.splice(+d.delzone, 1), 'Zone deleted')).then(render).catch(() => {});
     if (d.editzone) return zoneDialog(+d.editzone, F, render);
     if (d.savezone !== undefined) { const nm = $('#zname').value.trim(); if (!nm) return toast('Type a zone name first.', true);
-      return busy(b, () => saveMap(mp => mp.zones.push({ name: nm, start: F.bulb, end: F.end }), `Saved zone \u201c${nm}\u201d`)).then(render).catch(() => {}); }
+      return busy(b, () => saveMap(mp => mp.zones.push({ name: nm, start: F.bulb, end: F.end, ...(houseDev() ? { device: houseDev() } : {}) }), `Saved zone \u201c${nm}\u201d${houseDev() ? ' for ' + devName(houseDev()) : ''}`)).then(render).catch(() => {}); }
     if (d.addside !== undefined) return dialog(`<h2>Add a side</h2><label class="field">Name<input type="text" name="nm" maxlength="30" placeholder="e.g. Shed"></label>`, async f => {
       const nm = f.nm.value.trim(); if (!nm) throw new Error('Give it a name.');
       const id = nm.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'side';
@@ -3777,7 +3803,16 @@ VIEWS.map = async () => {
     if (d.savetotal !== undefined) { const v = $('#ftotal').value; return busy(b, () => saveMap(mp => mp.total_bulbs = v ? Math.max(1, Math.min(10000, +v)) : null, 'Saved')).then(render).catch(() => {}); }
   };
   m.onchange = async e => {
-    const t = e.target, T = addressSpace();
+    const t = e.target, T = houseSpace();
+    if (t.id === 'hdev') { S.houseDev = t.value; return render(); }
+    if (t.id === 'sidedev') {
+      const v = t.value, side = F.side;
+      return busy(null, () => saveMap(mp => {
+        let x = mp.sides.find(y => y.id === side);
+        if (!x) { x = { ...(mapData().sides.find(y => y.id === side) || { id: side }) }; mp.sides.push(x); }
+        if (v) x.device = v; else delete x.device;
+      }, v ? `This side is ${devName(v)}\u2019s` : 'This side is any controller\u2019s')).then(() => { if (v) S.houseDev = v; render(); }).catch(() => {});
+    }
     if (t.id === 'frange') { F.range = t.checked; F.end = F.range ? Math.min(T, F.bulb + 9) : F.bulb; return moved(); }
     if (t.id === 'fgo') { const w = F.end - F.bulb; F.bulb = Math.max(1, Math.min(T, +t.value || 1)); F.end = F.range ? Math.min(T, F.bulb + w) : F.bulb;
       t.value = F.bulb; const fs = $('#fs'), fe = $('#fe'); if (fs) { fs.value = F.bulb; fe.value = F.end; } return soft(); }
@@ -3824,7 +3859,7 @@ function sceneSegs(T) { return Painter.compress(HouseFX.sceneCanvas(T, HV.groups
 function sceneSlots(T) { return Painter.slotsAt(HouseFX.sceneCanvas(T, HV.groups), (S.status && S.status.slot_limit) || Painter.PER_SLOT); }
 async function houseView(box, side) {
   if (!box) return;
-  const md = mapData(), T = addressSpace(), lines = md.rooflines[side] || [];
+  const md = mapData(), T = houseSpace(), lines = md.rooflines[side] || [];
   const bulbs = HouseFX.sideBulbs(lines), sideName = (md.sides.find(x => x.id === side) || {}).name || side;
   const effs = Object.entries(S.settings.effects || {}).filter(([, e]) => e.colors);
   const designed = S.housePreview;
@@ -3956,7 +3991,7 @@ function hvClick(e, box, side, bulbs, T) {
     const set = new Set(g.bulbs); hits.forEach(l => HouseFX.around(l.bulb, HV.width, T).forEach(n => set.add(n))); g.bulbs = [...set];
     toast(`Lit ${hits.length} landmark${hits.length === 1 ? '' : 's'}`); return again();
   }
-  if (d.hvtry !== undefined) return busy(b, () => api('action', { body: { action: 'try', effect: hvSceneEffect(T, HV.name || 'Scene'), minutes: 15 } }))
+  if (d.hvtry !== undefined) return busy(b, () => housePreview(hvSceneEffect(T, HV.name || 'Scene'), 15))
     .then(() => toast('Showing on your lights for 15 minutes, then back to the schedule')).catch(() => {});
   if (d.hvsave !== undefined) return busy(b, async () => {
     const label = ($('#hvname', box).value || '').trim(); if (!label) { $('#hvname', box).focus(); throw new Error('Give the scene a name first.'); }
@@ -4020,7 +4055,7 @@ function roofHtml(md, side) {
       <label class="field">to %<input type="number" id="rbottom" min="10" max="100" value="${R.bottom}"></label>
       <button class="small ghost" data-flat>${R.flat ? 'Hide' : 'Show'} flat diagram</button></div>` : `<div class="roofbar"><button class="small ghost" data-flat>${R.flat ? 'Hide' : 'Show'} flat diagram</button></div>`;
   const list = !R.tracing && lines.length ? `<div class="list">${lines.map((l, i) => `<div class="item"><div class="grow"><div class="name">${l.kind === 'ridge' ? 'Ridge' : 'Roof edge'} ${i + 1}</div>
-      <div class="sub ${l.bulbs && Math.max(l.bulbs.from, l.bulbs.to) > addressSpace() ? 'warn' : ''}">${l.bulbs ? `Bulbs ${l.bulbs.from}–${l.bulbs.to}${Math.max(l.bulbs.from, l.bulbs.to) > addressSpace() ? ` (past bulb ${addressSpace()})` : ''}` : 'No bulbs assigned'} · ${l.points.length} points${(l.wire || []).length ? ` · ${l.wire.length} wire-only stretch${l.wire.length === 1 ? '' : 'es'}` : ''}</div></div>
+      <div class="sub ${l.bulbs && Math.max(l.bulbs.from, l.bulbs.to) > houseSpace() ? 'warn' : ''}">${l.bulbs ? `Bulbs ${l.bulbs.from}–${l.bulbs.to}${Math.max(l.bulbs.from, l.bulbs.to) > houseSpace() ? ` (past bulb ${houseSpace()})` : ''}` : 'No bulbs assigned'} · ${l.points.length} points${(l.wire || []).length ? ` · ${l.wire.length} wire-only stretch${l.wire.length === 1 ? '' : 'es'}` : ''}</div></div>
       <button class="small ghost" data-rbulbs="${esc(l.id)}">Bulbs</button><button class="small ghost" data-redit="${esc(l.id)}">Adjust</button><button class="small ghost danger" data-rdel="${esc(l.id)}" aria-label="Delete this section">✕</button></div>`).join('')}</div>` : '';
   const hint = R.hint ? `<p class="callout" role="status">${esc(R.hint)}</p>` : '';
   const legend = `<p class="small muted legend-dots">Rooflines on the ${esc(sideName.toLowerCase())}:<i style="background:#62D682"></i>roof edge<i style="background:#C7B2FF"></i>ridge<i style="background:#8A93B5"></i>wire only</p>`;
@@ -4131,7 +4166,7 @@ async function roofClick(e, b, md, side) {
   if (d.redit) { const l = (md.rooflines[side] || []).find(x => x.id === d.redit); if (l) { roofBegin(l); VIEWS.mapRender(); } return true; }
   if (d.rbulbs) {
     const l = (md.rooflines[side] || []).find(x => x.id === d.rbulbs); if (!l) return true;
-    const T = addressSpace();
+    const T = houseSpace();
     dialog(`<h2>Bulbs on this line</h2>
       <p class="small">Which bulb numbers run along this line, from its first point to its last? Use the bulb finder to check the two ends. If they count down (for example 84 to 40), enter them that way.</p>
       <div class="row"><label class="field">First point<input type="number" name="a" min="1" max="${T}" value="${l.bulbs ? l.bulbs.from : ''}" required></label>
@@ -4168,7 +4203,7 @@ function painterOpen(D) {
 }
 function painterSet(P, next) { P.hist = [...P.hist.slice(-49), P.canvas]; P.canvas = next; }
 function painterHtml(D) {
-  const P = D.paint, T = addressSpace(), slots = PT.slotsNeeded(P.canvas), over = slots > PT.MAX_SLOTS;
+  const P = D.paint, T = addressSpace(S.designDev), slots = PT.slotsNeeded(P.canvas), over = slots > PT.MAX_SLOTS;
   const zones = mapData().zones;
   const sw = c => c === 'off' ? 'class="off"' : `style="background:${esc(c)}"`;
   return `<div class="panel stack painter">
@@ -4261,7 +4296,7 @@ function painterChange(D, t) {
   const P = D.paint; if (!P) return false;
   const N = P.canvas.length, int = (v, lo, hi, dflt) => Math.max(lo, Math.min(hi, Math.round(+v) || dflt));
   if (t.name === 'pscope') {
-    if (t.value === 'house' && P.scope !== 'house') { painterSet(P, PT.expand(PT.compress(P.canvas), addressSpace())); P.scope = 'house'; }
+    if (t.value === 'house' && P.scope !== 'house') { painterSet(P, PT.expand(PT.compress(P.canvas), addressSpace(S.designDev))); P.scope = 'house'; }
     else if (t.value === 'repeat') P.scope = 'repeat';
     P.from = 1; P.to = Math.min(P.canvas.length, 10); VIEWS.createRender(); return true;
   }
@@ -4288,8 +4323,10 @@ function painterChange(D, t) {
 /* Edit a zone: fix its name or bulb numbers (for example after a counting
    mistake), check it by lighting it, then save. */
 function zoneDialog(i, F, rerender) {
-  const md = mapData(), z = md.zones[i], T = addressSpace();
+  const md = mapData(), z = md.zones[i];
   if (!z) return;
+  if (z.device && houseDevs().some(x => x.id === z.device)) S.houseDev = z.device;     // 4.10: its controller's bulbs
+  const T = houseSpace();
   const read = f => {
     const name = f.zn.value.trim(), start = Number(f.zs.value), end = Number(f.ze.value);
     if (!name) throw new Error('Give the zone a name.');
@@ -4319,7 +4356,7 @@ function zoneDialog(i, F, rerender) {
         if (b.dataset.zfinder !== undefined) { f.zs.value = F.bulb; f.ze.value = F.end; count(); }
         if (b.dataset.zlight !== undefined) {
           let v; try { v = read(f); } catch (err) { return toast(err.message, true); }
-          busy(b, () => api('action', { body: { action: 'try', effect: highlightDef(v.start, v.end, T, F.color), minutes: 10 } }))
+          busy(b, () => housePreview(highlightDef(v.start, v.end, T, F.color), 10))
             .then(() => toast(`Showing bulbs ${v.start}\u2013${v.end}`)).catch(() => {});
         }
       });
@@ -4334,10 +4371,18 @@ function zoneColor(f, i) {
   return HouseFX.dim(c, +f['l' + i].value || 100);
 }
 function zonePainter(D, rerender) {
-  const md = mapData(), T = addressSpace();
+  const md0 = mapData();
+  // 4.10: zones for one controller are painted on that controller's bulbs.
+  // Paint by zone makes one pattern, so it offers the zones for the
+  // controller Create counts (Bulbs of) and the zones for every controller.
+  const devs = houseDevs(), owned = md0.zones.some(z => z.device);
+  const dd = owned && devs.length > 1 ? ((devs.find(x => x.id === S.designDev) || devs[0]).id) : '';
+  const left = md0.zones.filter(z => !forDev(z, dd));
+  const md = { ...md0, zones: md0.zones.filter(z => forDev(z, dd)) }, T = dd ? addressSpace(dd) : addressSpace();
+  if (dd && !md.zones.length) return confirmBox('No zones for this controller', `Every zone is for another controller. Choose <b>Bulbs of</b> above the preview to paint ${esc(devName(left[0].device))}\u2019s zones.`, 'OK');
   if (!md.zones.length) return confirmBox('No zones yet', 'Open the <b>House</b> tab, select a range with the bulb finder and save it as a zone (for example \u201cGarage roof\u201d). Then come back here to paint it.', 'OK');
   const opts = sel => `<option value="">Leave as the rest</option>${S.catalog.palette.map(p => `<option value="${p.hex}" ${sel === p.hex ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}<option value="off">\u2715 Zone off</option><option value="custom">Other color\u2026</option>`;
-  dialog(`<h2>Paint by zone</h2><p class="note">${T} bulbs. Later zones in the list win where zones overlap.</p>
+  dialog(`<h2>Paint by zone</h2><p class="note">${T} bulbs${dd ? ` (${esc(devName(dd))})` : ''}. Later zones in the list win where zones overlap.${left.length ? ` Zones for ${esc([...new Set(left.map(z => devName(z.device)))].join(', '))} aren\u2019t listed: choose <b>Bulbs of</b> to paint those, or use <b>Combine patterns by zone</b>, which makes one pattern for each controller.` : ''}</p>
     <div class="stack">${md.zones.map((z, i) => `<div class="row"><div class="grow" style="min-width:9em"><b>${esc(z.name)}</b><div class="small muted">Bulbs ${z.start}\u2013${z.end}</div></div>
       <select name="z${i}" style="width:auto">${opts('')}</select><input type="color" name="c${i}" value="#ffffff" hidden aria-label="Color for ${esc(z.name)}">
       <select name="l${i}" style="width:auto" aria-label="Brightness for ${esc(z.name)}">${[100, 75, 50, 35, 20, 10].map(n => `<option value="${n}">${n}%</option>`).join('')}</select></div>`).join('')}</div>
@@ -4370,31 +4415,61 @@ function zonePainter(D, rerender) {
 const combinable = e => !!(e && Array.isArray(e.colors) && e.colors.length && !e.split && !e.saved && e.builtin === undefined);
 function zoneCombiner(D, rerender) {
   const md = mapData(), T = addressSpace();
-  if (!md.zones.length) return confirmBox('No zones yet', 'Open the <b>House</b> tab, select a range with the bulb finder and save it as a zone (for example \u201cGarage roof\u201d). Then come back here to give each zone a pattern.', 'OK');
+  if (!md.zones.length) return confirmBox('No zones yet', 'Open the <b>House</b> tab, select a range with the bulb finder and save it as a zone (for example “Garage roof”). Then come back here to give each zone a pattern.', 'OK');
   const pats = Object.entries(S.settings.effects || {}).filter(([, e]) => combinable(e));
-  if (!pats.length) return confirmBox('No patterns to combine', 'Combine uses patterns of your own colors (made in Create). Built-in effects and patterns saved only on the controller can\u2019t be laid along a zone.', 'OK');
+  if (!pats.length) return confirmBox('No patterns to combine', 'Combine uses patterns of your own colors (made in Create). Built-in effects and patterns saved only on the controller can’t be laid along a zone.', 'OK');
   const opts = `<option value="">Leave as the rest</option>${pats.map(([k, e]) => `<option value="${esc(k)}">${esc(e.label || k)}</option>`).join('')}`;
   const modes = S.catalog.custom_modes;
+  // 4.10: zones for one controller (House tab). When a chosen zone is one
+  // controller's, each controller gets its own combined pattern, along its
+  // own bulbs, saved together as a Split by controller pattern.
+  const devs = houseDevs();
+  const owned = devs.length > 1 && md.zones.some(z => z.device && devs.some(x => x.id === z.device));
   const read = f => {
     const picks = md.zones.map((z, i) => { const e = (S.settings.effects || {})[f['p' + i].value]; return combinable(e) ? e : null; });
     // Review #1 (4.7): the controller's own limit per block, as scenes use
     // (60 on some), so what fits here also fits there.
     const perSlot = (S.status && S.status.slot_limit) || PER_SLOT;
-    return { picks, r: ZoneMix.combine({ zones: md.zones, picks, base: f.base.value, total: T, maxSlots: MAX_SLOTS, perSlot }) };
+    const mix = (pk, total) => ZoneMix.combine({ zones: md.zones, picks: pk, base: f.base.value, total, maxSlots: MAX_SLOTS, perSlot });
+    if (!owned || !md.zones.some((z, i) => picks[i] && z.device)) return { picks, r: mix(picks, T) };
+    const parts = devs.map(dv => {
+      const pk = picks.map((p, i) => forDev(md.zones[i], dv.id) ? p : null);
+      if (!pk.some(Boolean)) return { dev: dv, r: null };
+      try { return { dev: dv, r: mix(pk, devBulbs(dv)) }; } catch (e) { throw new Error(`${dv.name || 'Controller'}: ${e.message}`); }
+    });
+    return { picks, parts };
   };
   dialog(`<h2>Combine patterns by zone</h2>
-    <p class="note">${T} bulbs. Each zone shows the pattern you choose, repeated along that zone only. Later zones in the list win where zones overlap.</p>
-    <div class="stack">${md.zones.map((z, i) => `<div class="row"><div class="grow" style="min-width:9em"><b>${esc(z.name)}</b><div class="small muted">Bulbs ${z.start}\u2013${z.end}</div></div>
+    <p class="note">${owned ? 'Each zone shows the pattern you choose, along its own controller’s bulbs (a zone for every controller shows on each). With a zone for one controller chosen, this saves one pattern for each controller, together as a <b>Split by controller</b> pattern.' : `${T} bulbs. Each zone shows the pattern you choose, repeated along that zone only.`} Later zones in the list win where zones overlap.</p>
+    ${owned ? '<label class="field">Name<input type="text" name="nm" maxlength="40" placeholder="e.g. Holidays by zone"></label>' : ''}
+    <div class="stack">${md.zones.map((z, i) => `<div class="row"><div class="grow" style="min-width:9em"><b>${esc(z.name)}</b><div class="small muted">Bulbs ${z.start}–${z.end}${owned ? ' · ' + (z.device ? esc(devName(z.device)) : 'every controller') : ''}</div></div>
       <select name="p${i}" style="flex:1 1 11em;min-width:0;max-width:100%" aria-label="Pattern for ${esc(z.name)}">${opts}</select></div>`).join('')}</div>
-    <label class="field">Everything else<select name="base"><option value="off">\u2715 Off (dark, never moves)</option><option value="#000000">Black</option>${S.catalog.palette.filter(p => p.hex !== '#000000').map(p => `<option value="${p.hex}">${esc(p.name)}</option>`).join('')}</select></label>
+    <label class="field">Everything else<select name="base"><option value="off">✕ Off (dark, never moves)</option><option value="#000000">Black</option>${S.catalog.palette.filter(p => p.hex !== '#000000').map(p => `<option value="${p.hex}">${esc(p.name)}</option>`).join('')}</select></label>
     <fieldset class="stack" style="border:0;padding:0;margin:0"><legend class="small" style="font-weight:650">Motion</legend>
       <label class="check"><input type="radio" name="mv" value="still" checked> Still: each zone stays in place (looks best)</label>
       <label class="check"><input type="radio" name="mv" value="move"> Moving: <select name="mode" style="width:auto">${modes.map((m, i) => i ? `<option value="${i}">${esc(m)}</option>` : '').join('')}</select></label>
-      <p class="note">A controller has one motion for all its bulbs, so a moving pattern carries each zone\u2019s colors into the next zone.</p></fieldset>
+      <p class="note">A controller has one motion for all its bulbs, so a moving pattern carries each zone’s colors into the next zone.</p></fieldset>
     <div data-cmprev></div><p class="note" data-cmnote></p>`,
   async f => {
-    const { picks, r } = read(f);
+    const got = read(f), { picks } = got;
     const first = picks.find(Boolean);
+    if (got.parts) {
+      const name = (f.nm.value || '').trim() || [...new Set(picks.filter(Boolean).map(e => e.label))].join(' + ').slice(0, 40);
+      const n = clone(S.settings); n.effects = n.effects || {};
+      const split = {}, mode = f.mv.value === 'move' ? +f.mode.value : 0;
+      for (const { dev, r } of got.parts) {
+        if (!r) { split[dev.id] = 'off'; continue; }
+        const label = `${name} (${dev.name || 'Controller'})`.slice(0, 60), key = slug(label, n.effects);
+        n.effects[key] = { label, colors: r.segs.map(x => x.c), counts: r.segs.map(x => x.n), custom_mode: mode,
+          speed: first.speed ?? 100, brightness: r.brightness, folder: 'Zone parts' };
+        split[dev.id] = key;
+      }
+      const key = slug(name, n.effects);
+      n.effects[key] = { label: name, split };
+      await saveSettings(n, `Saved “${name}”, one part for each controller`);
+      return go('patterns');
+    }
+    const { r } = got;
     D.segs = r.segs; D.sel = 0;
     D.mode = f.mv.value === 'move' ? +f.mode.value : 0;
     D.speed = first.speed ?? 100;
@@ -4406,13 +4481,19 @@ function zoneCombiner(D, rerender) {
   }, { ok: 'Combine', onOpen: f => {
     const upd = () => {
       f.mode.disabled = f.mv.value !== 'move';
-      let out;
-      try { out = read(f).r; } catch (e) {
+      let got;
+      try { got = read(f); } catch (e) {
         $('[data-cmprev]', f).innerHTML = ''; $('[data-cmnote]', f).textContent = e.message; return;
       }
+      const chosen = got.picks.filter(Boolean), exact = chosen.filter(e => e.exact_colors).length;
+      if (got.parts) {
+        $('[data-cmprev]', f).innerHTML = got.parts.map(({ dev, r }) => `<div class="small" style="margin-top:6px"><b>${esc(dev.name || 'Controller')}</b> (${devBulbs(dev)} bulbs)${r ? '' : ': off, no zone chosen for it'}</div>${r ? strand(r.segs.map(x => x.c), r.segs.map(x => x.n)) : ''}`).join('');
+        $('[data-cmnote]', f).textContent = 'Saves a part for each controller (in the Zone parts folder) and a split pattern that shows them together.';
+        return;
+      }
+      const out = got.r;
       $('[data-cmprev]', f).innerHTML = strand(out.segs.map(s => s.c), out.segs.map(s => s.n));
-      const st = Object.entries(out.stretched).map(([i, k]) => `${md.zones[i].name} (colors ${k}\u00d7 as long)`);
-      const chosen = read(f).picks.filter(Boolean), exact = chosen.filter(e => e.exact_colors).length;
+      const st = Object.entries(out.stretched).map(([i, k]) => `${md.zones[i].name} (colors ${k}× as long)`);
       $('[data-cmnote]', f).textContent = `Uses ${out.segs.length} of ${MAX_SLOTS} color blocks.` +
         (st.length ? ` To fit, these zones' colors were made longer: ${st.join(', ')}.` : ' Every zone keeps its pattern exactly.') +
         (exact && exact < chosen.length ? ' One of these patterns is set to use its colors exactly; the combined one follows Color correction like the others.' : '');

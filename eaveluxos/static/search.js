@@ -29,6 +29,7 @@
     { t: 'Share patterns', w: 'Patterns', v: 'patterns', x: 'mine', k: 'share code send friend export' },
     { t: 'Open a share code', w: 'Patterns', v: 'patterns', x: 'mine', k: 'import share code receive' },
     { t: 'Split by controller', w: 'Patterns', v: 'patterns', x: 'mine', k: 'split multiple controllers different each' },
+    { t: 'House tab with two controllers', w: 'House › Controller', v: 'map', k: 'controller house finder zone side deck front each separately bulb' },
     { t: 'Pattern folders and order', w: 'Patterns › My patterns', v: 'patterns', k: 'folder folders sort order alphabetical a to z christmas easter july organize group' },
     { t: 'A sound when your team scores', w: 'Schedule › Game-day lights', v: 'schedule', f: 'game', k: 'sound horn goal fight song audio mp3 wav' },
     { t: 'A schedule for each controller', w: 'Schedule › a rule › Controllers', v: 'schedule', k: 'controllers each separate individually own rule deck front' },

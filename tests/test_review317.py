@@ -155,7 +155,7 @@ class HouseViewSourceTests(unittest.TestCase):
         self.assertIn("This scene was made for", JS)
         self.assertIn("Made for ${HouseFX.sceneTotal(e)} bulbs", JS)
         self.assertIn("if (p.b > T) continue;", JS)
-        self.assertIn("(past bulb ${addressSpace()})", JS)
+        self.assertIn("(past bulb ${houseSpace()})", JS)    # the chosen controller's count (4.10)
 
     def test_9_11_effective_counts_and_typed_bulbs(self):
         self.assertIn("HouseFX.sceneOwners(T, HV.groups)", JS)
