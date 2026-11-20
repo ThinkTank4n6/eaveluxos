@@ -200,9 +200,8 @@ class Review(unittest.TestCase):
     """Fixes from the 4.13 code review."""
 
     def test_1_one_late_answer_doesnt_slow_the_show(self):
-        r = subprocess.run([__import__("sys").executable, str(ROOT / "tests" / "repro_zone_hiccup.py")], capture_output=True,
-                           text=True, encoding="utf-8", timeout=120, cwd=ROOT)
-        self.assertIn("OK:", r.stdout, r.stdout + r.stderr)
+        from tests import reprorun
+        reprorun.run(self, "repro_zone_hiccup.py", 120)
 
 
 class ReviewStream(WithController):

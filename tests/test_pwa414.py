@@ -76,11 +76,8 @@ class Worker(unittest.TestCase):
 
 class Review(unittest.TestCase):
     def test_1_a_link_asks_first(self):
-        import subprocess
-        import sys
-        r = subprocess.run([sys.executable, str(ROOT / "tests" / "repro_link_acts.py")], capture_output=True, text=True,
-                           encoding="utf-8", timeout=120, cwd=ROOT)
-        self.assertRegex(r.stdout, r"^(OK|SKIP):", r.stdout + r.stderr)
+        from tests import reprorun
+        reprorun.run(self, "repro_link_acts.py", 120)
 
     def test_2_files_come_fresh_first(self):
         sw = (STATIC / "sw.js").read_text(encoding="utf-8")

@@ -1,5 +1,23 @@
 # Changelog
 
+## 4.16.1: the tests pass on Windows and macOS too
+
+No change to the app itself; 4.16.0 works the same. GitHub's Tests run on
+Windows and macOS failed four of 4.16.0's tests, all in how the tests ran:
+
+- **Windows:** the 4.11 weather-warning check ran its script and read the
+  output as UTF-8, while Windows wrote it in its own code page; a curly
+  quote couldn't be read and the test saw nothing. The review scripts now
+  run through one helper (tests/reprorun.py) that has the script write UTF-8
+  and reads it the same way.
+- **macOS:** only 127.0.0.1 answers on a Mac, so the 4.15 and 4.16 review
+  scripts that need a second controller at 127.0.0.2 couldn't start. The
+  tests they come from already skip there; now the scripts do too, instead
+  of failing.
+- **macOS:** a timing test (music levels keep flowing while a keep-alive
+  answer is late) counted 18 frames on a busy GitHub Mac against a line of
+  20; when it's broken it's under 10, so the line is now 14.
+
 ## 4.16.0: calibrate the house with a camera
 
 - **Calibrate with the camera** (House): a phone, propped up at night,

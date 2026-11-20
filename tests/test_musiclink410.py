@@ -641,9 +641,10 @@ class ReviewFixes414(unittest.TestCase):
             st.feed([30] * 16, "t")
             time.sleep(0.05)
         got = st.sent - before
-        # About 36 when all is well and far fewer when they freeze; GitHub's Mac
-        # runs slower (25 there, 4.7.3), so the line is at 20.
-        self.assertGreater(got, 20, f"only {got} level frames in 4 s")
+        # About 36 when all is well and far fewer when they freeze (each held
+        # answer froze them for 1.5 s: under 10). GitHub's Mac runs slower: 25
+        # there in 4.7.3, 18 on a busy day in 4.16.0, so the line is at 14.
+        self.assertGreater(got, 14, f"only {got} level frames in 4 s")
         self.assertTrue(st.running(), "slow answers aren't a lost connection")
         self.assertGreater(len(ctl.frames(L.CMD_PING)), 2, "keep-alives still went out")
 

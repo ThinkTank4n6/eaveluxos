@@ -111,9 +111,8 @@ class Decode(unittest.TestCase):
 
 class Review(unittest.TestCase):
     def test_1_a_preview_ends_on_the_choice_it_covered(self):
-        r = subprocess.run([__import__("sys").executable, str(ROOT / "tests" / "repro_preview_end.py")], capture_output=True,
-                           text=True, encoding="utf-8", timeout=120, cwd=ROOT)
-        self.assertIn("OK:", r.stdout, r.stdout + r.stderr)
+        from tests import reprorun
+        reprorun.run(self, "repro_preview_end.py", 120)
 
     def test_2_lines_that_dont_fit_are_counted(self):
         got = node("""const C = require(%s);

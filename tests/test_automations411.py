@@ -296,12 +296,8 @@ class Review(EngineBase):
                                        then=[{"type": "show", "effect": "christmas"}])]
 
     def test_1_a_weather_warning_stays_on_top(self):
-        import subprocess
-        import sys
-        root = Path(__file__).resolve().parent.parent
-        r = subprocess.run([sys.executable, str(root / "tests" / "repro_auto_dismisses_alert.py")], capture_output=True,
-                           text=True, encoding="utf-8", timeout=60, cwd=root)
-        self.assertIn("OK:", r.stdout, r.stdout + r.stderr)
+        from tests import reprorun
+        reprorun.run(self, "repro_auto_dismisses_alert.py", 60)
 
     def flash_and_end(self, dev):
         self.c.flash_one(dev, self.cfg.effects["snowfall"], 10)

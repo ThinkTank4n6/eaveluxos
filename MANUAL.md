@@ -1,7 +1,7 @@
 # EaveLuxOS: User Manual
 ### The Intelligent Lighting Control Platform
 
-Version 4.16.0 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
+Version 4.16.1 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
 
 > **Downloaded the ready-made app? You can skip most of the setup.**
 > The downloads on the project's GitHub **Releases** page

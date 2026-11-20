@@ -283,12 +283,8 @@ class Updates(unittest.TestCase):
 
 class Review(unittest.TestCase):
     def test_1_a_controller_back_online_is_set_again_at_once(self):
-        import subprocess
-        import sys
-        root = Path(__file__).resolve().parent.parent
-        r = subprocess.run([sys.executable, str(root / "tests" / "repro_power_back.py")], capture_output=True, text=True,
-                           encoding="utf-8", timeout=120, cwd=root)
-        self.assertIn("OK:", r.stdout, r.stdout + r.stderr)
+        from tests import reprorun
+        reprorun.run(self, "repro_power_back.py", 120)
 
 
 class ReviewUpdates(Updates):
