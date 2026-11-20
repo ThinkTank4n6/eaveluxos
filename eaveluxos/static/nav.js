@@ -10,12 +10,12 @@
   'use strict';
 
   const TABS = [['home','Home'],['patterns','Patterns'],['schedule','Schedule'],['alerts','Alerts'],['music','Music'],['map','House'],['setup','Setup']];
-  const TAB_OF = { create: 'patterns', lights: 'setup', color: 'setup', local: 'setup', backups: 'setup',
+  const TAB_OF = { quick: 'home', create: 'patterns', lights: 'setup', color: 'setup', local: 'setup', backups: 'setup', health: 'setup',
     time: 'setup', access: 'setup', app: 'setup' };
   // 4.9.2: Color correction, Local mode and Pattern backups have their own
   // sections (they were folded panels under Lights & controller).
   const SETUP_SECS = [['lights', 'Lights & controller'], ['color', 'Color correction'], ['local', 'Local mode'],
-    ['backups', 'Pattern backups'], ['time', 'Location & time'], ['access', 'Accounts & access'], ['app', 'App']];
+    ['backups', 'Pattern backups'], ['health', 'Controller health'], ['time', 'Location & time'], ['access', 'Accounts & access'], ['app', 'App']];
   const ADMIN_SECS = ['local', 'backups'];                     // Administrators only, as the panels were
   const VIEW_ALIAS = { settings: 'access', setup: null };      // setup: the last Setup section used
 

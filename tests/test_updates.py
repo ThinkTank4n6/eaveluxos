@@ -102,10 +102,11 @@ class Checker(unittest.TestCase):
         self.assertEqual(len(self.u.check()["notes"]), updates.NOTES_MAX)
 
     def test_download_for_this_computer(self):
-        names = ["EaveLuxOS-Windows.zip", "EaveLuxOS-macOS.dmg", "eaveluxos_9_arm64.deb", "eaveluxos_9_amd64.deb"]
+        names = ["EaveLuxOS-Windows.zip", "EaveLuxOS-macOS-Intel.dmg", "EaveLuxOS-macOS.dmg", "eaveluxos_9_arm64.deb", "eaveluxos_9_amd64.deb"]
         self.assertIsNone(updates.asset_for_this_computer(names))            # from source: the release page
         with mock.patch.object(updates.sys, "frozen", True, create=True):
             for system, machine, want in (("Windows", "AMD64", "EaveLuxOS-Windows.zip"), ("Darwin", "arm64", "EaveLuxOS-macOS.dmg"),
+                                          ("Darwin", "x86_64", "EaveLuxOS-macOS-Intel.dmg"),
                                           ("Linux", "aarch64", "eaveluxos_9_arm64.deb"), ("Linux", "x86_64", "eaveluxos_9_amd64.deb")):
                 with mock.patch.object(updates.platform, "system", return_value=system), \
                         mock.patch.object(updates.platform, "machine", return_value=machine):

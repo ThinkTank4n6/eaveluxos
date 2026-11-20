@@ -43,6 +43,9 @@ class FakeController:
         self.tidies_slots = False        # store unused color slots as 00 00 00 00 01
         self.greet, self.answer_pings, self.close_after = greet, answer_pings, close_after
         self.greet_delay = greet_delay
+        self.max_fps = None              # 4.13: more live previews a second than this and keep-alive answers lag
+        self.previews = []               # when each live preview came (4.13)
+        self.slow_pings = 0              # 4.13: answer this many keep-alives half a second late (a Wi-Fi hiccup)
         self.srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.srv.bind((host, port))       # 4.5: several controllers, each at its own 127.0.0.x, same port
@@ -119,7 +122,19 @@ class FakeController:
             time.sleep(self.greet_delay)
             tok = b"cG0od8uKe9tE9EuiJG9udr1r0000KME000YLD0000RKw0E0cY00="
             c.sendall(b"S\x01\x00\x00" + bytes([len(tok), len(tok)]) + tok)
+        elif kind == "frame" and cmd == L.CMD_REQUEST and body[:1] == bytes([L.SUB_PREVIEW]):
+            with self.lock:
+                self.previews.append(time.monotonic())
         elif kind == "frame" and cmd == L.CMD_PING and self.answer_pings:
+            if self.slow_pings:
+                self.slow_pings -= 1
+                time.sleep(0.5)
+            if self.max_fps:
+                now = time.monotonic()
+                with self.lock:
+                    recent = sum(1 for t in self.previews if now - t < 1.0)
+                if recent > self.max_fps + 0.5:
+                    time.sleep(0.5)               # behind: the answer comes late
             if self.answer_pings is not True:     # a number: answer that many, then go quiet
                 self.answer_pings -= 1
             c.sendall((self.NOISE if self.noise else b"") + L.MAGIC + b"\x0b\x00\x00\x01\x00")

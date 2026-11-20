@@ -1,7 +1,7 @@
 # EaveLuxOS
 ### The Intelligent Lighting Control Platform
 
-By **Christopher A. Tankelewicz (ThinkTank4n6)** · MIT License · version 4.10.0
+By **Christopher A. Tankelewicz (ThinkTank4n6)** · MIT License · version 4.15.0
 
 EaveLuxOS currently works with **Trimlight Edge** permanent-lighting controllers.
 Its scheduling, mapping and design tools are built to grow to other brands.
@@ -146,7 +146,9 @@ computer.
   `C:\Users\you\AppData\Local\EaveLuxOS`), the same folder for every version,
   so updating is just unzipping the new version and starting it.
 
-**Mac (Apple silicon, M1 and newer):** `EaveLuxOS-macOS.dmg`
+**Mac:** `EaveLuxOS-macOS.dmg` for Apple silicon (M1 and newer), or
+`EaveLuxOS-macOS-Intel.dmg` for an Intel Mac (4.10.1). Apple menu › **About
+This Mac** says which: "Chip: Apple M…" or "Processor: … Intel".
 - Open it and drag **EaveLuxOS** into **Applications**.
 - The first time, macOS blocks it because it isn't notarized by Apple. Open
   **System Settings › Privacy & Security**, scroll down, and click **Open

@@ -237,6 +237,7 @@ const ICONS = {
   map: '<path d="M3.5 11 12 4.5l8.5 6.5"/><path d="M5.5 9.8V19.5h13V9.8"/><circle cx="12" cy="13" r="2.2"/><path d="M12 15.2v2.3"/>',
   lights: '<path d="M4 7h16M4 12h16M4 17h16"/><circle cx="8" cy="7" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="10" cy="17" r="1.6"/>',
   time: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
+  bolt: '<path d="M13.5 2.5 5 13.5h6l-1 8 8.5-11h-6z"/>',
   power: '<path d="M12 3.5v8"/><path d="M7.2 6.6a7.5 7.5 0 1 0 9.6 0"/>',
   bulbon: '<path d="M9 17.5h6M10 21h4"/><path d="M8.2 14.2A6 6 0 1 1 15.8 14.2c-.8.8-1.3 1.8-1.3 2.9v.4h-5v-.4c0-1.1-.5-2.1-1.3-2.9z"/><path d="M12 2.2v-0M4 9.5H3M21 9.5h-1"/>',
   star: '<path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/>',
@@ -438,6 +439,7 @@ async function boot() {
   clearInterval(boot._pill);
   boot._pill = setInterval(() => { if (!document.hidden) refreshStatus().catch(() => {}); }, 60000);
   go((location.hash || '#home').slice(1), undefined, true);
+  pwaStart();
 }
 /* "A new version is out" bar under the header (3.14). The app computer asks
    GitHub once a day; hiding the bar lasts until the next version. */
@@ -748,6 +750,7 @@ VIEWS.home = async () => {
           <div class="hero">${(st.setup?.warnings || []).map(w => `<div class="callout warn" style="margin-bottom:12px">${esc(w)} <button class="small" data-dismisswarn>Got it</button></div>`).join('')}
             ${st.setup?.problem ? `<p class="callout warn" style="margin-bottom:12px">${esc(st.setup.problem)}</p>` : ''}
             <h1>${esc(head)}</h1><p>${esc(sub)}</p>
+            <p style="margin-top:8px"><a class="btn small ghost" href="#quick">Quick buttons</a></p>
             ${st.error ? `<p class="callout warn" style="margin-top:10px">Can't reach the lights right now: ${esc(st.error)}</p>` : ''}</div>
           ${tonightPanel(st)}
           <div><div class="strip" aria-label="Today, midnight to midnight">${sky.join('')}</div>
@@ -1879,7 +1882,7 @@ async function gamePanel(box) {
     <label class="check"><input type="checkbox" id="gdon" ${gd.enabled ? 'checked' : ''} ${ro ? 'disabled' : ''}> <span><b>Use game-day lights</b><br><span class="small muted">Your team\u2019s colors on the nights they play, instead of the usual pattern (even during a holiday season).</span></span></label>
     <label class="check"><input type="checkbox" id="gdparty" ${party ? 'checked' : ''} ${ro ? 'disabled' : ''}> <span><b>Celebrate scores</b><br><span class="small muted">Flash the team\u2019s colors for a few seconds when they score, then back to what was on. Works whether or not game-day lights are on; tick each team below.</span></span></label>
     ${(gd.teams || []).map((t, i) => { const inf = info(`${t.league}-${t.team}`); return `<div class="panel stack" style="background:var(--surface2);padding:12px">
-      <div class="panel-head"><b>${esc(t.name || t.team.toUpperCase())}</b><span class="small muted">${esc((g.leagues[t.league] || t.league))}</span>${ro ? '' : `<button class="small ghost danger" data-gddel="${i}">Remove</button>`}</div>
+      <div class="panel-head"><b>${esc(t.name || t.team.toUpperCase())}</b><span class="small muted">${esc((g.leagues[t.league] || t.league))}</span>${ro ? '' : `${t.celebrate ? `<button class="small ghost" data-gdauto="${i}">Make it an automation</button>` : ''}<button class="small ghost danger" data-gddel="${i}">Remove</button>`}</div>
       <div class="row"><label class="field" style="flex:2;min-width:150px">Team colors (pattern)<select data-gdeff="${i}" ${ro ? 'disabled' : ''}>${effs.map(([k, e]) => `<option value="${esc(k)}" ${t.effect === k ? 'selected' : ''}>${esc(e.label || k)}</option>`).join('')}</select></label>
         <label class="field" style="flex:1;min-width:110px">On<input type="text" data-gdon="${i}" value="${esc(t.on || 'sunset')}" ${ro ? 'disabled' : ''}></label>
         <label class="field" style="flex:1;min-width:110px">Off<input type="text" data-gdoff="${i}" value="${esc(t.off || '23:00')}" ${ro ? 'disabled' : ''}></label></div>
@@ -1946,6 +1949,18 @@ async function gamePanel(box) {
     e.stopPropagation();
     const n = clone(S.settings);
     n.gameday = n.gameday || { enabled: false, teams: [] };
+    if (b.dataset.gdauto !== undefined) {
+      // 4.11: this team's score celebration as an automation, to add conditions
+      const tm = n.gameday.teams[+b.dataset.gdauto], key = `${tm.league}-${String(tm.team).toLowerCase()}`;
+      const then = [{ type: 'flash', effect: tm.effect, seconds: n.gameday.celebrate_seconds || 15 }];
+      if (tm.sound && tm.sound.on !== false) then.push({ type: 'sound', team: key });
+      n.automations = n.automations || [];
+      n.automations.push({ id: 'a' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name: `${tm.name || tm.team.toUpperCase()} score`,
+        enabled: true, priority: 100, cooldown: 30, beats_manual: false, when: { type: 'score', team: key },
+        if: n.gameday.celebrate_only_when_on === false ? [] : [{ type: 'lights', on: true }], then });
+      tm.celebrate = false;
+      return busy(b, () => save(n, `${tm.name || 'The team'}: now an automation under Alerts \u203a Automations`)).catch(() => {});
+    }
     if (b.dataset.gddel !== undefined) { n.gameday.teams.splice(+b.dataset.gddel, 1); return busy(b, () => save(n, 'Removed')).catch(() => {}); }
     const sk = x => { const tm = n.gameday.teams[+x]; return tm ? `${tm.league}-${tm.team}` : ''; };
     if (b.dataset.gdsndhere !== undefined) return busy(b, async () => {
@@ -2247,6 +2262,7 @@ VIEWS.schedule = async () => {
             : '<p class="muted">No rules yet. Add one to turn the lights on automatically.</p>'}</div></div>
       </div>
       ${fold('upcoming', 'Coming up', '<div class="panel" id="upcbox"><p class="muted small">Loading…</p></div>', wide())}
+      ${fold('whowins', 'Who wins tonight', '<div class="panel stack" id="winbox"><p class="muted small">Loading…</p></div>')}
     </div>
     <h3 class="secthead">Special days</h3>
     <div class="stack">
@@ -2265,6 +2281,7 @@ VIEWS.schedule = async () => {
     if (el) el.insertAdjacentHTML('beforeend', `<div class="callout warn small" style="margin-top:6px">Never runs in the next year: \u201c${esc(info.blocked_by)}\u201d wins on all its nights. ${esc(info.hint)}</div>`);
   } }).catch(() => {});
   whenOpen('upcoming', () => upcomingPanel($('#upcbox')));
+  whenOpen('whowins', () => winPanel($('#winbox')));
   m.onclick = async e => {
     const b = e.target.closest('button'); if (!b) return; const d = b.dataset;
     if (d.runsched !== undefined) {
@@ -2284,6 +2301,175 @@ VIEWS.schedule = async () => {
    Everything that changes the lights when something happens: the weather,
    severe weather warnings, the security flash, webhooks (Home Assistant,
    cameras) and phone alerts. Moved here from Schedule and Settings. */
+/* ---------------------------------------------------------------- 4.11: AUTOMATIONS
+   When something happens, if conditions hold, then do something. The
+   engine is automations.py; this is the list and the builder. */
+const AUTO_WHEN = [['score', 'A team scores'], ['game_start', 'A game starts'], ['game_end', 'A game ends'],
+  ['weather', 'A severe weather warning starts'], ['webhook', 'A webhook event comes'], ['time', 'It’s a time of day'],
+  ['lights', 'The schedule turns the lights on or off']];
+const AUTO_IF = [['dark', 'It’s dark (sunset to sunrise)'], ['between', 'Between two times'], ['before', 'Before a time'],
+  ['after', 'After a time'], ['days', 'On these days'], ['dates', 'Between two dates'], ['lights', 'The lights are on or off'],
+  ['rule', 'A rule is running'], ['pattern', 'A pattern is showing'], ['home', 'The team is at home'], ['away', 'The team is away'],
+  ['winning', 'The team is winning'], ['losing', 'The team is losing']];
+const AUTO_THEN = [['flash', 'Flash, then go back'], ['show', 'Show a pattern'], ['off', 'Turn off for a while'], ['sound', 'Play a team’s sound']];
+const AUTO_DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const GAME_ONLY = ['home', 'away', 'winning', 'losing'];
+const autoPrio = p => p >= 300 ? 'Highest' : p >= 200 ? 'High' : p >= 100 ? 'Normal' : 'Low';
+function autoTeams() {
+  return ((S.settings.gameday || {}).teams || []).filter(t => t && t.league && t.team)
+    .map(t => ({ key: `${t.league}-${String(t.team).toLowerCase()}`, name: t.name || String(t.team).toUpperCase(), sound: t.sound }));
+}
+function autoDescribe(a) {
+  const w = a.when || {}, eff = k => ((S.settings.effects || {})[k] || {}).label || k;
+  const team = k => k === 'any' || !k ? 'a team' : (autoTeams().find(t => t.key === k) || {}).name || k;
+  const dev = id => ctlNames([id])[0] || 'a controller';
+  const when = { score: () => `${team(w.team)} scores`, game_start: () => `${team(w.team)}’s game starts`,
+    game_end: () => `${team(w.team)}’s game ends${w.result === 'win' ? ' in a win' : w.result === 'loss' ? ' in a loss' : ''}`,
+    weather: () => w.event ? `a ${w.event} starts` : 'a weather warning starts', webhook: () => `the webhook event “${w.name || ''}” comes`,
+    time: () => `it’s ${w.at || ''}`, lights: () => `the schedule turns the lights ${w.on === false ? 'off' : 'on'}` }[w.type];
+  const cs = (a.if || []).map(c => ({ dark: () => 'it’s dark', between: () => `between ${c.from} and ${c.to}`, before: () => `before ${c.at}`,
+    after: () => `after ${c.at}`, days: () => 'on ' + (c.days || []).map(d => AUTO_DAYS[d]).join(', '), dates: () => `from ${c.from} to ${c.to}`,
+    lights: () => `the lights are ${c.on === false ? 'off' : 'on'}`, rule: () => `${c.name} is running`, pattern: () => `${eff(c.effect)} is showing`,
+    home: () => 'they’re home', away: () => 'they’re away', winning: () => 'they’re winning', losing: () => 'they’re losing' }[c.type] || (() => ''))());
+  const acts = (a.then || []).map(x => { const on = x.device ? ` on ${dev(x.device)}` : '';
+    return ({ flash: () => `flash ${x.effect ? eff(x.effect) : x.color}${x.zone ? ' in ' + x.zone : ''} for ${x.seconds} s${on}`,
+      show: () => `show ${eff(x.effect)}${on} ${x.minutes ? `for ${x.minutes} min` : 'until the schedule changes'}`,
+      off: () => `turn off${on} for ${x.minutes} min`, sound: () => `play ${team(x.team)}’s sound` }[x.type] || (() => ''))(); });
+  return `When ${when ? when() : '…'}${cs.length ? ', if ' + cs.join(' and ') : ''}, then ${acts.join(', then ') || '…'}.`;
+}
+async function autoPanel(box) {
+  const autos = S.settings.automations || [], ro = role() === 'viewer';
+  let hist = [];
+  try { hist = await api('automations/history'); } catch { /* shown empty */ }
+  box.innerHTML = `<div class="panel-head"><h2>Automations</h2>${ro ? '' : '<button class="small" data-autoadd>Add an automation</button>'}</div>
+    <p class="note">When something happens, if everything you list is true, then the lights do what you say, and go back afterward. For example: when the Flyers score, if it’s dark, flash orange and black for 20 seconds. A higher priority goes first when two start at once.</p>
+    <div class="list">${autos.map((a, i) => `<div class="item"><div class="grow">
+        <div class="row" style="gap:8px"><label class="check"><input type="checkbox" data-autoon="${i}" ${a.enabled === false ? '' : 'checked'} ${ro ? 'disabled' : ''}><span class="name">${esc(a.name)}</span></label>
+          <span class="badge ${(a.priority ?? 100) >= 200 ? 'hi' : ''}">${autoPrio(a.priority ?? 100)} · ${a.priority ?? 100}</span>${a.beats_manual ? '<span class="badge">beats a manual choice</span>' : ''}</div>
+        <div class="sub">${esc(autoDescribe(a))}</div><div class="small" data-autoout="${i}"></div></div>
+        <div class="row" style="gap:6px">${ro ? '' : `<button class="small ghost" data-autotry="${i}">Try it now</button>`}<button class="small ghost" data-autochk="${i}">Check it now</button>
+          ${ro ? '' : `<button class="small ghost" data-autoedit="${i}">Edit</button><button class="small ghost danger" data-autodel="${i}">Delete</button>`}</div></div>`).join('')
+      || '<p class="muted">No automations yet.</p>'}</div>
+    ${hist.length ? `<h3 style="margin:10px 0 4px">Lately</h3><div class="small">${hist.slice(0, 8).map(h => `<div><span class="muted">${esc(h.at)}</span> ${esc(h.text)}</div>`).join('')}</div>` : ''}
+    <p class="note">Webhooks can start one by name: <code>POST /api/hook/event</code> with <code>{"name": "doorbell"}</code> (Alerts › Webhooks has the address and token). A team’s score celebration under Schedule › Game-day lights can become an automation with <b>Make it an automation</b>.</p>`;
+  const save = (n, msg) => busy(null, () => saveSettings(n, msg)).then(() => autoPanel(box)).catch(() => {});
+  box.onchange = e => {
+    const t = e.target;
+    if (t.dataset.autoon !== undefined) { const n = clone(S.settings); n.automations[+t.dataset.autoon].enabled = t.checked; save(n, t.checked ? 'On' : 'Off'); }
+  };
+  box.onclick = async e => {
+    const b = e.target.closest('button'); if (!b) return; const d = b.dataset;
+    if (d.autoadd !== undefined) return autoDialog(null, () => autoPanel(box));
+    if (d.autoedit) return autoDialog(+d.autoedit, () => autoPanel(box));
+    if (d.autodel) {
+      if (!await confirmBox('Delete this automation?', esc(autos[+d.autodel].name), 'Delete')) return;
+      const n = clone(S.settings); n.automations.splice(+d.autodel, 1); return save(n, 'Deleted');
+    }
+    const out = $(`[data-autoout="${d.autotry || d.autochk}"]`, box);
+    if (d.autotry) return busy(b, () => api('automation/try', { body: { id: autos[+d.autotry].id } }))
+      .then(r => { out.textContent = r.result; }).catch(() => {});
+    if (d.autochk) return busy(b, () => api('automation/check', { body: { id: autos[+d.autochk].id } }))
+      .then(r => { out.innerHTML = r.conditions.length ? r.conditions.map(c => `<div>${c.ok ? '✓' : '✗'} ${esc(c.text)}</div>`).join('')
+        + (r.game_only ? '<div class="muted">Home, away, winning and losing are checked when the game event comes.</div>' : '')
+        : 'No conditions: it runs whenever the event comes.'; }).catch(() => {});
+  };
+}
+function autoDialog(idx, done) {
+  const src = idx === null ? null : (S.settings.automations || [])[idx];
+  const A = src ? clone(src) : { id: 'a' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name: '', enabled: true,
+    priority: 100, cooldown: 30, beats_manual: false, when: { type: 'score', team: 'any' }, if: [{ type: 'dark' }], then: [{ type: 'flash', seconds: 20 }] };
+  const effs = Object.entries(S.settings.effects || {}), teams = autoTeams(), ctls = ctlList(), zones = mapData().zones || [];
+  const rules = (S.settings.rules || []).map(r => r.name).filter(Boolean);
+  const opt = (v, cur, label) => `<option value="${esc(v)}" ${String(v) === String(cur ?? '') ? 'selected' : ''}>${esc(label)}</option>`;
+  const teamSel = (k, cur, any = true) => `<select data-k="${k}" style="width:auto;max-width:100%">${any ? opt('any', cur, 'Any team') : ''}${teams.map(t => opt(t.key, cur, t.name)).join('')}</select>`;
+  const effSel = (k, cur, none) => `<select data-k="${k}" style="width:auto;max-width:100%">${none ? opt('', cur, none) : ''}${effs.map(([key, e]) => opt(key, cur, e.label || key)).join('')}</select>`;
+  const timeIn = (k, cur, ph) => `<input type="text" data-k="${k}" value="${esc(cur ?? '')}" placeholder="${ph}" style="width:9em">`;
+  const devSel = (k, cur) => ctls.length > 1 ? `<select data-k="${k}" style="width:auto">${opt('', cur, 'All controllers')}${ctls.map(c => opt(c.id, cur, c.name)).join('')}</select>` : '';
+  const whenHtml = () => { const w = A.when; return `<select data-k="when.type" style="width:auto;max-width:100%">${AUTO_WHEN.map(([v, l]) => opt(v, w.type, l)).join('')}</select>
+    ${['score', 'game_start', 'game_end'].includes(w.type) ? (teams.length ? teamSel('when.team', w.team) : '<span class="note">Add a team under Schedule › Game-day lights first.</span>') : ''}
+    ${w.type === 'game_end' ? `<select data-k="when.result" style="width:auto">${opt('any', w.result, 'win or loss')}${opt('win', w.result, 'in a win')}${opt('loss', w.result, 'in a loss')}</select>` : ''}
+    ${w.type === 'weather' ? `<input type="text" data-k="when.event" value="${esc(w.event || '')}" placeholder="any warning, or e.g. Tornado Warning">` : ''}
+    ${w.type === 'webhook' ? `<input type="text" data-k="when.name" value="${esc(w.name || '')}" placeholder="e.g. doorbell" maxlength="40">` : ''}
+    ${w.type === 'time' ? timeIn('when.at', w.at, 'sunset + 15, 6:30 pm') : ''}
+    ${w.type === 'lights' ? `<select data-k="when.on" style="width:auto">${opt('true', String(w.on !== false), 'on')}${opt('false', String(w.on !== false), 'off')}</select>` : ''}`; };
+  const condHtml = (c, i) => `<div class="row autorow" style="gap:6px"><select data-k="if.${i}.type" style="width:auto;max-width:100%">${AUTO_IF.filter(([v]) => !GAME_ONLY.includes(v) || ['score', 'game_start', 'game_end'].includes(A.when.type)).map(([v, l]) => opt(v, c.type, l)).join('')}</select>
+    ${c.type === 'between' ? timeIn(`if.${i}.from`, c.from, 'from, e.g. 6:00 pm') + timeIn(`if.${i}.to`, c.to, 'to, e.g. 11:00 pm') : ''}
+    ${c.type === 'before' || c.type === 'after' ? timeIn(`if.${i}.at`, c.at, 'e.g. 10:00 pm, sunset') : ''}
+    ${c.type === 'days' ? AUTO_DAYS.map((d, j) => `<label class="check small"><input type="checkbox" data-k="if.${i}.day.${j}" ${(c.days || []).includes(j) ? 'checked' : ''}>${d}</label>`).join('') : ''}
+    ${c.type === 'dates' ? `<input type="text" data-k="if.${i}.from" value="${esc(c.from || '')}" placeholder="from 12-01" style="width:7em"><input type="text" data-k="if.${i}.to" value="${esc(c.to || '')}" placeholder="to 12-31" style="width:7em">` : ''}
+    ${c.type === 'lights' ? `<select data-k="if.${i}.on" style="width:auto">${opt('true', String(c.on !== false), 'on')}${opt('false', String(c.on !== false), 'off')}</select>` : ''}
+    ${c.type === 'rule' ? `<select data-k="if.${i}.name" style="width:auto;max-width:100%">${rules.map(r => opt(r, c.name, r)).join('')}</select>` : ''}
+    ${c.type === 'pattern' ? effSel(`if.${i}.effect`, c.effect) : ''}
+    <button type="button" class="small ghost danger" data-rmif="${i}" aria-label="Remove this condition">✕</button></div>`;
+  const actHtml = (x, i) => `<div class="row autorow" style="gap:6px"><select data-k="then.${i}.type" style="width:auto;max-width:100%">${AUTO_THEN.map(([v, l]) => opt(v, x.type, l)).join('')}</select>
+    ${x.type === 'flash' ? `${effSel(`then.${i}.effect`, x.effect, 'a color:')}${x.effect ? '' : `<input type="color" data-k="then.${i}.color" value="${esc(x.color || '#FF6600')}">`}
+      ${zones.length ? `<select data-k="then.${i}.zone" style="width:auto">${opt('', x.zone, 'whole house')}${[...new Set(zones.map(z => z.name))].map(z => opt(z, x.zone, 'zone: ' + z)).join('')}</select>` : ''}
+      <label class="row small" style="gap:4px">for<input type="number" data-k="then.${i}.seconds" min="5" max="600" value="${x.seconds ?? 20}" style="width:5em">s</label>` : ''}
+    ${x.type === 'show' ? `${effSel(`then.${i}.effect`, x.effect)}<label class="row small" style="gap:4px">for<input type="number" data-k="then.${i}.minutes" min="1" max="720" value="${x.minutes ?? ''}" placeholder="until next" style="width:6em">min</label>` : ''}
+    ${x.type === 'off' ? `<label class="row small" style="gap:4px">for<input type="number" data-k="then.${i}.minutes" min="1" max="720" value="${x.minutes ?? 30}" style="width:5em">min</label>` : ''}
+    ${x.type === 'sound' ? (teams.length ? teamSel(`then.${i}.team`, x.team, false) : '<span class="note">Teams and their sounds are under Schedule › Game-day lights.</span>') : ''}
+    ${x.type !== 'sound' ? devSel(`then.${i}.device`, x.device) : ''}
+    <button type="button" class="small ghost danger" data-rmthen="${i}" aria-label="Remove this action">✕</button></div>`;
+  const body = () => `<label class="field">Name<input type="text" data-k="name" value="${esc(A.name)}" maxlength="60" placeholder="e.g. Flyers goal"></label>
+    <div class="stack" style="gap:6px"><b>When</b><div class="row" style="gap:6px">${whenHtml()}</div></div>
+    <div class="stack" style="gap:6px"><b>If</b> <span class="note">All of these must be true. None: always.</span>${(A.if || []).map(condHtml).join('')}
+      ${(A.if || []).length < 8 ? '<button type="button" class="small ghost" data-addif>Add a condition</button>' : ''}</div>
+    <div class="stack" style="gap:6px"><b>Then</b> <span class="note">In this order. A flash goes back to what was showing.</span>${(A.then || []).map(actHtml).join('')}
+      ${(A.then || []).length < 4 ? '<button type="button" class="small ghost" data-addthen>Add an action</button>' : ''}</div>
+    <div class="row" style="gap:10px"><label class="field">Priority<select data-k="priority" style="width:auto">${[[100, 'Normal'], [200, 'High'], [300, 'Highest'], [50, 'Low']].map(([v, l]) => opt(v, A.priority, `${l} (${v})`)).join('')}${[50, 100, 200, 300].includes(A.priority) ? '' : opt(A.priority, A.priority, `Custom (${A.priority})`)}</select></label>
+      <label class="field">Cooldown (seconds)<input type="number" data-k="cooldown" min="0" max="86400" value="${A.cooldown ?? 30}" style="width:7em"></label></div>
+    <label class="check"><input type="checkbox" data-k="beats_manual" ${A.beats_manual ? 'checked' : ''}> Beats a manual choice (runs even when the lights were set by hand)</label>
+    <p class="note" data-autosum>${esc(autoDescribe(A))}</p>`;
+  const setPath = (k, el) => {
+    const parts = k.split('.');
+    if (parts[0] === 'if' && parts[2] === 'day') {
+      const c = A.if[+parts[1]], j = +parts[3], set = new Set(c.days || []);
+      if (el.checked) set.add(j); else set.delete(j);
+      c.days = [...set].sort(); return;
+    }
+    let v = el.type === 'checkbox' ? el.checked : el.value;
+    if (['seconds', 'minutes', 'priority', 'cooldown'].includes(parts[parts.length - 1])) v = v === '' ? undefined : Math.round(+v);
+    if (k === 'when.on' || /^if\.\d+\.on$/.test(k)) v = v === 'true';
+    let o = A;
+    for (let i = 0; i < parts.length - 1; i++) o = o[/^\d+$/.test(parts[i]) ? +parts[i] : parts[i]];
+    const last = parts[parts.length - 1];
+    if (v === undefined || v === '') delete o[last]; else o[last] = v;
+    if (last === 'type') {               // a new kind: start it clean
+      const fresh = { flash: { seconds: 20 }, off: { minutes: 30 }, dark: { from: 'sunset', to: 'sunrise' }, days: { days: [4, 5, 6] },
+        lights: { on: true }, score: { team: 'any' }, game_start: { team: 'any' }, game_end: { team: 'any', result: 'any' }, time: { at: 'sunset' } }[v] || {};
+      const keep = parts[0] === 'then' ? { device: o.device } : {};
+      Object.keys(o).forEach(x => delete o[x]); Object.assign(o, { type: v, ...fresh, ...keep });
+      if (!['score', 'game_start', 'game_end'].includes(A.when.type)) A.if = A.if.filter(c => !GAME_ONLY.includes(c.type));
+      return true;
+    }
+    if (/^then\.\d+\.effect$/.test(k) && v) delete o.color;
+  };
+  dialog(`<h2>${src ? 'Edit automation' : 'Add an automation'}</h2><div data-autoform class="stack" style="gap:12px">${body()}</div>`, async () => {
+    const out = clone(A);
+    out.name = (out.name || '').trim() || autoDescribe(out).slice(5, 50);
+    (out.if || []).forEach(c => { if (c.type === 'dark') { c.from = c.from || 'sunset'; c.to = c.to || 'sunrise'; } });
+    (out.then || []).forEach(x => { if (x.type === 'flash' && !x.effect && !x.color) x.color = '#FF6600'; });
+    const n = clone(S.settings); n.automations = n.automations || [];
+    if (src) n.automations[idx] = out; else n.automations.push(out);
+    await saveSettings(n, src ? 'Automation saved' : 'Automation added');
+    if (done) done();
+  }, { ok: 'Save', onOpen: f => {
+    const form = $('[data-autoform]', f);
+    const redraw = () => { form.innerHTML = body(); };
+    form.addEventListener('change', e => { const k = e.target.dataset.k; if (!k) return; if (setPath(k, e.target)) return redraw(); if (e.target.tagName === 'SELECT' && /effect$/.test(k)) return redraw(); $('[data-autosum]', form).textContent = autoDescribe(A); });
+    form.addEventListener('input', e => { const k = e.target.dataset.k; if (k && e.target.type !== 'checkbox' && e.target.tagName === 'INPUT') { setPath(k, e.target); $('[data-autosum]', form).textContent = autoDescribe(A); } });
+    form.addEventListener('click', e => {
+      const b = e.target.closest('button'); if (!b) return; const d = b.dataset;
+      if (d.addif !== undefined) A.if.push({ type: 'dark', from: 'sunset', to: 'sunrise' });
+      else if (d.addthen !== undefined) A.then.push({ type: 'flash', seconds: 20 });
+      else if (d.rmif !== undefined) A.if.splice(+d.rmif, 1);
+      else if (d.rmthen !== undefined) A.then.splice(+d.rmthen, 1);
+      else return;
+      redraw();
+    });
+  } });
+}
+
 VIEWS.alerts = async () => {
   const m = $('#main'), s = S.settings, effs = s.effects || {}, admin = isAdmin();
   const ro = role() === 'viewer' ? 'disabled' : '';     // Viewers look but don't change (4.0.1)
@@ -2303,6 +2489,7 @@ VIEWS.alerts = async () => {
   m.innerHTML = `<div class="view">
     <div class="panel-head"><h2>Alerts</h2><span class="muted small">What changes the lights when something happens: the weather, a warning, a camera or alarm, a button.</span></div>
     <div class="stack">
+      ${fold('autos', 'Automations (When \u00b7 If \u00b7 Then)', '<div class="panel stack" id="autobox"><p class="muted small">Loading\u2026</p></div>', wide())}
       ${fold('weather', 'Weather', weather, wide())}
       ${fold('wxalerts', 'Severe weather alerts', '<div class="panel stack" id="wxalertbox"><p class="muted small">Loading…</p></div>')}
       ${fold('security', 'Security flash', security)}
@@ -2311,6 +2498,7 @@ VIEWS.alerts = async () => {
     </div>
     <p class="note" style="margin-top:14px">Flashing a team\u2019s colors when it scores is set per team under Schedule \u203a Game-day lights.</p></div>`;
   whenOpen('wxalerts', () => wxAlertPanel($('#wxalertbox')));
+  whenOpen('autos', () => autoPanel($('#autobox')));
   if (admin) { whenOpen('webhooks', () => webhookPanel($('#hookbox'))); whenOpen('phone', () => alertPanel($('#alertbox'))); }
   m.onclick = async e => {
     const b = e.target.closest('button'); if (!b) return; const d = b.dataset;
@@ -2552,13 +2740,17 @@ function linkOpts() {
   return { input: typeof o.input === 'string' ? o.input : 'default', pattern: Number.isInteger(o.pattern) ? o.pattern : 0,
            sensitivity: Number.isInteger(o.sensitivity) ? o.sensitivity : 8, gain: Number.isFinite(o.gain) ? o.gain : 0,
            color: typeof o.color === 'string' && /^#[0-9a-f]{6}$/i.test(o.color) ? o.color : '#ff0000',
-           minutes: Number.isInteger(o.minutes) ? o.minutes : 60 };
+           minutes: Number.isInteger(o.minutes) ? o.minutes : 60,
+           // 4.13: what the lights follow (the controller's music patterns, or zones), the sound's delay, the zones' controllers
+           engine: o.engine === 'zones' ? 'zones' : 'patterns', delay: Number.isInteger(o.delay) ? Math.max(0, Math.min(1000, o.delay)) : 0,
+           zdevs: Array.isArray(o.zdevs) ? o.zdevs.filter(x => typeof x === 'string') : [] };
 }
 function linkSave(o) { try { localStorage.setItem('linkopts', JSON.stringify(o)); } catch { /* private window */ } }
 // Firefox and browsers built on it (LibreWolf, Waterfox) can share a screen
 // but never its sound (4.1.3).
 const SHARES_SOUND = !/Firefox\//.test(navigator.userAgent);
-async function linkListen(input) {
+async function linkListen(input, holdBack) {
+  if (input === 'file') return null;                  // 4.13: played here (linkStart)
   if (input === 'screen') {
     if (!SHARES_SOUND) throw new Error('This browser (Firefox or one built on it, like LibreWolf) can\u2019t share a tab\u2019s sound. Choose Stereo Mix under Listen to (see the note below), or open the app in Microsoft Edge or Chrome for tab sharing.');
     if (!navigator.mediaDevices.getDisplayMedia) throw new Error('This browser can\u2019t share the computer\u2019s sound. Use Chrome or Edge, or choose a microphone or line-in.');
@@ -2567,7 +2759,8 @@ async function linkListen(input) {
     // audio" only appears for Entire screen, and not on every computer.
     const s = await navigator.mediaDevices.getDisplayMedia({
       video: { displaySurface: 'browser' },
-      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, suppressLocalAudioPlayback: false },
+      // 4.13: with a sound delay, the tab goes quiet and this page plays its sound, held back to match the lights
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, suppressLocalAudioPlayback: !!holdBack },
       systemAudio: 'include', windowAudio: 'system', selfBrowserSurface: 'exclude', surfaceSwitching: 'include', preferCurrentTab: false });
     s.getVideoTracks().forEach(t => t.stop());
     if (!s.getAudioTracks().length) {
@@ -2580,34 +2773,110 @@ async function linkListen(input) {
   if (input && input !== 'default') audio.deviceId = { exact: input };
   return navigator.mediaDevices.getUserMedia({ audio });
 }
+/* 4.13: zones that follow the music, for each controller chosen: the
+   House tab's zones for it and what each follows (Music › My zones). */
+const zName = d => (((LINK.zs || {}).devices || {})[d] || {}).name || devName(d);
+function zoneSetup(dev) {
+  const md = mapData(), mz = S.settings.music_zones || {};
+  const zones = md.zones.filter(z => forDev(z, dev));
+  const maps = (mz.maps || []).map(m => ({ ...m, zone: zones.findIndex(z => z.name === m.zone && (z.device || null) === (m.device || null)) }))
+    .filter(m => m.zone >= 0);
+  return { zones, maps, base: mz.base || '#000000', total: addressSpace(dev), perSlot: (S.status && S.status.slot_limit) || PER_SLOT };
+}
 async function linkStart() {
-  const o = linkOpts();
+  const o = linkOpts(), zones = o.engine === 'zones';
   LINK.tab = LINK.tab || Math.random().toString(36).slice(2, 12);
-  LINK.err = ''; LINK.out = '';
-  const stream = await linkListen(o.input);
+  LINK.err = ''; LINK.out = ''; LINK.zst = null; LINK.engine = o.engine;
+  const fromFile = o.input === 'file', tabSound = o.input === 'screen';
+  if (fromFile && !(LINK.files || []).length) throw new Error('Choose a music file first (Music file).');
+  const devs = zones ? o.zdevs.filter(d => ((LINK.zs || {}).devices || {})[d]) : [];
+  if (zones && !devs.length) throw new Error('Tick the controller (or controllers) whose zones follow the music.');
+  // Each controller's own number of bulbs: a frame for fewer would repeat along the rest of its lights
+  if (zones) { await loadDevices().catch(() => {}); for (const d of devs) if (!(S.devices || []).some(x => x.id === d && x.ports))
+    throw new Error(`${zName(d)}\u2019s number of bulbs isn\u2019t known yet. Open Setup \u203a Lights & controller once.`); }
+  if (zones) for (const d of devs) {
+    const z = zoneSetup(d), need = MusicZones.worst(z);
+    if (!z.maps.some(m => m.follows !== 'off')) throw new Error(`Choose what ${zName(d)}’s zones follow first.`);
+    if (need > MAX_SLOTS) throw new Error(`${zName(d)}: these choices can need ${need} color blocks; a controller takes ${MAX_SLOTS}. Use fewer meters or zones.`);
+  }
+  const stream = await linkListen(o.input, o.delay > 0);
   try {
-    LINK.st = await api('musiclink', { body: { op: 'start', tab: LINK.tab, pattern: o.pattern, sensitivity: o.sensitivity, minutes: o.minutes, color: o.color } });
-  } catch (e) { stream.getTracks().forEach(t => t.stop()); throw e; }
-  const ctx = new (window.AudioContext || window.webkitAudioContext)(), an = ctx.createAnalyser(), src = ctx.createMediaStreamSource(stream);
+    if (zones) LINK.zst = await api('musiczones', { body: { op: 'start', tab: LINK.tab, devices: devs, minutes: o.minutes } });
+    else LINK.st = await api('musiclink', { body: { op: 'start', tab: LINK.tab, pattern: o.pattern, sensitivity: o.sensitivity, minutes: o.minutes, color: o.color } });
+  } catch (e) { if (stream) stream.getTracks().forEach(t => t.stop()); throw e; }
+  const ctx = new (window.AudioContext || window.webkitAudioContext)(), an = ctx.createAnalyser();
+  let src, audio = null, held = false;
+  if (fromFile) {
+    audio = new Audio(); audio.preload = 'auto'; LINK.fileAt = LINK.fileAt || 0;
+    const play = i => { LINK.fileAt = (i + LINK.files.length) % LINK.files.length; if (audio.src) URL.revokeObjectURL(audio.src);
+      audio.src = URL.createObjectURL(LINK.files[LINK.fileAt]); audio.play().catch(() => {}); const n = $('#lknow'); if (n) n.textContent = LINK.files[LINK.fileAt].name; };
+    audio.onended = () => play(LINK.fileAt + 1);
+    src = ctx.createMediaElementSource(audio); LINK.play = play; held = true;
+  } else {
+    src = ctx.createMediaStreamSource(stream);
+    // The tab's own sound went quiet only if the browser could do that; otherwise playing it here would double it.
+    held = tabSound && o.delay > 0 && stream.getAudioTracks().some(t => (t.getSettings && t.getSettings().suppressLocalAudioPlayback) === true);
+    if (tabSound && o.delay > 0 && !held) LINK.err = 'This browser can’t hold the tab’s sound back, so the sound delay isn’t used. Microsoft Edge and Chrome can.';
+  }
   an.fftSize = 2048; an.smoothingTimeConstant = 0.5; src.connect(an);
+  if (held) {                                  // what you hear, held back by the sound delay (4.13)
+    const delay = ctx.createDelay(2); delay.delayTime.value = o.delay / 1000;
+    src.connect(delay); delay.connect(ctx.destination); LINK.delayNode = delay;
+  }
   if (ctx.state === 'suspended') await ctx.resume().catch(() => {});
   const fd = new Float32Array(an.frequencyBinCount);
-  Object.assign(LINK, { on: true, stream, ctx, edges: Bands.edges(ctx.sampleRate, an.fftSize), sent: 0, since: Date.now(), gain: o.gain });
-  stream.getTracks().forEach(t => t.addEventListener('ended', () => { if (LINK.on) { LINK.err = 'The sound stopped being shared.'; linkStop(); } }));
-  let last = 0;
+  Object.assign(LINK, { on: true, stream, ctx, audio, held, edges: Bands.edges(ctx.sampleRate, an.fftSize), sent: 0, since: Date.now(), gain: o.gain,
+    beat: Beat.create(ctx.sampleRate, an.fftSize), music: null, devs, zfps: 4, rtt: [] });
+  if (stream) stream.getTracks().forEach(t => t.addEventListener('ended', () => { if (LINK.on) { LINK.err = 'The sound stopped being shared.'; linkStop(); } }));
+  if (fromFile) LINK.play(LINK.fileAt);
+  let last = 0, lastFrame = 0, lastAn = 0;
   const tick = () => {
     if (!LINK.on) return;
     const now = performance.now();
+    // 4.13: the analysis runs with every bit of sound (beats need it often); levels and frames go out at their own pace
+    if (now - lastAn >= 15) {
+      lastAn = now;
+      an.getFloatFrequencyData(fd);
+      LINK.music = Beat.step(LINK.beat, fd, ctx.currentTime);
+      if (LINK.sync && ctx.currentTime >= LINK.sync.next) syncTick(ctx);
+      linkMeters();
+    }
+    if (zones) {
+      if (now - lastFrame < 1000 / Math.max(2, LINK.zfps) || LINK.busy) return;
+      lastFrame = now;
+      const music = LINK.sync && ctx.currentTime < LINK.sync.flashUntil ? { bass: 1, mid: 1, treble: 1, pulse: 1 } : LINK.music;
+      const frames = {};
+      try {
+        for (const d of LINK.devs) {
+          const z = zoneSetup(d), maps = LINK.sync && ctx.currentTime < LINK.sync.flashUntil ? z.maps.map(m => ({ ...m, color: '#FFFFFF', follows: m.follows === 'off' ? 'off' : 'beat' })) : z.maps;
+          const f = MusicZones.frame({ ...z, maps, music, maxSlots: MAX_SLOTS });
+          frames[d] = { colors: f.colors, counts: f.counts };
+        }
+      } catch (e) { LINK.err = e.message; return linkStop(); }
+      LINK.busy = true;
+      const t0 = performance.now();
+      api('musiczones', { body: { op: 'frame', tab: LINK.tab, frames } })
+        .then(r => {
+          LINK.sent++; LINK.rtt = [...LINK.rtt.slice(-19), performance.now() - t0];
+          const ds = Object.values(r.devices || {}).filter(x => x.running);
+          if (ds.length) { LINK.zfps = Math.min(...ds.map(x => x.fps)); LINK.ctlms = Math.max(...ds.map(x => x.ms || 0)); }
+          if (r.running === false && LINK.on) { LINK.err = 'The show ended in the app.'; linkStop(false); }
+        })
+        .catch(e => { if (LINK.on) { LINK.err = e.message; linkStop(false); } })
+        .finally(() => { LINK.busy = false; });
+      return;
+    }
     if (now - last < 100) return;
     last = now;
-    an.getFloatFrequencyData(fd);
     LINK.lv = Bands.levels(fd, LINK.edges, LINK.gain);     // 4.1.4: kept in memory, not read from storage 10 times a second
     const bars = $('#linkbars');
     if (bars) [...bars.children].forEach((b, i) => { b.style.height = Math.max(2, LINK.lv[i] / 255 * 100) + '%'; });
     if (LINK.busy) return;                  // never let requests pile up
     LINK.busy = true;
+    const t0 = performance.now();
     api('musiclink', { body: { op: 'levels', tab: LINK.tab, levels: LINK.lv } })
-      .then(r => { LINK.sent++; if (r && r.running === false && LINK.on) { LINK.err = 'The show ended in the app.'; linkStop(false); } })
+      .then(r => { LINK.sent++; LINK.rtt = [...LINK.rtt.slice(-19), performance.now() - t0];
+        if (r && r.running === false && LINK.on) { LINK.err = 'The show ended in the app.'; linkStop(false); } })
       .catch(e => { if (LINK.on) { LINK.err = e.message; linkStop(false); } })
       .finally(() => { LINK.busy = false; });
   };
@@ -2619,27 +2888,55 @@ async function linkStart() {
     node.onaudioprocess = tick;
     LINK.node = node;
   }
-  LINK.timer = setInterval(tick, 50);
+  LINK.timer = setInterval(tick, 20);
+}
+/* 4.13: Sync test. A click every second, through the same sound delay as the
+   music, and every zone flashes white with it. Move Sound delay until the
+   flashes land on the clicks. */
+function syncTick(ctx) {
+  const t = LINK.sync.next, osc = ctx.createOscillator(), g = ctx.createGain();
+  osc.frequency.value = 1800; g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.6, t + 0.004); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.06);
+  osc.connect(g); g.connect(LINK.delayNode || ctx.destination); osc.start(t); osc.stop(t + 0.08);
+  LINK.sync.flashUntil = t + 0.18; LINK.sync.next = t + 1;
+}
+/* The suggested sound delay: half the page's round trip, the controller's
+   own answer time and a little for it to change the lights. */
+function linkSuggest() {
+  const r = LINK.rtt || []; if (r.length < 5) return null;
+  const med = [...r].sort((a, b) => a - b)[Math.floor(r.length / 2)];
+  return Math.round((med / 2 + (LINK.ctlms || 0) / 2 + 60) / 10) * 10;
+}
+function linkMeters() {
+  const box = $('#lkmeters'); if (!box || !LINK.music) return;
+  const M = LINK.music;
+  for (const k of ['bass', 'mid', 'treble']) { const el = $(`[data-m="${k}"] i`, box); if (el) el.style.width = Math.round(M[k] * 100) + '%'; }
+  const dot = $('[data-m="beat"]', box); if (dot) dot.style.opacity = String(0.15 + 0.85 * M.pulse);
+  const bpm = $('[data-m="bpm"]', box); if (bpm) bpm.textContent = M.bpm ? `${Math.round(M.bpm)} BPM${M.conf < 0.35 ? ' (unsure)' : ''}` : 'Finding the tempo…';
+  const fr = $('[data-m="fps"]', box);
+  if (fr && LINK.engine === 'zones') fr.textContent = `${LINK.zfps} frames a second${LINK.ctlms ? ` · the controller answers in ${LINK.ctlms} ms` : ''}`;
+  const sg = $('[data-m="suggest"]', box); const v = linkSuggest(); if (sg && v !== null) sg.textContent = `Suggested from this show: about ${v} ms.`;
 }
 function linkStop(tell = true) {
   clearInterval(LINK.timer);
   if (LINK.node) LINK.node.onaudioprocess = null;
   if (LINK.stream) LINK.stream.getTracks().forEach(t => t.stop());
+  if (LINK.audio) { LINK.audio.pause(); if (LINK.audio.src) URL.revokeObjectURL(LINK.audio.src); }
   if (LINK.ctx) LINK.ctx.close().catch(() => {});
-  const was = LINK.on;
-  Object.assign(LINK, { on: false, stream: null, ctx: null, node: null, timer: null, lv: null });
-  if (tell && was) api('musiclink', { body: { op: 'stop', tab: LINK.tab } }).catch(() => {});
+  const was = LINK.on, engine = LINK.engine;
+  Object.assign(LINK, { on: false, stream: null, ctx: null, node: null, timer: null, lv: null, audio: null, delayNode: null, sync: null, music: null });
+  if (tell && was) api(engine === 'zones' ? 'musiczones' : 'musiclink', { body: { op: 'stop', tab: LINK.tab } }).catch(() => {});
   linkPanel($('#linkbox'));
   moodPanel($('#moodbox'));
 }
-window.addEventListener('pagehide', () => { if (LINK.on) { linkStop(false); api('musiclink', { body: { op: 'stop', tab: LINK.tab }, keepalive: true }).catch(() => {}); } });
+window.addEventListener('pagehide', () => { if (LINK.on) { const e = LINK.engine; linkStop(false); api(e === 'zones' ? 'musiczones' : 'musiclink', { body: { op: 'stop', tab: LINK.tab }, keepalive: true }).catch(() => {}); } });
 async function linkPanel(box, fresh = true) {
   if (!box) return;
   // 4.1.3: draw at once from the last answer, so the page doesn't jump while
   // it asks again (the Music tab redraws only when the show changes now).
   if (fresh) {
     if (LINK.st && !box.innerHTML.trim()) linkPanel(box, false);
-    try { LINK.st = await api('musiclink'); } catch (e) { if (!LINK.st) box.innerHTML = `<h2>Music from this computer</h2><p class="callout warn small">${esc(e.message)}</p>`; return; }
+    try { [LINK.st, LINK.zs] = await Promise.all([api('musiclink'), api('musiczones')]); }
+    catch (e) { if (!LINK.st) box.innerHTML = `<h2>Music from this computer</h2><p class="callout warn small">${esc(e.message)}</p>`; return; }
     if (!document.body.contains(box)) return;
   }
   const st = LINK.st;
@@ -2665,21 +2962,41 @@ async function linkPanel(box, fresh = true) {
       <div id="lkout">${LINK.out || ''}</div>`
     : `<p class="note">Controller\u2019s address: <b>${st.address ? esc(st.address) : 'not set yet'}</b>${st.address ? '' : ' (an Administrator enters it here)'}.</p>`;
   const inputs = [['default', 'Default microphone or line-in'], ...LINK.devices.map(d => [d.deviceId, d.label || 'Microphone']),
-                  ['screen', `Music playing in a browser tab (share the tab)${SHARES_SOUND ? '' : ' \u2013 Edge or Chrome only'}`]];
+                  ['screen', `Music playing in a browser tab (share the tab)${SHARES_SOUND ? '' : ' \u2013 Edge or Chrome only'}`],
+                  ['file', 'A music file on this computer (played here)']];
+  const zs = LINK.zs || { devices: {} }, zones = o.engine === 'zones';
+  if (zones && !S.devices && !LINK.loadingDevs) { LINK.loadingDevs = true; loadDevices().catch(() => {}).finally(() => { LINK.loadingDevs = false; if (S.devices) linkPanel(box, false); }); }
+  const zdevs = Object.entries(zs.devices), canDelay = o.input === 'file' || o.input === 'screen';
+  const zonesOk = zdevs.some(([d, v]) => o.zdevs.includes(d) && v.address && (v.tested || {}).fps);
+  const startOff = ro || !moodAvailable() || MOOD.on || st.show || (zones ? !zonesOk : !st.address);
   box.innerHTML = `<div class="panel-head"><h2>Music from this computer</h2>
       ${LINK.on ? '<button class="small danger" data-lkstop>Stop</button>'
-        : `<button class="small primary" data-lkgo ${ro || !st.address || !moodAvailable() || MOOD.on || st.show ? 'disabled' : ''}>Start the show</button>`}</div>
+        : `<button class="small primary" data-lkgo ${startOff ? 'disabled' : ''}>Start the show</button>`}</div>
     <p class="note">The lights dance to music this computer hears or plays, beat by beat, with no phone: this app talks to the controller directly on your home network, the way the Trimlight app does in music mode. Choose the music pattern and sensitivity here instead of in the Trimlight app.</p>
     ${addr}
+    <div class="row" role="group" aria-label="What the lights follow"><span class="small">The lights follow</span>
+      <button class="small ${!zones ? 'current' : 'ghost'}" data-lkeng="patterns" ${LINK.on ? 'disabled' : ''}>The controller\u2019s music patterns</button>
+      <button class="small ${zones ? 'current' : 'ghost'}" data-lkeng="zones" ${LINK.on ? 'disabled' : ''}>My zones (bass, mids, treble, beat)</button></div>
     <div class="grid3">
       <label class="field">Listen to<select id="lkin" ${LINK.on || ro ? 'disabled' : ''}>${inputs.map(([v, l]) => `<option value="${esc(v)}" ${o.input === v ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>
-      <label class="field">Music pattern<select id="lkpat" ${ro ? 'disabled' : ''}>${pats.map(i => `<option value="${i}" ${o.pattern === i ? 'selected' : ''}>${i + 1}. ${esc((st.names || [])[i] || '')}</option>`).join('')}</select></label>
-      ${(st.single || []).includes(o.pattern) ? `<label class="field">Color<input type="color" id="lkcolor" value="${esc(o.color)}" ${ro ? 'disabled' : ''}></label>` : ''}
+      ${o.input === 'file' ? `<label class="field">Music file${(LINK.files || []).length > 1 ? 's' : ''}<input type="file" id="lkfile" accept="audio/*" multiple ${ro ? 'disabled' : ''}>
+        <span class="hint" id="lknow">${(LINK.files || []).length ? esc(LINK.files[LINK.fileAt || 0].name) + ((LINK.files || []).length > 1 ? ` (1 of ${LINK.files.length})` : '') : 'Your own MP3, WAV or M4A; nothing is uploaded.'}</span></label>` : ''}
+      ${zones ? '' : `<label class="field">Music pattern<select id="lkpat" ${ro ? 'disabled' : ''}>${pats.map(i => `<option value="${i}" ${o.pattern === i ? 'selected' : ''}>${i + 1}. ${esc((st.names || [])[i] || '')}</option>`).join('')}</select></label>
+      ${(st.single || []).includes(o.pattern) ? `<label class="field">Color<input type="color" id="lkcolor" value="${esc(o.color)}" ${ro ? 'disabled' : ''}></label>` : ''}`}
       <label class="field">How long<select id="lklen" ${LINK.on || ro ? 'disabled' : ''}>${SHOW_LENGTHS.map(([v, l]) => `<option value="${v}" ${o.minutes === v ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label></div>
+    ${zones ? zonesHtml(zs, o, ro) : ''}
     <div class="grid3">
-      <label class="field">Sensitivity <span class="muted small" id="lksensv">${o.sensitivity}</span><input type="range" id="lksens" min="${sens[0]}" max="${sens[sens.length - 1]}" value="${o.sensitivity}" ${ro ? 'disabled' : ''}></label>
+      ${zones ? '' : `<label class="field">Sensitivity <span class="muted small" id="lksensv">${o.sensitivity}</span><input type="range" id="lksens" min="${sens[0]}" max="${sens[sens.length - 1]}" value="${o.sensitivity}" ${ro ? 'disabled' : ''}></label>`}
+      <label class="field">Sound delay <span class="muted small" id="lkdelayv">${o.delay} ms</span><input type="range" id="lkdelay" min="0" max="1000" step="10" value="${o.delay}" ${ro || (LINK.on && !LINK.held) ? 'disabled' : ''}></label>
       <label class="field">Input level <span class="muted small" id="lkgainv">${o.gain > 0 ? '+' : ''}${o.gain} dB</span><input type="range" id="lkgain" min="-18" max="18" step="3" value="${o.gain}" ${ro ? 'disabled' : ''}></label></div>
-    ${LINK.on ? `<div class="bars" id="linkbars" aria-hidden="true">${Array.from({ length: 16 }, () => '<i></i>').join('')}</div>
+    <p class="hint">${canDelay ? '<b>Sound delay</b> holds back what you hear so it lands with the lights, which trail the music by the time it takes to reach the controller. ' + (zones ? 'Start the show, tap <b>Sync test</b> and move it until the flashes land on the clicks.' : 'Start at the suggestion shown during the show and adjust by ear.') : 'A microphone, line-in or Stereo Mix is heard in the room as it plays, so its sound can\u2019t be held back; Sound delay is for a browser tab\u2019s sound and music files.'}</p>
+    ${LINK.on ? `<div class="meters" id="lkmeters" aria-live="off">
+        ${['bass', 'mid', 'treble'].map(k => `<div class="mband" data-m="${k}"><span>${{ bass: 'Bass', mid: 'Mids', treble: 'Treble' }[k]}</span><b><i></i></b></div>`).join('')}
+        <div class="row small"><span class="beatdot" data-m="beat" aria-hidden="true"></span><b data-m="bpm">Finding the tempo\u2026</b><span class="muted" data-m="fps"></span></div>
+        <p class="small muted" data-m="suggest"></p>
+        <div class="row">${zones && LINK.held ? `<button class="small" data-lksync>${LINK.sync ? 'Stop the sync test' : 'Sync test'}</button>` : ''}
+          ${LINK.audio ? '<button class="small ghost" data-lkpause>Pause / play</button><button class="small ghost" data-lknext>Next file</button>' : ''}</div></div>` : ''}
+    ${LINK.on && !zones ? `<div class="bars" id="linkbars" aria-hidden="true">${Array.from({ length: 16 }, () => '<i></i>').join('')}</div>
       <p class="small">Sending to <b>${esc(st.host || st.address)}</b>. Keep this page open (a background tab is fine). Stop here, or choose a pattern, and the schedule comes back; if this page closes or goes quiet for 20 seconds, the show ends by itself.</p>` : ''}
     ${!moodAvailable() ? `<p class="callout small">A browser only lets a page listen on the computer itself. Open EaveLuxOS on the app computer (<b>http://localhost:${location.port || 8787}</b>) and start it there.</p>` : ''}
     ${MOOD.on ? '<p class="callout small">Mood follow is listening. Stop it first: both can\u2019t run the lights at once.</p>' : ''}
@@ -2709,15 +3026,30 @@ async function linkPanel(box, fresh = true) {
       busy(b, () => linkStart()).then(() => { linkPanel(box); moodPanel($('#moodbox')); })
         .catch(err => { LINK.err = err.name === 'NotAllowedError' ? 'Listening wasn\u2019t allowed. Allow the microphone (or the sharing) for this page in the browser, then try again.' : err.message; linkPanel(box); });
     } else if (d.lkstop !== undefined) linkStop();
+    else if (d.lkeng) { linkSave({ ...linkOpts(), engine: d.lkeng }); linkPanel(box, false); }
+    else if (d.lksync !== undefined && LINK.ctx) { LINK.sync = LINK.sync ? null : { next: LINK.ctx.currentTime + 0.3, flashUntil: 0 }; b.textContent = LINK.sync ? 'Stop the sync test' : 'Sync test'; }
+    else if (d.lkpause !== undefined && LINK.audio) { if (LINK.audio.paused) LINK.audio.play().catch(() => {}); else LINK.audio.pause(); }
+    else if (d.lknext !== undefined && LINK.play) LINK.play(LINK.fileAt + 1);
+    else if (d.lkztest) {
+      const dev = d.lkztest;
+      if (!await confirmBox(`Speed test: ${zName(dev)}`, 'For about ten seconds the lights shimmer between two dim warm whites while the app sends frames faster and faster, and checks the controller keeps up. Then the schedule\u2019s pattern comes back.', 'Run the test')) return;
+      busy(b, async () => { const r = await api('musiczones', { body: { op: 'test', device: dev } }); S.settings = await api('settings');
+        toast(r.fps ? `${zName(dev)} takes ${r.fps} frames a second` : `${zName(dev)} didn\u2019t keep up even at 2 frames a second`, !r.fps); linkPanel(box); }).catch(() => {});
+    }
   };
   box.oninput = e => {
     const t = e.target;
     if (t.id === 'lksens') $('#lksensv').textContent = t.value;
     if (t.id === 'lkgain') { const v = +t.value; LINK.gain = v; $('#lkgainv').textContent = `${v > 0 ? '+' : ''}${v} dB`; linkSave({ ...linkOpts(), gain: v }); }
+    if (t.id === 'lkdelay') { const v = +t.value; $('#lkdelayv').textContent = `${v} ms`; linkSave({ ...linkOpts(), delay: v });
+      if (LINK.delayNode && LINK.ctx) LINK.delayNode.delayTime.setTargetAtTime(v / 1000, LINK.ctx.currentTime, 0.05); }
   };
   box.onchange = e => {
     const t = e.target, o2 = linkOpts();
-    if (t.id === 'lkin') linkSave({ ...o2, input: t.value });
+    if (t.id === 'lkin') { linkSave({ ...o2, input: t.value }); linkPanel(box, false); }
+    else if (t.id === 'lkfile') { LINK.files = [...t.files]; LINK.fileAt = 0; linkPanel(box, false); }
+    else if (t.dataset.lkzdev !== undefined) { const set = new Set(o2.zdevs); if (t.checked) set.add(t.dataset.lkzdev); else set.delete(t.dataset.lkzdev); linkSave({ ...o2, zdevs: [...set] }); linkPanel(box, false); }
+    else if (t.dataset.lkz !== undefined || t.id === 'lkzbase') zonesSave(t, box);
     else if (t.id === 'lklen') linkSave({ ...o2, minutes: +t.value });
     else if (t.id === 'lkpat' || t.id === 'lksens') {
       const k = t.id === 'lkpat' ? 'pattern' : 'sensitivity';
@@ -2729,6 +3061,50 @@ async function linkPanel(box, fresh = true) {
       if (LINK.on) api('musiclink', { body: { op: 'set', tab: LINK.tab, color: t.value } }).catch(err => toast(err.message, true));
     }
   };
+}
+
+/* 4.13: Music › My zones: each controller's speed test, and what each of
+   its zones follows. Saved with the household's settings. */
+const FOLLOW_NAMES = { bass: 'Bass', mid: 'Mids', treble: 'Treble', beat: 'The beat', off: 'Nothing (dark)' };
+function zonesHtml(zs, o, ro) {
+  const md = mapData(), mz = S.settings.music_zones || {}, maps = mz.maps || [];
+  const devs = Object.entries(zs.devices || {});
+  if (!devs.length) return '<p class="callout small">The controllers aren\u2019t listed yet. Open Setup \u203a Lights & controller once.</p>';
+  const chosen = devs.filter(([d]) => o.zdevs.includes(d));
+  const ctl = devs.map(([d, v]) => `<div class="item"><label class="check grow"><input type="checkbox" data-lkzdev="${esc(d)}" ${o.zdevs.includes(d) ? 'checked' : ''} ${LINK.on || ro || !v.address ? 'disabled' : ''}> ${esc(v.name)}</label>
+      <span class="small ${v.tested && v.tested.fps ? '' : 'warn'}">${!v.address ? 'No home-network address (Setup \u203a Local mode)' : v.tested ? (v.tested.fps ? `Speed test: ${v.tested.fps} frames a second` : 'Speed test: didn\u2019t keep up') : 'Not tested yet'}</span>
+      ${v.address ? `<button class="small ghost" data-lkztest="${esc(d)}" ${LINK.on || ro || zs.link ? 'disabled' : ''}>Speed test</button>` : ''}</div>`).join('');
+  const rows = chosen.map(([d, v]) => {
+    const zones = md.zones.filter(z => forDev(z, d));
+    if (!zones.length) return `<p class="small"><b>${esc(v.name)}</b>: no zones yet. Save zones on the House tab (Zones).</p>`;
+    const zsu = zoneSetup(d), need = MusicZones.worst(zsu);
+    return `<div class="stack" style="gap:6px"><b>${esc(v.name)}</b>${zones.map(z => {
+      const m = maps.find(x => x.zone === z.name && (x.device || null) === (z.device || null)) || { follows: 'off', shows: 'glow', color: '#FF6600' };
+      const k = esc(JSON.stringify([z.name, z.device || null]));
+      return `<div class="row zrow"><span class="grow" style="min-width:8em">${esc(z.name)} <span class="muted small">${z.start}\u2013${z.end}</span></span>
+        <select data-lkz="${k}" data-f="follows" aria-label="${esc(z.name)} follows" ${ro ? 'disabled' : ''}>${MusicZones.FOLLOWS.map(f => `<option value="${f}" ${m.follows === f ? 'selected' : ''}>${FOLLOW_NAMES[f]}</option>`).join('')}</select>
+        <select data-lkz="${k}" data-f="shows" aria-label="${esc(z.name)} shows as" ${ro ? 'disabled' : ''}><option value="glow" ${m.shows !== 'meter' ? 'selected' : ''}>Glow</option><option value="meter" ${m.shows === 'meter' ? 'selected' : ''}>Meter</option></select>
+        <input type="color" data-lkz="${k}" data-f="color" value="${esc(String(m.color).toLowerCase())}" aria-label="${esc(z.name)} color" ${ro ? 'disabled' : ''}></div>`; }).join('')}
+      ${need > MAX_SLOTS ? `<p class="callout warn small">These choices can need ${need} color blocks; a controller takes ${MAX_SLOTS}. Use fewer meters or zones.</p>` : ''}</div>`;
+  }).join('');
+  return `<div class="stack zonesbox"><p class="small">Which controllers\u2019 zones follow the music. Each must pass its <b>speed test</b> once: it shows how many frames a second the controller takes, the most a show will use.</p>
+    <div class="list">${ctl}</div>${rows}
+    ${chosen.length ? `<label class="row small">Everything else <input type="color" id="lkzbase" value="${esc(String(mz.base || '#000000').toLowerCase())}" ${ro ? 'disabled' : ''}> <span class="muted">(black: dark)</span></label>` : ''}
+    <p class="note"><b>Glow</b>: the whole zone brightens with what it follows. <b>Meter</b>: it fills along the zone, from its first bulb (or its last, if it runs the other way). <b>The beat</b> flashes on each beat and fades. Zones come from the House tab.</p></div>`;
+}
+let zonesTimer = null;
+function zonesSave(t, box) {
+  const n = clone(S.settings), mz = n.music_zones = n.music_zones || {};
+  if (t.id === 'lkzbase') mz.base = t.value.toUpperCase();
+  else {
+    const [zone, device] = JSON.parse(t.dataset.lkz), maps = mz.maps = mz.maps || [];
+    let m = maps.find(x => x.zone === zone && (x.device || null) === device);
+    if (!m) { m = { zone, ...(device ? { device } : {}), follows: 'off', shows: 'glow', color: '#FF6600' }; maps.push(m); }
+    m[t.dataset.f] = t.dataset.f === 'color' ? t.value.toUpperCase() : t.value;
+  }
+  S.settings = n;                      // the show uses it at once; saved a moment later
+  clearTimeout(zonesTimer);
+  zonesTimer = setTimeout(() => saveSettings(clone(S.settings), 'Saved').then(() => { if (!LINK.on) linkPanel(box, false); }).catch(() => {}), 500);
 }
 
 const SHOW_LENGTHS = [[30, '30 minutes'], [60, '1 hour'], [90, '1½ hours'], [120, '2 hours'], [180, '3 hours'], [0, 'Until I stop it']];
@@ -2971,11 +3347,11 @@ async function localPanel(box, fresh = false) {
     <div class="list">${devs.map(d => `<div class="item"><div class="grow"><b>${esc(d.name || d.id)}</b>
         <div class="row" style="align-items:flex-end;margin-top:4px"><label class="field" style="flex:1;min-width:160px">Address on your home network<input type="text" data-lcaddr="${esc(d.id)}" value="${esc(lanFor(d.id))}" placeholder="e.g. 192.168.1.50" inputmode="decimal" spellcheck="false"></label>
         <button class="small" data-lcsavedev="${esc(d.id)}">Save</button></div></div></div>`).join('')}</div>
-    <div class="row"><button class="small ghost" data-lcfind>Find controllers</button></div><div id="lcfound"></div>`
+    <div class="row"><button class="small" data-lcdisc>Find and match my controllers</button><button class="small ghost" data-lcfind>Find controllers</button></div><div id="lcfound"></div>`
     : intro + `
     <div class="row" style="align-items:flex-end">
       <label class="field" style="flex:1;min-width:180px">Controller’s address on your home network<input type="text" id="lcaddr" value="${esc(addr)}" placeholder="e.g. 192.168.1.50" inputmode="decimal" spellcheck="false"></label>
-      <button class="small" data-lcsave>Save</button><button class="small ghost" data-lcfind>Find it</button></div>`;
+      <button class="small" data-lcsave>Save</button><button class="small ghost" data-lcfind>Find it</button><button class="small ghost" data-lcdisc>Find and match</button></div><div id="lcfound"></div>`;
   // The setting is reachable even when the controller can't be read just
   // now (4.4.1: it used to show only after a good read).
   const cmd = lanAny() ? `<label class="check" style="margin-top:8px"><input type="checkbox" id="lccmd" ${l.commands ? 'checked' : ''}>
@@ -2983,10 +3359,13 @@ async function localPanel(box, fresh = false) {
   const pick = many && withAddr.length ? `<div class="row" style="margin-top:8px"><label class="field">Controller to read<select id="lcdev">${withAddr.map(d => `<option value="${esc(d.id)}" ${d.id === S.lcDev ? 'selected' : ''}>${esc(d.name || d.id)} (${esc(lanFor(d.id))})</option>`).join('')}</select></label></div>` : '';
   const q = many && S.lcDev ? 'device=' + encodeURIComponent(S.lcDev) : '';
   const dev = many ? S.lcDev : undefined;
-  if (!addr) { box.innerHTML = head + cmd + (many ? '' : '<p class="callout small">Enter the address (the Trimlight Edge app shows it when you open the controller on your home Wi-Fi), or tap <b>Find it</b>.</p>'); }
+  const keepFound = () => { const lf = $('#lcfound', box); if (lf && S.lcFound && !lf.innerHTML) lf.innerHTML = S.lcFound; };
+  if (!addr) { box.innerHTML = head + cmd + (many ? '' : '<p class="callout small">Enter the address (the Trimlight Edge app shows it when you open the controller on your home Wi-Fi), or tap <b>Find it</b>.</p>'); keepFound(); }
   else {
     box.innerHTML = head + cmd + pick + '<div id="lcbody"><p class="muted small">Reading the controller…</p></div>';
-    try {
+    keepFound();
+    // Review #4 (4.15): the buttons work while the controller is read (they were set up only after it)
+    setTimeout(async () => { try {
       const st = await api('local' + ((fresh || q) ? '?' + [fresh ? 'fresh=1' : '', q].filter(Boolean).join('&') : ''));
       $('#lcbody', box).innerHTML = `<p class="small">Ports: ${st.ports.map(p => `${p.port}: ${p.start}–${p.end}`).join(' · ')}</p>
         <h3 style="margin:8px 0 4px">On ${many ? esc((devs.find(d => d.id === S.lcDev) || {}).name || 'the controller') : 'the controller'} now (${st.patterns.length})</h3>
@@ -2999,7 +3378,7 @@ async function localPanel(box, fresh = false) {
             <div class="small">${esc(hm12(t.start))} \u2013 ${esc(hm12(t.end))} \u00b7 ${esc(t.repeat || 'repeat ' + t.repetition)} \u00b7 ${esc(t.pattern || 'pattern #' + t.effectId)}</div></div></div>`).join('')}</div>` : ''}
         <div class="row" style="margin-top:8px"><button class="small ghost" data-lcread>Read again</button>
           <button class="small" data-lcbackup>Back up now</button><span class="small muted">Saves these patterns and ports on this computer (listed under Pattern backups).</span></div>`;
-    } catch (e) { $('#lcbody', box).innerHTML = `<p class="callout warn small">${esc(e.message)}</p><div><button class="small ghost" data-lcread>Try again</button></div>`; }
+    } catch (e) { const lb = $('#lcbody', box); if (lb) lb.innerHTML = `<p class="callout warn small">${esc(e.message)}</p><div><button class="small ghost" data-lcread>Try again</button></div>`; } }, 0);
   }
   const assign = async (b, id, address, force = false) => {
     const r = await busy(b, () => api('local/address', { body: { device: id, address, force } }));
@@ -3033,6 +3412,28 @@ async function localPanel(box, fresh = false) {
         : '<p class="callout small">No controller answered. Enter each address instead (the Trimlight Edge app shows it when you open that controller on your home Wi-Fi).</p>';
     }).catch(() => {});
     if (ds.lcuse) return assign(b, $(`[data-lcfor="${CSS.escape(ds.lcuse)}"]`, box).value, ds.lcuse).catch(() => {});
+    // 4.15: find every controller on the home network, read each, and match it to the account's by its ports
+    if (ds.lcdisc !== undefined || ds.lcscan !== undefined) {
+      const out = $('#lcfound', box);
+      out.innerHTML = `<p class="muted small">${ds.lcscan !== undefined ? 'Knocking on each address of your home network (port 8586 only), then reading each controller found\u2026 this takes up to a minute.' : 'Looking for controllers and reading each one\u2026'}</p>`;
+      return busy(b, () => api('local/discover', { body: { scan: ds.lcscan !== undefined } })).then(r => {
+        const name = id => (r.devices.find(d => d.id === id) || {}).name || id;
+        const matches = r.found.filter(f => f.match && f.saved_for !== f.match);
+        out.innerHTML = (r.found.length ? `<div class="list">${r.found.map(f => `<div class="item"><div class="grow"><b class="num">${esc(f.address)}</b>
+            <span class="small muted">${f.how === 'answered' ? 'answered the search' : 'its controller port is open'}</span>
+            <div class="small">${f.error ? `<span class="warn">${esc(f.error)}</span>` : `Ports ${f.ports.filter(p => p.start || p.end).map(p => `${p.port}: ${p.start}\u2013${p.end}`).join(' \u00b7 ')}. ${f.count} pattern${f.count === 1 ? '' : 's'}${f.patterns.length ? ': ' + esc(f.patterns.join(', ')) : ''}.`}</div>
+            <div class="small">${f.saved_for ? `Saved as <b>${esc(name(f.saved_for))}</b>\u2019s address.${f.match && f.match !== f.saved_for ? ` <span class="warn">Its ports match ${esc(name(f.match))} instead.</span>` : ''}`
+              : f.match ? `This is <b>${esc(name(f.match))}</b> (its ports match).` : esc(f.note || 'Not matched to a controller on your account.')}</div></div>
+            ${f.match && f.saved_for !== f.match ? `<button class="small" data-lcmatch="${esc(f.address)}" data-dev="${esc(f.match)}">Use for ${esc(name(f.match))}</button>` : ''}</div>`).join('')}</div>`
+          : '<p class="callout small">No controller answered.</p>')
+          + `<div class="row">${matches.length > 1 ? `<button class="small primary" data-lcall='${esc(JSON.stringify(matches.map(f => [f.match, f.address])))}'>Use all ${matches.length} matches</button>` : ''}
+              ${ds.lcscan === undefined ? '<button class="small ghost" data-lcscan>Look harder (check each address on this network)</button>' : ''}</div>`;
+        S.lcFound = out.innerHTML;          // kept when the panel draws again (the controller read finishing, a save)
+      }).catch(() => { out.innerHTML = ''; });
+    }
+    if (ds.lcmatch) return assign(b, ds.dev, ds.lcmatch).catch(() => {});
+    if (ds.lcall) return busy(b, async () => { for (const [dev, a] of JSON.parse(ds.lcall)) await api('local/address', { body: { device: dev, address: a, force: true } });
+      S.settings = await api('settings'); toast('Addresses saved'); localPanel(box); }).catch(() => {});
     if (ds.lcwhich) return busy(b, () => api('local/identify', { body: { address: ds.lcwhich } })).then(r => {
       const el = $(`[data-lcinfo="${CSS.escape(ds.lcwhich)}"]`, box);
       if (el) el.textContent = `Ports ${r.ports.map(p => `${p.port}: ${p.start}–${p.end}`).join(' · ')}. ${r.count} pattern${r.count === 1 ? '' : 's'}${r.patterns.length ? ': ' + r.patterns.join(', ') + (r.count > r.patterns.length ? ', …' : '') : ''}.`;
@@ -3326,6 +3727,7 @@ VIEWS.settings = async (sec) => {
           <div class="row"><button data-export>Export patterns and schedule</button>${role() !== 'viewer' ? '<label class="btn" tabindex="0">Import a file<input type="file" id="impf" accept=".json,application/json" hidden></label>' : ''}</div></div>
         <div class="panel stack" id="updbox"><h2>Updates</h2><p class="muted small">Loading…</p></div>
         ${fold('usage', 'Lights usage', '<div class="panel stack" id="usagebox"></div>')}
+        <div class="panel stack" id="pwabox"></div>
         <div class="panel stack"><h2>Setup and about</h2>
           ${admin ? '<div><button class="ghost" data-wizard>Run the setup assistant again</button></div>' : ''}
           <p class="small muted">Version ${esc(a.version)}${a.python ? ` · Python ${esc(a.python)}<br>Data folder: <code>${esc(a.data_dir)}</code>` : ''}</p>
@@ -3375,13 +3777,28 @@ VIEWS.settings = async (sec) => {
         <p class="note">${u.from_source ? 'This copy runs from the source code: download the new zip from that page (or <code>git pull</code>) and start it the same way.' : 'Quit the app, open the download and start the new version; your settings are kept.'} See Manual, section 23.</p>` : ''}
       ${admin ? `<label class="check"><input type="checkbox" id="updon" ${u.enabled ? 'checked' : ''}> Check GitHub for a new version once a day</label>
         <div><button class="small ghost" data-updnow ${u.enabled ? '' : 'disabled'}>Check now</button></div>` : ''}
+      ${admin ? updInstallHtml(u) : ''}
       <p class="note">The app computer only asks GitHub which version is newest; nothing about your home is sent, and nothing is downloaded or installed by itself.</p>`;
     const on = $('#updon');
     if (on) on.onchange = () => busy(null, () => api('update/settings', { body: { enabled: on.checked } }))
       .then(r => { drawUpdates(r); updateBar(r); }).catch(() => { on.checked = !on.checked; });
+    // 4.15: install, roll back, and installing by themselves
+    const au = $('#updauto');
+    if (au) au.onchange = () => busy(null, () => api('update/auto', { body: { auto: au.checked } })).then(drawUpdates).catch(() => { au.checked = !au.checked; });
+    box.onclick = async e => {
+      const b = e.target.closest('button'); if (!b) return;
+      if (b.dataset.updinstall !== undefined) {
+        if (!await confirmBox(`Install EaveLuxOS ${u.latest}?`, 'It downloads the new version, checks it against the release\u2019s SHA-256 list, and restarts as the new version (the lights pause for a moment). If the new version doesn\u2019t start properly, the app goes back to this one by itself.', 'Install')) return;
+        busy(b, () => api('update/install', { body: {} })).then(r => updWait(box, r.installing)).catch(() => {});
+      } else if (b.dataset.updback !== undefined) {
+        if (!await confirmBox('Go back to the previous version?', `EaveLuxOS restarts as ${esc(u.install.previous || 'the version before')}. Your settings stay as they are.`, 'Go back', true)) return;
+        busy(b, () => api('update/rollback', { body: {} })).then(() => updWait(box, null)).catch(() => {});
+      }
+    };
   };
   if (admin && $('#aibox')) whenOpen('ai', () => aiPanel($('#aibox')));
   if ($('#usagebox')) whenOpen('usage', () => usagePanel($('#usagebox')));
+  if ($('#pwabox')) pwaPanel($('#pwabox'));
   if ($('#updbox')) api('update').then(drawUpdates).catch(e => { const box = $('#updbox'); if (box) box.innerHTML = `<h2>Updates</h2><p class="muted small">${esc(e.message)}</p>`; });
   if (admin && $('#hist')) api('history?limit=15').then(h => {
     $('#hist').innerHTML = h.length ? h.map((v, i) => `<div class="item"><div class="grow"><div class="name">${esc(new Date(v.saved_at).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }))}</div>
@@ -3499,9 +3916,280 @@ VIEWS.manual = async () => {
   };
 };
 
+/* ---------------------------------------------------------------- CONTROLLER HEALTH (4.15)
+   Each controller: online and firmware (from Trimlight's cloud), how its
+   requests went today and over 14 days, the last error, and a check over
+   the home network. */
+const ago = sec => { const s = Math.max(0, Math.round(Date.now() / 1000 - sec));
+  return s < 60 ? 'just now' : s < 3600 ? `${Math.round(s / 60)} min ago` : s < 86400 ? `${Math.round(s / 3600)} h ago` : `${Math.round(s / 86400)} days ago`; };
+VIEWS.health = async (fresh) => {
+  const m = $('#main');
+  if (!fresh) m.innerHTML = '<div class="view"><h2>Controller health</h2><p class="muted">Loading\u2026</p></div>';
+  let r;
+  try { r = fresh || await api('health'); } catch (e) { m.innerHTML = `<div class="view"><h2>Controller health</h2><p class="callout warn">${esc(e.message)}</p></div>`; return; }
+  if (S.view !== 'health') return;
+  const ro = role() === 'viewer';
+  const card = d => {
+    const peak = Math.max(1, ...d.days.map(x => x.ok + x.fail));
+    const dot = d.online === true ? 'ok' : d.online === false ? 'bad' : '';
+    return `<div class="panel stack hcard"><div class="panel-head"><h2><span class="hdot ${dot}"></span>${esc(d.name)}</h2>
+        <span class="small muted">${d.online === true ? 'Online' : d.online === false ? 'Offline' : 'Not known yet'}${d.firmware ? ` \u00b7 firmware ${esc(d.firmware)}` : ''}${d.run ? '' : ' \u00b7 not run by this app'}</span></div>
+      <div class="hstats">
+        <div><b>${d.today.ok + d.today.fail}</b><small>requests today</small></div>
+        <div><b class="${d.success !== null && d.success < 90 ? 'warn' : ''}">${d.success === null ? '\u2014' : d.success + '%'}</b><small>worked today</small></div>
+        <div><b>${d.today.avg === null ? '\u2014' : d.today.avg + ' ms'}</b><small>typical answer</small></div>
+        <div><b>${d.week.success === null ? '\u2014' : d.week.success + '%'}</b><small>worked this week</small></div></div>
+      <div class="hbars" role="img" aria-label="Requests per day for 14 days; failed ones in red">${d.days.map(x => `<div title="${esc(x.day)}: ${x.ok} worked, ${x.fail} failed${x.avg ? `, typically ${x.avg} ms` : ''}">
+        <span class="hb ok" style="height:${x.ok / peak * 100}%"></span><span class="hb bad" style="height:${x.fail / peak * 100}%"></span></div>`).join('')}</div>
+      <p class="small">${d.last ? `Last request ${ago(d.last.at)}: ${d.last.ok ? `answered in ${d.last.ms} ms` : 'failed'}.` : 'No requests counted yet.'}
+        ${d.error ? `<br><span class="warn">Last problem ${ago(d.error.at)}: ${esc(d.error.error)}</span>` : ''}</p>
+      <p class="small">Home network: ${d.address ? `<code>${esc(d.address)}</code>${d.lan ? (d.lan.ms !== null ? `, answered in ${d.lan.ms} ms (${ago(d.lan.at)})` : `, <span class="warn">didn\u2019t answer (${ago(d.lan.at)}): ${esc(d.lan.error || '')}</span>`) : ', not checked yet'}`
+        : 'no address saved (Setup \u203a Local mode, or Find controllers there).'}</p></div>`;
+  };
+  m.innerHTML = `<div class="view"><div class="panel-head"><h2>Controller health</h2>${ro ? '' : '<button class="small" data-hcheck>Check now</button>'}</div>
+    <p class="note">How each controller has been answering this app: every request to Trimlight\u2019s cloud is counted. <b>Check now</b> asks the cloud again (online, firmware), reads each controller and greets it on your home network.</p>
+    <div class="cols">${r.devices.length ? r.devices.map(card).join('') : '<p class="muted">No controllers listed yet.</p>'}</div></div>`;
+  m.onclick = e => { const b = e.target.closest('[data-hcheck]'); if (b) busy(b, () => api('health/check', { body: {} })).then(x => VIEWS.health(x)).catch(() => {}); };
+};
+
+/* ---------------------------------------------------------------- UPDATES THAT INSTALL (4.15) */
+function updInstallHtml(u) {
+  const i = u.install || {}, last = i.last || {};
+  const lastLine = last.stage === 'rolled_back' ? `<p class="callout warn small">EaveLuxOS ${esc(last.to || '')} didn\u2019t start properly (${esc(last.why || '')}), so the app went back to ${esc(last.frm || 'the version before')} by itself.</p>`
+    : last.stage === 'done' && last.to === u.current && last.frm ? `<p class="small muted">Updated from ${esc(last.frm)} to ${esc(u.current)}.</p>` : '';
+  if (!i.ok) return lastLine + (u.newer ? `<p class="note">${esc(i.why || '')}</p>` : '');
+  return `${lastLine}
+    ${u.newer && u.download_name ? `<div><button class="small primary" data-updinstall>Install ${esc(u.latest)} now</button></div>` : ''}
+    <label class="check"><input type="checkbox" id="updauto" ${u.auto ? 'checked' : ''}> Install new versions by themselves, while the lights are off</label>
+    ${i.can_roll_back ? `<div><button class="small ghost" data-updback>Go back to ${esc(i.previous || 'the previous version')}</button></div>` : ''}
+    <p class="note">Each download is checked against the release\u2019s SHA-256 list before it\u2019s used. The version you have now is kept, and if the new one doesn\u2019t start and keep answering, the app goes back to it by itself.</p>`;
+}
+/* After Install or Go back: this page waits for the app to answer again. */
+async function updWait(box, version) {
+  box.innerHTML = `<h2>Updates</h2><p>${version ? `Installing EaveLuxOS ${esc(version)}` : 'Going back to the previous version'}\u2026 The app restarts; this page reloads when it answers again.</p>`;
+  const end = Date.now() + 240000;
+  await new Promise(r => setTimeout(r, 4000));
+  while (Date.now() < end) {
+    try { const s = await fetch('api/session', { cache: 'no-store' }).then(r => r.json()); if (s && s.version) { location.reload(); return; } } catch { /* restarting */ }
+    await new Promise(r => setTimeout(r, 2000));
+  }
+  box.innerHTML += '<p class="callout warn small">The app hasn\u2019t answered yet. Check the app computer.</p>';
+}
+
+/* ---------------------------------------------------------------- WHO WINS TONIGHT (4.15)
+   A night, noon to noon, for each controller: what shows when, what it
+   beats and why, and what could still take over (weather, automations,
+   alerts). Warnings for what's likely to surprise. */
+async function winPanel(box, day) {
+  if (!box) return;
+  let r;
+  try { r = await api('conflicts' + (day ? '?date=' + encodeURIComponent(day) : '')); }
+  catch (e) { box.innerHTML = `<h2>Who wins tonight</h2><p class="callout warn small">${esc(e.message)}</p>`; return; }
+  const t = x => new Date(x).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const a0 = Date.parse(r.start), a1 = Date.parse(r.end), pct = x => (Date.parse(x) - a0) / (a1 - a0) * 100;
+  const kinds = { rule: 'Rule', holiday: 'Holiday', 'game day': 'Game day' };
+  const dev = Object.entries(r.devices).map(([d, spans]) => {
+    const on = spans.filter(x => x.on);
+    return `<div class="stack" style="gap:6px">${d !== 'all' ? `<b>${esc(r.names[d] || d)}</b>` : ''}
+      <div class="tlbar" style="height:14px" aria-hidden="true">${on.map(x => { const e = (S.settings.effects || {})[x.winner.effect_key];
+        const c = e && e.colors ? '#' + String(e.colors.find(k => !/^(off|x)$/i.test(k)) || 'FFC062').replace('#', '') : '#FFC062';
+        return `<i style="left:${pct(x.start)}%;width:${pct(x.end) - pct(x.start)}%;background:${esc(c)}" title="${esc(x.winner.name)}"></i>`; }).join('')}</div>
+      <div class="list">${on.length ? on.map(x => `<div class="item"><div class="grow">
+          <div class="name">${t(x.start)} \u2013 ${t(x.end)}: ${esc(x.winner.effect)}</div>
+          <div class="sub">${kinds[x.winner.kind] || 'Rule'} \u201c${esc(x.winner.name)}\u201d, priority ${x.winner.priority}${x.beaten.length ? '. Beats ' + x.beaten.map(b => `\u201c${esc(b.name)}\u201d (${esc(b.why)})`).join(', ') : ''}.</div>
+          ${x.weather.length ? `<div class="sub">If the weather turns: ${x.weather.map(w => `${esc(w.name)} (${esc(w.when.join(', '))}, priority ${w.priority}) shows ${esc(w.effect)}`).join('; ')}.</div>` : ''}</div></div>`).join('')
+        : '<p class="muted small">The lights stay off this night.</p>'}</div></div>`;
+  }).join('');
+  const autos = r.automations.length ? `<p class="small"><b>Automations</b> come on top when they run: ${r.automations.map(a => `\u201c${esc(a.name)}\u201d ${a.at ? 'at ' + t(a.at) : esc(a.when)} (priority ${a.priority})`).join('; ')}.</p>` : '';
+  box.innerHTML = `<div class="panel-head"><h2>Who wins tonight</h2><label class="row small">Night of <input type="date" id="windate" value="${esc(r.date)}" style="width:auto"></label></div>
+    ${r.warnings.map(w => `<p class="callout ${w.level === 'weather' ? '' : 'warn'} small">${esc(w.text)}</p>`).join('')}
+    ${dev}${autos}
+    <p class="note">From noon to noon. The order, highest first: a security flash or celebration, a severe weather warning, a choice made by hand (until the next scheduled change), automations when they run, a weather rule with a higher priority than what's on, then rules, holidays and game days by priority (the same priority: the one listed first).</p>`;
+  box.onchange = e => { if (e.target.id === 'windate' && e.target.value) winPanel(box, e.target.value); };
+}
+
+/* ---------------------------------------------------------------- ON A PHONE (4.14)
+   EaveLuxOS as an app on the home screen: a service worker (sw.js) keeps
+   the app's own files on the phone where the browser allows it (an https://
+   address, or this computer); shortcuts on the icon (?do=on, off, resume,
+   flash); an install button where the browser offers one; and Quick, a
+   screen of big buttons for what you reach for most. */
+const COARSE = matchMedia('(pointer: coarse)').matches;
+const standalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+const IOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+let INSTALL = null;
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); INSTALL = e; installBar(); const p = $('#pwabox'); if (p) pwaPanel(p); });
+window.addEventListener('appinstalled', () => { INSTALL = null; const b = $('#installbar'); if (b) b.remove(); toast('EaveLuxOS is on your home screen'); });
+function pwaStart() {
+  if ('serviceWorker' in navigator && window.isSecureContext && !pwaStart.done) {
+    pwaStart.done = true;
+    navigator.serviceWorker.register('sw.js').catch(() => { /* the app works as before without it */ });
+  }
+  const p = new URLSearchParams(location.search), act = p.get('do');
+  if (p.has('do') || p.has('app')) history.replaceState(null, '', location.pathname + location.hash);
+  if (act && ['on', 'off', 'resume', 'flash'].includes(act)) {
+    if (role() === 'viewer') toast('A viewer account can\u2019t change the lights.', true);
+    // Review #1 (4.14): the installed app's own shortcuts act at once; the same
+    // address opened as a link (an email, another web page) asks first.
+    else if (standalone()) quickDo({ type: act }).catch(() => {});
+    else confirmBox(`${quickInfo({ type: act }).label}?`, 'A link asked EaveLuxOS to do this.', 'Yes').then(ok => ok && quickDo({ type: act }).catch(() => {}));
+  }
+  installBar();
+}
+/* A bar on a phone's browser (not the installed app): put it on the home screen. */
+function installBar() {
+  if (!COARSE || standalone() || $('#installbar')) return;
+  let hidden = null; try { hidden = localStorage.getItem('elx-install-hidden'); } catch { /* no storage */ }
+  if (hidden) return;
+  const bar = document.createElement('div');
+  bar.id = 'installbar'; bar.className = 'callout ok viewonly updbar';
+  bar.innerHTML = `<span class="grow"><b>Put EaveLuxOS on your home screen</b> for one-tap lights.</span>
+    ${INSTALL ? '<button class="small primary" data-inst>Install</button>' : '<button class="small primary" data-insthow>How</button>'}
+    <button class="small ghost" data-insthide>Not now</button>`;
+  bar.onclick = e => {
+    const b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.inst !== undefined) return pwaInstall();
+    if (b.dataset.insthow !== undefined) return go('app');
+    try { localStorage.setItem('elx-install-hidden', '1'); } catch { /* no storage */ }
+    bar.remove();
+  };
+  const upd = $('#updbar'); upd.parentNode.insertBefore(bar, upd.nextSibling);
+}
+async function pwaInstall() {
+  if (!INSTALL) return go('app');
+  INSTALL.prompt();
+  const r = await INSTALL.userChoice.catch(() => null);
+  INSTALL = null;
+  if (r && r.outcome === 'accepted') { const b = $('#installbar'); if (b) b.remove(); }
+}
+/* Setup › App: On your phone. */
+function pwaPanel(box) {
+  const secure = window.isSecureContext, sw = !!(navigator.serviceWorker && navigator.serviceWorker.controller);
+  const how = IOS ? 'In <b>Safari</b>, tap <b>Share</b> (the square with an arrow), then <b>Add to Home Screen</b>.'
+    : 'In <b>Chrome</b>, tap the <b>\u22ee</b> menu, then <b>Install app</b> (or <b>Add to Home screen</b>).';
+  box.innerHTML = `<h2>On your phone</h2>
+    <p>${standalone() ? '<b>You\u2019re using the installed app.</b>' : INSTALL ? '<b>This browser can install EaveLuxOS as an app.</b>' : 'Put EaveLuxOS on your phone\u2019s home screen: it opens full screen, like any app, with no app store.'}</p>
+    ${INSTALL ? '<div><button class="primary" data-pwainstall>Install EaveLuxOS</button></div>' : standalone() ? '' : `<p class="small">${how}</p>`}
+    <ul class="small" style="margin:0;padding-left:1.2em">
+      <li>The icon opens <b>Quick</b>: big buttons for On, Off, the schedule, your favorites and scenes. Press and hold the icon (Android) for <b>Lights on</b>, <b>Lights off</b>, <b>Back to the schedule</b> and <b>Security flash</b>.</li>
+      <li>${secure ? (sw ? 'This address is secure, so the app\u2019s files are kept on this device: it opens at once, and says so plainly when you\u2019re away from home.' : 'This address is secure, so the app\u2019s files are kept on this device after the next visit.')
+        : 'This address is plain <code>http://</code>, so the app works but isn\u2019t kept on the phone, and Android adds a shortcut instead of an app. For the full app, use the app\u2019s <code>https://</code> address (Manual, section 8: HTTPS with mkcert, trusted on the phone).'}</li>
+      <li>It works on your home Wi-Fi (or your home VPN), as the app always has.</li></ul>`;
+  box.onclick = e => { if (e.target.closest('[data-pwainstall]')) pwaInstall(); };
+}
+
+/* Quick: big buttons for what you reach for most. The household chooses
+   them (settings "quick", up to 12); until then: On, Off, the schedule,
+   your favorites and your scenes. */
+const QUICK_MAX = 12;
+function quickTiles() {
+  const effs = S.settings.effects || {}, autos = S.settings.automations || [];
+  const ok = t => t && (['on', 'off', 'resume', 'flash'].includes(t.type) || (t.type === 'pattern' && effs[t.key]) || (t.type === 'auto' && autos.some(a => a.id === t.id)));
+  const set = (S.settings.quick || []).filter(ok);
+  if (set.length) return set.slice(0, QUICK_MAX);
+  const scenes = Object.keys(effs).filter(k => effs[k].scene && !favs().includes(k)).slice(0, 3);
+  return [{ type: 'on' }, { type: 'off' }, { type: 'resume' }, ...favs().map(key => ({ type: 'pattern', key })), ...scenes.map(key => ({ type: 'pattern', key }))].slice(0, QUICK_MAX);
+}
+function quickInfo(t) {
+  const e = (S.settings.effects || {})[t.key], a = (S.settings.automations || []).find(x => x.id === t.id);
+  return {
+    on: { label: 'Lights on', sub: 'Tonight\u2019s pattern', icon: 'bulbon' }, off: { label: 'Lights off', sub: 'Until the next scheduled change', icon: 'power' },
+    resume: { label: 'Back to the schedule', sub: 'Whatever the schedule says now', icon: 'time' },
+    flash: { label: 'Security flash', sub: 'Bright lights for a few minutes', icon: 'bolt' },
+    pattern: { label: e ? e.label || t.key : t.key, sub: e && e.scene ? 'Scene' : 'Pattern', colors: e ? effectSwatches(e).slice(0, 6) : [] },
+    auto: { label: a ? a.name : 'Automation', sub: 'Automation: try it now', icon: 'bolt' },
+  }[t.type] || { label: t.type };
+}
+async function quickDo(t, b) {
+  if (navigator.vibrate) { try { navigator.vibrate(12); } catch { /* not allowed */ } }
+  const run = {
+    on: () => api('action', { body: { action: 'on' } }), off: () => api('action', { body: { action: 'off' } }),
+    resume: () => api('action', { body: { action: 'resume' } }), flash: () => api('action', { body: { action: 'flash' } }),
+    pattern: () => api('action', { body: { action: 'on', effect: t.key } }),
+    auto: () => api('automation/try', { body: { id: t.id } }),
+  }[t.type];
+  if (!run) return;
+  await busy(b, run);
+  const info = quickInfo(t);
+  toast({ on: 'Lights on', off: 'Lights off', resume: 'Back on the schedule', flash: 'Security flash on' }[t.type] || `${info.label}`);
+  refreshStatus().catch(() => {});
+  if (S.view === 'quick') VIEWS.quick(true);
+}
+VIEWS.quick = async (soft) => {
+  const m = $('#main');
+  if (!soft) m.innerHTML = '<div class="view"><p class="muted">Loading\u2026</p></div>';
+  let st = S.status;
+  try { st = await refreshStatus(); } catch (e) { if (!st) { m.innerHTML = `<div class="view"><p class="callout warn">${esc(e.message)}</p></div>`; return; } }
+  if (S.view !== 'quick') return;
+  const ro = role() === 'viewer', tiles = quickTiles(), lv = st.levels || {}, t = st.target || {};
+  const { head, sub } = st.setup_only ? { head: 'Setup needed', sub: '' } : stateLine(st);
+  m.innerHTML = `<div class="view quickview">
+    <div class="qhead"><div class="grow"><h1>${esc(head)}</h1><p class="muted">${esc(sub)}</p></div>
+      ${ro ? '' : '<button class="small ghost" data-qedit>Edit</button>'}</div>
+    <div class="qtiles">${tiles.map((x, i) => { const info = quickInfo(x);
+      const cur = (x.type === 'pattern' && t.on && t.effect_key === x.key) || (x.type === 'off' && !t.on);
+      return `<button class="qtile${cur ? ' current' : ''}" data-qi="${i}" ${ro || st.setup_only ? 'disabled' : ''} aria-label="${esc(info.label)}">
+        ${info.colors ? `<span class="qsw">${info.colors.map(c => `<i style="background:${esc(c)}"></i>`).join('') || '<i></i>'}</span>` : `<span class="qic">${icon(info.icon)}</span>`}
+        <b>${esc(info.label)}</b><small>${esc(info.sub)}</small></button>`; }).join('')}</div>
+    ${t.on && !ro && t.reason !== 'music' && t.reason !== 'flash' ? `<label class="field qbright">Brightness <span class="muted" id="qbv">${Math.round((lv.brightness ?? 200) / 255 * 100)}%</span>
+      <input type="range" id="qbright" min="10" max="255" value="${lv.brightness ?? 200}" aria-label="Brightness"></label>` : ''}
+    <div class="row"><button class="ghost" data-qhome>Everything else (Home)</button></div></div>`;
+  m.onclick = e => {
+    const b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.qi !== undefined) return quickDo(tiles[+b.dataset.qi], b).catch(() => {});
+    if (b.dataset.qhome !== undefined) return go('home');
+    if (b.dataset.qedit !== undefined) return quickEdit();
+  };
+  let bt = null;
+  m.oninput = e => {
+    if (e.target.id !== 'qbright') return;
+    const v = +e.target.value; $('#qbv').textContent = Math.round(v / 255 * 100) + '%';
+    clearTimeout(bt); bt = setTimeout(() => api('action', { body: { action: 'levels', brightness: v } }).catch(err => toast(err.message, true)), 250);
+  };
+};
+function quickEdit() {
+  const effs = Object.entries(S.settings.effects || {}), autos = S.settings.automations || [];
+  let list = clone(quickTiles());
+  const opts = () => [['on', 'Lights on'], ['off', 'Lights off'], ['resume', 'Back to the schedule'], ['flash', 'Security flash'],
+    ...effs.map(([k, e]) => [`p:${k}`, `${e.scene ? 'Scene' : 'Pattern'}: ${e.label || k}`]), ...autos.map(a => [`a:${a.id}`, `Automation: ${a.name}`])];
+  const parse = v => v.startsWith('p:') ? { type: 'pattern', key: v.slice(2) } : v.startsWith('a:') ? { type: 'auto', id: v.slice(2) } : { type: v };
+  const draw = f => {
+    $('[data-qlist]', f).innerHTML = list.map((x, i) => `<div class="item"><span class="grow">${esc(quickInfo(x).label)}</span>
+      <button type="button" class="small ghost" data-qup="${i}" ${i ? '' : 'disabled'} aria-label="Move up">\u2191</button>
+      <button type="button" class="small ghost" data-qdown="${i}" ${i < list.length - 1 ? '' : 'disabled'} aria-label="Move down">\u2193</button>
+      <button type="button" class="small ghost danger" data-qdel="${i}" aria-label="Remove">\u2715</button></div>`).join('') || '<p class="muted small">No buttons: Quick shows the usual ones.</p>';
+    $('[data-qadd]', f).disabled = list.length >= QUICK_MAX;
+  };
+  dialog(`<h2>Quick buttons</h2><p class="note">Up to ${QUICK_MAX}, in this order, for everyone in the household.</p>
+    <div class="list" data-qlist></div>
+    <div class="row"><select name="add" style="flex:1;min-width:0">${opts().map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join('')}</select>
+      <button type="button" class="small" data-qadd>Add</button></div>`, async () => {
+    const n = clone(S.settings); n.quick = list; await saveSettings(n, 'Quick buttons saved'); VIEWS.quick(true);
+  }, { ok: 'Save', onOpen: f => {
+    draw(f);
+    f.addEventListener('click', e => {
+      const b = e.target.closest('button'); if (!b) return; const d = b.dataset;
+      if (d.qadd !== undefined) list.push(parse(f.add.value));
+      else if (d.qup) { const i = +d.qup; [list[i - 1], list[i]] = [list[i], list[i - 1]]; }
+      else if (d.qdown) { const i = +d.qdown; [list[i + 1], list[i]] = [list[i], list[i + 1]]; }
+      else if (d.qdel) list.splice(+d.qdel, 1);
+      else return;
+      draw(f);
+    });
+  } });
+}
+
 /* ---------------------------------------------------------------- start */
 window.addEventListener('hashchange', () => { const v = location.hash.slice(1); if (S.session?.authed && v !== S.view && (VIEWS[v] || v in VIEW_ALIAS)) go(v, undefined, true); });
-boot().catch(e => { $('#main').innerHTML = `<div class="gate"><p class="callout warn">Can't reach the app: ${esc(e.message)}</p></div>`; });
+boot().catch(e => {
+  // 4.14: opened from the home screen away from home (or the app computer is off): say so plainly
+  const away = e instanceof TypeError || !navigator.onLine;
+  $('#main').innerHTML = away ? `<div class="gate"><div class="panel stack"><h2>Can\u2019t reach EaveLuxOS</h2>
+      <p>This ${COARSE ? 'phone' : 'device'} can\u2019t reach the app computer right now. EaveLuxOS works on your home network: join your home Wi-Fi (or your home VPN), and check the app computer is on with EaveLuxOS running.</p>
+      <div><button class="primary" data-retry>Try again</button></div></div></div>`
+    : `<div class="gate"><p class="callout warn">Can't reach the app: ${esc(e.message)}</p></div>`;
+  const r = $('#main [data-retry]'); if (r) r.onclick = () => location.reload();      // no inline handlers (the page's security policy)
+});
 
 /* ---------------------------------------------------------------- HOUSE MAP: bulb finder, photos, landmarks, zones */
 const MAX_SLOTS = 30, PER_SLOT = 90;
@@ -3597,12 +4285,34 @@ function loadPhoto(side) {
     } finally { delete photoLoads[key]; }
   })());
 }
-/* Four sides of the house plus a shed are always there; added sides follow. */
+/* Four elevations of the house plus a shed are always there; added ones
+   follow. 4.12: a side can have versions (day and night photos, before and
+   after), each a side of its own with "of" naming its elevation. */
 function mapData() {
-  const m = S.settings.map || {}, saved = m.sides || [];
-  const sides = [...window.Roofline.DEFAULT_SIDES.map(d => saved.find(x => x.id === d.id) || d), ...saved.filter(x => !window.Roofline.DEFAULT_SIDES.some(d => d.id === x.id))];
+  const m = S.settings.map || {}, saved = m.sides || [], RLx = window.Roofline;
+  const sides = [...RLx.DEFAULT_SIDES.map(d => { const x = saved.find(y => y.id === d.id);
+      return x ? { ...d, ...x, name: x.name === RLx.OLD_NAMES[d.id] ? d.name : x.name } : { ...d }; }),
+    ...saved.filter(x => !RLx.DEFAULT_SIDES.some(d => d.id === x.id))];
   return { total_bulbs: m.total_bulbs ?? null, sides, landmarks: m.landmarks || [], zones: m.zones || [], rooflines: clone(m.rooflines || {}) };
 }
+/* 4.12: elevations and their versions. A "key" is what a photo, its
+   rooflines and its pins are saved under: an elevation's id (its first
+   version) or one of its versions' ids. */
+const Elev = {
+  list: md => md.sides.filter(x => !x.of),
+  of: (md, key) => { const x = md.sides.find(y => y.id === key); return x && x.of ? md.sides.find(y => y.id === x.of) || x : x; },
+  versions: (md, id) => [md.sides.find(y => y.id === id), ...md.sides.filter(y => y.of === id)].filter(Boolean),
+  use: (md, e) => (e.use && md.sides.some(y => y.id === e.use && (y.id === e.id || y.of === e.id))) ? e.use : e.id,
+  vname: (md, key) => { const x = md.sides.find(y => y.id === key); return !x ? '' : x.of ? x.name : (x.vname || 'Main'); },
+  label: (md, key) => { const e = Elev.of(md, key); if (!e) return key; const vs = Elev.versions(md, e.id);
+    return vs.length > 1 ? `${e.name} \u00b7 ${Elev.vname(md, key)}` : e.name; },
+  // A new id for a version or an imported elevation, unused so far
+  slug: name => String(name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 30) || 'side',
+  newId: (md, base) => { const b = Elev.slug(base);
+    for (let i = 0; ; i++) { const id = i ? `${b}-${i + 1}` : b;
+      if (!md.sides.some(x => x.id === id) && !(md.rooflines || {})[id] && !(S.photos && S.photos.has(id))) return id; } },
+  KINDS: [['front', 'Front elevation'], ['side', 'Side elevation'], ['rear', 'Rear elevation'], ['other', 'Other (garage, shed, deck)']],
+};
 function addressSpace(dev) {
   // 4.10: one controller's own count when asked for one; otherwise the house's
   const d = dev && (S.devices || []).find(x => x.id === dev && x.ports);
@@ -3659,7 +4369,8 @@ VIEWS.map = async () => {
     F.bulb = Math.max(1, Math.min(T, F.bulb)); F.end = Math.max(F.bulb, Math.min(T, F.end));
     if (!md.sides.some(x => x.id === F.side)) F.side = md.sides[0].id;
     const pins = md.landmarks.map((l, i) => ({ ...l, i })).filter(l => l.side === F.side && l.x != null && forDev(l, HD));
-    const sideNow = md.sides.find(x => x.id === F.side) || {};
+    const sideNow = Elev.of(md, F.side) || {}, vers = Elev.versions(md, sideNow.id), useKey = Elev.use(md, sideNow);
+    const isDefault = window.Roofline.DEFAULT_SIDES.some(x => x.id === sideNow.id);
     const inSel = b => F.range ? b >= F.bulb && b <= F.end : b === F.bulb;
     const ports = ((S.devices || []).find(x => x.selected && x.ports) || {}).ports || [];
     if (R.tracing) F.placing = false;
@@ -3670,16 +4381,24 @@ VIEWS.map = async () => {
           `<option value="${esc(x.id)}" ${x.id === HD ? 'selected' : ''}>${esc(x.name || 'Controller')} (${devBulbs(x)} bulbs)</option>`).join('')}</select></label>` : ''}</div>
       ${many && !HD ? '<p class="note">The finder lights a bulb number on every controller at once. Choose a <b>Controller</b> above to light only that one\u2019s; the others keep showing what they were.</p>' : ''}
       ${RF.flat}
+      ${fold('whole', 'Whole house: every elevation at once', '<div class="panel stack" id="wholebox"><p class="muted small">Loading\u2026</p></div>')}
       <div class="cols wide-left">
         <div class="stack">
           <div class="panel stack">
-            <div class="row" role="tablist" aria-label="Sides of the house">${md.sides.map(x => `<button class="small ${x.id === F.side ? 'current' : ''}" data-side="${esc(x.id)}">${esc(x.name)}</button>`).join('')}
-              <button class="small ghost" data-addside>Add a side</button></div>
-            ${many ? `<label class="row small" style="gap:6px">This side\u2019s lights<select id="sidedev" style="width:auto"><option value="">Any controller</option>${houseDevs().map(x =>
+            <div class="row" role="tablist" aria-label="Elevations of the house">${Elev.list(md).map(x => `<button class="small ${x.id === sideNow.id ? 'current' : ''}" data-side="${esc(x.id)}">${esc(x.name)}</button>`).join('')}
+              <button class="small ghost" data-addside>Add an elevation</button></div>
+            <div class="row small" aria-label="Versions of this elevation"><span class="muted">Versions</span>${vers.map(v => `<button class="small ${v.id === F.side ? 'current' : 'ghost'}" data-ver="${esc(v.id)}" ${v.id === useKey && vers.length > 1 ? 'title="Shown in the whole house"' : ''}>${esc(Elev.vname(md, v.id))}${v.id === useKey && vers.length > 1 ? ' \u2605' : ''}</button>`).join('')}
+              <button class="small ghost" data-addver ${md.sides.length >= 80 ? 'disabled' : ''}>Add a version</button>
+              ${vers.length > 1 && F.side !== useKey ? '<button class="small" data-usever>Show this version in the whole house</button>' : ''}</div>
+            <div class="row small"><button class="small ghost" data-renelev>Rename</button><button class="small ghost" data-exportelev title="A file with this elevation's photos, rooflines, bulbs and pins">Export this elevation</button>
+              <label class="btn small ghost">Import an elevation<input type="file" id="elevfile" accept=".json,application/json" hidden></label>
+              ${F.side !== sideNow.id ? '<button class="small ghost danger" data-delver>Delete this version</button>' : ''}
+              ${!isDefault ? '<button class="small ghost danger" data-delelev>Delete this elevation</button>' : ''}</div>
+            ${many ? `<label class="row small" style="gap:6px">This elevation\u2019s lights<select id="sidedev" style="width:auto"><option value="">Any controller</option>${houseDevs().map(x =>
               `<option value="${esc(x.id)}" ${x.id === sideNow.device ? 'selected' : ''}>${esc(x.name || 'Controller')}</option>`).join('')}</select>
-              <span class="note">Choosing this side then chooses its controller.</span></label>` : ''}
+              <span class="note">Choosing this elevation then chooses its controller.</span></label>` : ''}
             <div class="photo" id="photo" data-placing="${F.placing}" data-tracing="${R.tracing}">
-              ${S.photos.has(F.side) ? `<img id="pimg" alt="Photo of the ${esc(md.sides.find(x => x.id === F.side).name)}">` : ''}
+              ${S.photos.has(F.side) ? `<img id="pimg" alt="Photo of the ${esc(Elev.label(md, F.side))}">` : ''}
               ${RF.overlay}
               <div class="nophoto" ${S.photos.has(F.side) ? 'hidden' : ''}><p>No photo of this side yet.</p><p class="small muted">Take one at night with the lights on, from the street.</p></div>
               ${pins.map(l => `<button class="pin ${inSel(l.bulb) ? 'on' : ''}" style="left:${l.x * 100}%;top:${l.y * 100}%" data-pin="${l.i}" title="${esc(l.name)}: bulb ${l.bulb}"><span>${esc(l.name)}</span></button>`).join('')}
@@ -3688,20 +4407,20 @@ VIEWS.map = async () => {
               <button class="small ${F.placing ? 'current' : 'ghost'}" data-place>${F.placing ? 'Tap the photo where the bulb is…' : `Pin bulb ${F.bulb} on this photo`}</button>
               <button class="small ghost danger" data-delphoto>Remove photo</button></div>
             ${RF.tools}
-            <p class="note">Photos stay on this computer and are never included in exported pattern files. Roofline detection runs in this browser.</p>
+            <p class="note">Photos stay on this computer and are never included in exported pattern files. <b>Export this elevation</b> makes a file that does include its photos, to move it to another EaveLuxOS. Roofline detection runs in this browser.</p>
           </div>
           <div class="panel stack" id="hvbox"></div>
           <div class="stack">
             ${fold('landmarks', 'Landmarks', `<div class="panel stack"><h2>Landmarks</h2>
               <div class="row"><input type="text" id="lmname" maxlength="60" placeholder="e.g. Front gable peak" class="grow" style="flex:1"><button class="small" data-savelm>Save bulb ${F.bulb}</button></div>
               <div class="list">${md.landmarks.length ? md.landmarks.map((l, i) => ({ ...l, i })).sort((a, b) => a.bulb - b.bulb).map(l => `<div class="item"><div class="grow"><div class="name">${esc(l.name)}</div>
-                <div class="sub">Bulb ${l.bulb}${many && l.device ? ' on ' + esc(devName(l.device)) : ''}${l.side ? ' · ' + esc((md.sides.find(x => x.id === l.side) || {}).name || l.side) : ''}${l.x != null ? ' · pinned' : ''}</div></div>
+                <div class="sub">Bulb ${l.bulb}${many && l.device ? ' on ' + esc(devName(l.device)) : ''}${l.side ? ' · ' + esc(Elev.label(md, l.side)) : ''}${l.x != null ? ' · pinned' : ''}</div></div>
                 <button class="small" data-golm="${l.i}">Show</button><button class="small ghost danger" data-dellm="${l.i}" aria-label="Delete ${esc(l.name)}">✕</button></div>`).join('')
                 : '<p class="muted small">Find a corner or peak with the finder, give it a name, and save it here.</p>'}</div></div>`)}
             ${fold('zones', 'Zones', `<div class="panel stack"><h2>Zones</h2>
               <div class="row"><input type="text" id="zname" maxlength="60" placeholder="e.g. Garage roof" class="grow" style="flex:1"><button class="small" data-savezone ${F.range ? '' : 'disabled'}>Save ${F.range ? `${F.bulb}–${F.end}` : 'range'}</button></div>
               ${F.range ? '' : '<p class="note">Turn on <b>Select a range</b> in the finder to save a section of roofline.</p>'}
-              <div class="list">${md.zones.length ? md.zones.map((z, i) => `<div class="item"><div class="grow"><div class="name">${esc(z.name)}</div><div class="sub">Bulbs ${z.start}–${z.end} (${z.end - z.start + 1})${many ? ' · ' + (z.device ? esc(devName(z.device)) : 'every controller') : ''}</div></div>
+              <div class="list">${md.zones.length ? md.zones.map((z, i) => `<div class="item"><div class="grow"><div class="name">${esc(z.name)}</div><div class="sub">Bulbs ${z.start}–${z.end} (${z.end - z.start + 1})${z.reverse ? ' · runs the other way' : ''}${many ? ' · ' + (z.device ? esc(devName(z.device)) : 'every controller') : ''}</div></div>
                 <button class="small" data-gozone="${i}">Show</button><button class="small ghost" data-editzone="${i}" aria-label="Edit ${esc(z.name)}">Edit</button><button class="small ghost danger" data-delzone="${i}" aria-label="Delete ${esc(z.name)}">✕</button></div>`).join('')
                 : '<p class="muted small">Zones are named sections, like "garage roof", that you can paint in Create.</p>'}</div></div>`)}
           </div>
@@ -3736,6 +4455,7 @@ VIEWS.map = async () => {
     }
     roofWire(md, F.side);
     houseView($('#hvbox'), F.side);
+    whenOpen('whole', () => wholePanel($('#wholebox')));
   };
   VIEWS.mapRender = render;
   let liveTimer = null;
@@ -3764,7 +4484,7 @@ VIEWS.map = async () => {
       F.placing = false;
       const md = mapData(), existing = md.landmarks.findIndex(l => l.bulb === F.bulb && l.side === F.side);
       dialog(`<h2>Name this spot</h2><label class="field">Name<input type="text" name="nm" maxlength="60" required value="${esc(existing >= 0 ? md.landmarks[existing].name : '')}" placeholder="e.g. Front gable peak"></label>
-        <p class="note">Bulb ${F.bulb} on the ${esc(md.sides.find(s => s.id === F.side).name.toLowerCase())} photo.</p>`, async f => {
+        <p class="note">Bulb ${F.bulb} on the ${esc(Elev.label(md, F.side).toLowerCase())} photo.</p>`, async f => {
         const nm = f.nm.value.trim(); if (!nm) throw new Error('Give it a name.');
         await saveMap(mp => { const lm = { name: nm, bulb: F.bulb, side: F.side, x: Math.round(x * 1000) / 1000, y: Math.round(y * 1000) / 1000 };
           if (existing >= 0) mp.landmarks[existing] = lm; else mp.landmarks.push(lm); }, 'Pinned');
@@ -3775,8 +4495,10 @@ VIEWS.map = async () => {
     if (!b) return; const d = b.dataset, md = mapData(), T = houseSpace();
     if (d.side) {
       if (R.tracing) return toast('Save or cancel the roofline section first.', true);
-      F.side = d.side; F.placing = false; R.hint = '';
-      const sd = (md.sides.find(x => x.id === d.side) || {}).device;           // 4.10: its controller too
+      const el = md.sides.find(x => x.id === d.side) || {};
+      const last = (S.lastVer || {})[d.side];              // 4.12: the version last looked at, else the one in use
+      F.side = last && Elev.versions(md, d.side).some(v => v.id === last) ? last : Elev.use(md, el); F.placing = false; R.hint = '';
+      const sd = el.device;           // 4.10: its controller too
       if (sd && houseDevs().some(x => x.id === sd)) S.houseDev = sd;
       return render(); }
     if (d.step) { const k = +d.step * F.step, w = F.end - F.bulb; F.bulb = Math.max(1, Math.min(T - (F.range ? w : 0), F.bulb + k)); F.end = F.range ? F.bulb + w : F.bulb; return moved(); }
@@ -3794,10 +4516,13 @@ VIEWS.map = async () => {
     if (d.editzone) return zoneDialog(+d.editzone, F, render);
     if (d.savezone !== undefined) { const nm = $('#zname').value.trim(); if (!nm) return toast('Type a zone name first.', true);
       return busy(b, () => saveMap(mp => mp.zones.push({ name: nm, start: F.bulb, end: F.end, ...(houseDev() ? { device: houseDev() } : {}) }), `Saved zone \u201c${nm}\u201d${houseDev() ? ' for ' + devName(houseDev()) : ''}`)).then(render).catch(() => {}); }
-    if (d.addside !== undefined) return dialog(`<h2>Add a side</h2><label class="field">Name<input type="text" name="nm" maxlength="30" placeholder="e.g. Shed"></label>`, async f => {
-      const nm = f.nm.value.trim(); if (!nm) throw new Error('Give it a name.');
-      const id = nm.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'side';
-      await saveMap(mp => { if (!mp.sides.some(x => x.id === id)) mp.sides.push({ id, name: nm }); }, 'Side added'); F.side = id; render(); }, { ok: 'Add' });
+    if (d.ver) { if (R.tracing) return toast('Save or cancel the roofline section first.', true);
+      F.side = d.ver; F.placing = false; R.hint = ''; S.lastVer = { ...(S.lastVer || {}), [Elev.of(md, d.ver).id]: d.ver }; return render(); }
+    if (d.addside !== undefined || d.renelev !== undefined || d.addver !== undefined || d.usever !== undefined
+        || d.delver !== undefined || d.delelev !== undefined || d.exportelev !== undefined) {
+      if (R.tracing) return toast('Save or cancel the roofline section first.', true);
+      return elevAction(d, b, md, Elev.of(md, F.side), F, render);
+    }
     if (d.delphoto !== undefined) { if (!await confirmBox('Remove this photo?', 'Pins on it stay saved and come back if you upload a new photo.', 'Remove', true)) return;
       return busy(b, () => api('photo/delete', { body: { side: F.side } })).then(() => { S.photos.delete(F.side); render(); }).catch(() => {}); }
     if (d.savetotal !== undefined) { const v = $('#ftotal').value; return busy(b, () => saveMap(mp => mp.total_bulbs = v ? Math.max(1, Math.min(10000, +v)) : null, 'Saved')).then(render).catch(() => {}); }
@@ -3806,7 +4531,7 @@ VIEWS.map = async () => {
     const t = e.target, T = houseSpace();
     if (t.id === 'hdev') { S.houseDev = t.value; return render(); }
     if (t.id === 'sidedev') {
-      const v = t.value, side = F.side;
+      const v = t.value, side = Elev.of(mapData(), F.side).id;      // 4.12: the elevation's, for all its versions
       return busy(null, () => saveMap(mp => {
         let x = mp.sides.find(y => y.id === side);
         if (!x) { x = { ...(mapData().sides.find(y => y.id === side) || { id: side }) }; mp.sides.push(x); }
@@ -3825,6 +4550,7 @@ VIEWS.map = async () => {
     if (t.id === 'rtop' || t.id === 'rbottom') {
       const top = Math.max(0, Math.min(90, +$('#rtop').value || 0)), bottom = Math.max(top + 10, Math.min(100, +$('#rbottom').value || 100));
       R.top = top; R.bottom = bottom; R.showBand = true; return render(); }
+    if (t.id === 'elevfile' && t.files[0]) { const file = t.files[0]; t.value = ''; return elevImport(file, F, render); }
     if (t.id === 'pfile' && t.files[0]) {
       const traced = (mapData().rooflines[F.side] || []).length;
       if (traced && !await confirmBox('Replace this photo?', `The ${traced} roofline section${traced === 1 ? ' was' : 's were'} traced on the old photo and will be removed. Landmark pins stay.`, 'Replace', true)) { t.value = ''; return; }
@@ -3841,6 +4567,266 @@ VIEWS.map = async () => {
   render();
 };
 
+
+/* 4.12: each elevation once, as the version shown in the whole house. */
+function flatSides(md) { return Elev.list(md).map(e => ({ id: Elev.use(md, e), name: Elev.label(md, Elev.use(md, e)) })); }
+
+/* ---------------------------------------------------------------- HOUSE MAP: whole house (4.12)
+   Every elevation at once, each in the version shown in the whole house,
+   animating: one pattern everywhere; tonight's schedule, scrubbed or played
+   through, each controller with its own; or a pattern for each zone. */
+const WH = { src: 'one', effect: null, picks: {}, tl: null, at: null, playing: false, night: true, token: 0 };
+const fmtClock = ms => new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+function whEffect(key, dev) {
+  const all = S.settings.effects || {}, e = all[key];
+  if (!e) return null;
+  if (e.split) { const k = e.split[dev] ?? e.rest; return k && k !== 'off' ? all[k] || null : null; }
+  return e;
+}
+function whSpan(dev) {
+  const tl = WH.tl; if (!tl) return null;
+  const spans = tl.devices[dev] || tl.devices.all || Object.values(tl.devices)[0] || [];
+  return spans.find(x => Date.parse(x.start) <= WH.at && WH.at < Date.parse(x.end)) || null;
+}
+async function wholePanel(box) {
+  if (!box) return;
+  const md = mapData(), devs = houseDevs(), effs = Object.entries(S.settings.effects || {}).filter(([, e]) => e.colors || e.split);
+  if (!WH.effect || !(S.settings.effects || {})[WH.effect]) WH.effect = (effs[0] || [])[0] || null;
+  const els = Elev.list(md).map(e => { const key = Elev.use(md, e);
+    return { e, key, dev: e.device || (devs[0] || {}).id || '', bulbs: HouseFX.sideBulbs(md.rooflines[key] || []) }; }).filter(x => x.bulbs.length);
+  if (WH.src === 'tonight' && !WH.tl) {
+    try { WH.tl = await api('house/tonight'); WH.at = Date.parse(WH.tl.now); }
+    catch (e) { WH.src = 'one'; toast(e.message, true); }
+  }
+  const zones = md.zones;
+  const tl = WH.tl, a0 = tl ? Date.parse(tl.start) : 0, a1 = tl ? Date.parse(tl.end) : 0;
+  const bars = tl ? Object.entries(tl.devices).map(([dv, spans]) => `<div class="small">${esc(dv === 'all' ? 'Every controller' : devName(dv))}</div><div class="tlbar" aria-hidden="true">${spans.map(x => {
+      const e = whEffect(x.effect, dv), c = e && e.colors ? '#' + String(e.colors.find(k => !/^(off|x)$/i.test(k)) || 'FFC062').replace('#', '') : '#FFC062';
+      return `<i style="left:${(Date.parse(x.start) - a0) / (a1 - a0) * 100}%;width:${(Date.parse(x.end) - Date.parse(x.start)) / (a1 - a0) * 100}%;background:${esc(c)}" title="${esc(x.label)}"></i>`; }).join('')}</div>`).join('') : '';
+  box.innerHTML = `<div class="row"><button class="small ${WH.src === 'one' ? 'current' : 'ghost'}" data-whsrc="one">One pattern</button>
+      <button class="small ${WH.src === 'tonight' ? 'current' : 'ghost'}" data-whsrc="tonight">Tonight\u2019s schedule</button>
+      <button class="small ${WH.src === 'zones' ? 'current' : 'ghost'}" data-whsrc="zones" ${zones.length ? '' : 'disabled title="Save zones first"'}>A pattern for each zone</button>
+      <label class="check small"><input type="checkbox" id="whnight" ${WH.night ? 'checked' : ''}> Night</label></div>
+    ${WH.src === 'one' ? `<label class="field">Pattern<select id="wheff">${effs.map(([k, e]) => `<option value="${esc(k)}" ${k === WH.effect ? 'selected' : ''}>${esc(e.label || k)}</option>`).join('')}</select></label>
+      <p class="note">A Split by controller pattern shows each controller\u2019s own part on its elevations.</p>`
+    : WH.src === 'tonight' && tl ? `<div class="timeline"><input type="range" id="what" min="${a0}" max="${a1}" step="60000" value="${WH.at}" aria-label="Time tonight">
+        <b id="whclock">${fmtClock(WH.at)}</b><button class="small ghost" data-whnow>Now</button><button class="small" data-whplay>${WH.playing ? 'Pause' : 'Play'}</button></div>
+      <div class="stack" style="gap:4px">${bars}</div><p class="small" id="whwhat"></p>
+      <p class="note">From noon to noon, as the schedule plans it (rules and holidays), each controller with its own. Weather, scores, alerts, automations and choices by hand can\u2019t be known ahead.</p>`
+    : WH.src === 'zones' ? `<div class="stack">${zones.map((z, i) => `<div class="row"><div class="grow" style="min-width:9em"><b>${esc(z.name)}</b><div class="small muted">Bulbs ${z.start}\u2013${z.end}${z.reverse ? ' \u00b7 runs the other way' : ''}${devs.length > 1 ? ' \u00b7 ' + (z.device ? esc(devName(z.device)) : 'every controller') : ''}</div></div>
+        <select data-whpick="${i}" style="flex:1 1 11em;min-width:0;max-width:100%" aria-label="Pattern for ${esc(z.name)}"><option value="">Dark</option>${effs.filter(([, e]) => combinable(e)).map(([k, e]) => `<option value="${esc(k)}" ${WH.picks[i] === k ? 'selected' : ''}>${esc(e.label || k)}</option>`).join('')}</select></div>`).join('')}</div>
+      <div class="row"><button class="small" data-whcombine ${Object.values(WH.picks).some(Boolean) ? '' : 'disabled'}>Make it a pattern (Combine patterns by zone)</button></div>
+      <p class="note">Here each zone moves its own pattern, to see them together. A controller moves one pattern with one motion, so the saved pattern (Combine patterns by zone) moves as one.</p>` : ''}
+    ${els.length ? `<div class="whole">${els.map((x, i) => `<figure><canvas data-wh="${i}" aria-label="${esc(Elev.label(md, x.key))}"></canvas>
+      <figcaption>${esc(Elev.label(md, x.key))}${devs.length > 1 ? ' \u00b7 ' + esc(devName(x.dev)) : ''}</figcaption></figure>`).join('')}</div>`
+      : '<p class="callout small">No elevation has its bulbs placed yet. On an elevation\u2019s photo, trace the roofline and give each line its bulb numbers (Bulbs).</p>'}
+    ${devs.length > 1 && els.some(x => !x.e.device) ? '<p class="note">Elevations without a controller (This elevation\u2019s lights) show the first controller\u2019s.</p>' : ''}`;
+  box.onclick = e => {
+    const b = e.target.closest('button'); if (!b) return; const d = b.dataset;
+    if (d.whsrc) { WH.src = d.whsrc; WH.playing = false; if (d.whsrc === 'tonight') WH.tl = null; return wholePanel(box); }
+    if (d.whnow !== undefined && WH.tl) { WH.at = Math.min(Date.parse(WH.tl.end), Math.max(Date.parse(WH.tl.start), Date.now())); return wholePanel(box); }
+    if (d.whplay !== undefined) { WH.playing = !WH.playing; b.textContent = WH.playing ? 'Pause' : 'Play'; return; }
+    if (d.whcombine !== undefined) {
+      S.combinePrefill = { ...WH.picks }; go('create');
+      // Review #5: if Create doesn't open, the choices don't linger for the next Combine
+      let n = 0; const t = setInterval(() => { const c = $('[data-combinezones]'); if (c || ++n > 40) { clearInterval(t); if (c) c.click(); else S.combinePrefill = null; } }, 100);
+    }
+  };
+  box.onchange = box.oninput = e => {
+    const t = e.target;
+    if (t.id === 'wheff') WH.effect = t.value;
+    else if (t.id === 'whnight') WH.night = t.checked;
+    else if (t.dataset.whpick !== undefined) { WH.picks[t.dataset.whpick] = t.value; const c = $('[data-whcombine]', box); if (c) c.disabled = !Object.values(WH.picks).some(Boolean); }
+    else if (t.id === 'what') { WH.at = +t.value; WH.playing = false; const p = $('[data-whplay]', box); if (p) p.textContent = 'Play'; }
+  };
+  wholeDraw(box, els);
+}
+function wholeDraw(box, els) {
+  const token = ++WH.token, view = S.view, t0 = performance.now(), md = mapData(), all = S.settings.effects || {};
+  const imgs = els.map(() => null);
+  els.forEach((x, i) => { if (S.photos.has(x.key)) loadPhoto(x.key).then(url => { const im = new Image(); im.onload = () => { imgs[i] = im; }; im.src = url; }).catch(() => {}); });
+  let last = performance.now();
+  const frame = now => {
+    if (WH.token !== token || S.view !== view || !box.isConnected) return;
+    const t = (now - t0) / 1000;
+    if (WH.src === 'tonight' && WH.tl && WH.playing) {
+      WH.at += (now - last) * 600;                         // ten minutes a second
+      if (WH.at >= Date.parse(WH.tl.end)) { WH.at = Date.parse(WH.tl.end); WH.playing = false; const p = $('[data-whplay]', box); if (p) p.textContent = 'Play'; }
+      const r = $('#what', box); if (r) r.value = WH.at;
+    }
+    last = now;
+    if (WH.src === 'tonight' && WH.tl) {
+      const c = $('#whclock', box); if (c) c.textContent = fmtClock(WH.at);
+      const w = $('#whwhat', box); if (w) w.textContent = Object.keys(WH.tl.devices).map(dv => { const sp = whSpan(dv);
+        return `${dv === 'all' ? '' : devName(dv) + ': '}${sp ? `${sp.label} (${sp.rule})` : 'off'}`; }).join(' \u00b7 ');
+    }
+    const cache = {};
+    let moving = WH.playing;
+    const cols = (k, def, n) => { if (hvMoving(def)) moving = true; return cache[k] || (cache[k] = def ? HouseFX.colorsAt(def, n, t) : null); };
+    els.forEach((x, i) => {
+      const cv = $(`[data-wh="${i}"]`, box); if (!cv) return;
+      const ctx = cv.getContext('2d'), img = imgs[i], dpr = window.devicePixelRatio || 1, W = Math.round(cv.clientWidth * dpr) || 300;
+      const H = img ? Math.round(W * img.naturalHeight / img.naturalWidth) : Math.round(W * .62);
+      if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
+      ctx.clearRect(0, 0, W, H);
+      if (img) { ctx.drawImage(img, 0, 0, W, H); if (WH.night) { ctx.fillStyle = 'rgba(5,7,18,.62)'; ctx.fillRect(0, 0, W, H); } }
+      const T = addressSpace(x.dev), r = Math.max(1.8, W / 240);
+      let whole = null;
+      if (WH.src === 'one' || WH.src === 'tonight') {
+        const key = WH.src === 'one' ? WH.effect : (whSpan(x.dev) || {}).effect;
+        const e = key ? whEffect(key, x.dev) : null;
+        whole = cols(`${key}|${x.dev}|${T}`, effectDef(e), T);
+      }
+      const zs = WH.src === 'zones' ? md.zones.map((z, j) => ({ z, j, k: WH.picks[j] })).filter(o => o.k && all[o.k] && forDev(o.z, x.dev)) : [];
+      for (const p of x.bulbs) {
+        if (p.b > T) continue;
+        let c = null;
+        if (whole) { const k = whole[(p.b - 1) % whole.length]; if (k && !k.off) c = k; }
+        else for (let q = zs.length - 1; q >= 0 && !c; q--) {
+          const { z, j, k } = zs[q]; if (p.b < z.start || p.b > z.end) continue;
+          const n = z.end - z.start + 1, cc = cols(`z${j}|${k}`, effectDef(all[k]), n), v = cc && cc[z.reverse ? z.end - p.b : p.b - z.start];
+          if (v && !v.off) c = v;
+        }
+        const px = p.x / 100 * W, py = p.y / 100 * H;
+        if (!c) { ctx.strokeStyle = 'rgba(170,175,205,.3)'; ctx.lineWidth = dpr; ctx.beginPath(); ctx.arc(px, py, r, 0, 7); ctx.stroke(); continue; }
+        const [R0, G0, B0] = c.c, a = c.a;
+        ctx.fillStyle = `rgba(${R0 | 0},${G0 | 0},${B0 | 0},${a * .28})`; ctx.beginPath(); ctx.arc(px, py, r * 3, 0, 7); ctx.fill();
+        ctx.fillStyle = `rgba(${R0 | 0},${G0 | 0},${B0 | 0},${Math.max(a, .08)})`; ctx.beginPath(); ctx.arc(px, py, r, 0, 7); ctx.fill();
+      }
+    });
+    // Still patterns are drawn twice a second (a resized window, a scrubbed time), sparing a phone's battery
+    if (moving) requestAnimationFrame(frame); else setTimeout(() => requestAnimationFrame(frame), 250);
+  };
+  requestAnimationFrame(frame);
+}
+
+/* ---------------------------------------------------------------- HOUSE MAP: elevations (4.12)
+   Add, rename and delete elevations and their versions; export one as a
+   file (its photos, rooflines, bulbs and pins) and import it again. */
+const ELEV_FILE = 'eaveluxos-elevation';
+function elevAction(d, b, md, el, F, render) {
+  const kindSel = cur => `<label class="field">Kind<select name="kind">${Elev.KINDS.map(([k, l]) => `<option value="${k}" ${k === (cur || 'other') ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>`;
+  if (d.addside !== undefined) return dialog(`<h2>Add an elevation</h2><label class="field">Name<input type="text" name="nm" maxlength="30" required placeholder="e.g. Garage side elevation"></label>
+      ${kindSel('side')}<p class="note">A house can have several side elevations (an L-shaped house, a garage, a deck).</p>`, async f => {
+    const nm = f.nm.value.trim(); if (!nm) throw new Error('Give it a name.');
+    if (Elev.list(md).some(x => x.name.toLowerCase() === nm.toLowerCase())) throw new Error(`There's already an elevation named \u201c${nm}\u201d.`);
+    const id = Elev.newId(md, nm);
+    await saveMap(mp => { mp.sides.push({ id, name: nm, kind: f.kind.value }); }, 'Elevation added'); F.side = id; render(); }, { ok: 'Add', onOpen: f => f.nm.focus() });
+  if (d.renelev !== undefined) {
+    const v = md.sides.find(x => x.id === F.side);
+    return dialog(`<h2>Rename</h2><label class="field">Elevation<input type="text" name="nm" maxlength="30" required value="${esc(el.name)}"></label>${kindSel(el.kind)}
+      <label class="field">This version<input type="text" name="vn" maxlength="30" required value="${esc(Elev.vname(md, F.side))}" placeholder="e.g. Day, Night, Before"></label>`, async f => {
+      const nm = f.nm.value.trim(), vn = f.vn.value.trim(); if (!nm || !vn) throw new Error('Give both a name.');
+      if (Elev.list(md).some(x => x.id !== el.id && x.name.toLowerCase() === nm.toLowerCase())) throw new Error(`There's already an elevation named \u201c${nm}\u201d.`);
+      await saveMap(mp => { const e = mp.sides.find(x => x.id === el.id); e.name = nm; e.kind = f.kind.value;
+        if (v.of) mp.sides.find(x => x.id === v.id).name = vn; else e.vname = vn; }, 'Renamed'); render(); }, { ok: 'Save' });
+  }
+  if (d.addver !== undefined) return dialog(`<h2>Add a version of the ${esc(el.name.toLowerCase())}</h2>
+      <label class="field">Name<input type="text" name="nm" maxlength="30" required placeholder="e.g. Night, Before, After"></label>
+      <label class="check"><input type="checkbox" name="copy" checked> Start from this version\u2019s rooflines, bulbs and pins (for a photo taken from the same spot)</label>
+      <p class="note">Each version has its own photo, rooflines and pins. The \u2605 one is shown in the whole house and the flat diagram.</p>`, async f => {
+    const nm = f.nm.value.trim(); if (!nm) throw new Error('Give it a name.');
+    if (Elev.versions(md, el.id).some(x => Elev.vname(md, x.id).toLowerCase() === nm.toLowerCase())) throw new Error(`There's already a version named \u201c${nm}\u201d.`);
+    const id = Elev.newId(md, `${el.id}-${nm}`), copy = f.copy.checked, from = F.side;
+    await saveMap(mp => {
+      mp.sides.push({ id, name: nm, of: el.id });
+      if (copy && mp.rooflines[from]) mp.rooflines[id] = clone(mp.rooflines[from]);
+      if (copy) mp.landmarks.push(...mp.landmarks.filter(l => l.side === from && l.x != null).map(l => ({ ...l, side: id })));
+    }, 'Version added');
+    F.side = id; S.lastVer = { ...(S.lastVer || {}), [el.id]: id }; render(); }, { ok: 'Add', onOpen: f => f.nm.focus() });
+  if (d.usever !== undefined) return busy(b, () => saveMap(mp => { mp.sides.find(x => x.id === el.id).use = F.side; },
+    `The whole house shows \u201c${Elev.vname(md, F.side)}\u201d`)).then(render).catch(() => {});
+  if (d.delver !== undefined || d.delelev !== undefined) {
+    const keys = d.delelev !== undefined ? Elev.versions(md, el.id).map(x => x.id) : [F.side];
+    const what = d.delelev !== undefined ? `the ${el.name}` : `the \u201c${Elev.vname(md, F.side)}\u201d version`;
+    return confirmBox(`Delete ${what}?`, 'Its photo, rooflines and pins go. Landmarks stay, without their pins.', 'Delete', true).then(ok => {
+      if (!ok) return;
+      return busy(b, async () => {
+        // Review #1 (4.12): every one, even a photo this page didn't know of (one from the phone since)
+        for (const k of keys) { await api('photo/delete', { body: { side: k } }); S.photos.delete(k); }
+        await saveMap(mp => {
+          mp.sides = mp.sides.filter(x => !keys.includes(x.id));
+          const e = mp.sides.find(x => x.id === el.id); if (e && keys.includes(e.use)) delete e.use;
+          for (const k of keys) delete mp.rooflines[k];
+          mp.landmarks = mp.landmarks.map(l => keys.includes(l.side) ? (({ side, x, y, ...rest }) => rest)(l) : l);
+        }, 'Deleted');
+        F.side = d.delelev !== undefined ? 'front' : el.id; render();
+      }).catch(() => {});
+    });
+  }
+  if (d.exportelev !== undefined) return busy(b, async () => {
+    const vs = Elev.versions(md, el.id), use = Elev.use(md, el);
+    const toData = blob => new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = no; r.readAsDataURL(blob); });
+    const versions = [];
+    for (const v of vs) {
+      let photo = null;
+      if (S.photos.has(v.id)) {       // from the app itself: the page may not fetch its own blob: links (CSP)
+        const r = await fetch('api/photo/' + encodeURIComponent(v.id), { headers: authHeaders(), cache: 'no-store' });
+        if (!r.ok) throw new Error(`The ${Elev.label(md, v.id)} photo couldn\u2019t be read.`);
+        photo = await toData(await r.blob());
+      }
+      versions.push({ name: Elev.vname(md, v.id), photo, rooflines: md.rooflines[v.id] || [],
+        pins: md.landmarks.filter(l => l.side === v.id && l.x != null).map(({ name, bulb, x, y, device }) => ({ name, bulb, x, y, ...(device ? { device } : {}) })) });
+    }
+    const file = { format: ELEV_FILE, version: 1, name: el.name, kind: el.kind || 'other', ...(el.device ? { device: el.device } : {}),
+      use: vs.findIndex(v => v.id === use), versions };
+    const url = URL.createObjectURL(new Blob([JSON.stringify(file)], { type: 'application/json' }));
+    const a = document.createElement('a'); a.href = url; a.download = `${Elev.slug(el.name)}.elevation.json`; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  }).then(() => toast('Exported')).catch(() => {});
+}
+/* Check an exported elevation file and turn it into what saveMap needs. Pure,
+   so the tests can use it: md is the house as it is; returns {sides,
+   rooflines, landmarks, photos: [[key, dataURL]]}. */
+function elevParse(raw, md, knownDevs) {
+  let f; try { f = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch { throw new Error('That isn\u2019t an elevation file.'); }
+  if (!f || f.format !== ELEV_FILE || f.version !== 1 || !Array.isArray(f.versions) || !f.versions.length || f.versions.length > 12)
+    throw new Error('That isn\u2019t an EaveLuxOS elevation file (made with Export this elevation).');
+  if (md.sides.length + f.versions.length > 80) throw new Error('The house has too many elevations and versions to add this one.');
+  let name = String(f.name || 'Imported elevation').trim().slice(0, 30) || 'Imported elevation';
+  const names = new Set(Elev.list(md).map(x => x.name.toLowerCase()));
+  for (let i = 2; names.has(name.toLowerCase()); i++) name = `${String(f.name).slice(0, 24)} (${i})`;
+  const kind = Elev.KINDS.some(([k]) => k === f.kind) ? f.kind : 'other';
+  const work = { sides: [...md.sides], rooflines: { ...md.rooflines } }, sides = [], rooflines = {}, landmarks = [], photos = [];
+  const okDev = x => typeof x === 'string' && knownDevs.includes(x);
+  f.versions.forEach((v, i) => {
+    const vn = String(v.name || `Version ${i + 1}`).trim().slice(0, 30) || `Version ${i + 1}`;
+    const id = Elev.newId(work, i ? `${sides[0].id}-${vn}` : name);
+    const side = i ? { id, name: vn, of: sides[0].id } : { id, name, kind, vname: vn, ...(okDev(f.device) ? { device: f.device } : {}) };
+    work.sides.push(side); sides.push(side);
+    const lines = (Array.isArray(v.rooflines) ? v.rooflines : []).slice(0, RL.LIMITS.sections).filter(l => RL.validSection(l))
+      .map(l => ({ id: l.id, kind: l.kind, points: l.points, ...(Array.isArray(l.wire) ? { wire: l.wire.filter(Number.isInteger) } : {}),
+        ...(l.bulbs && Number.isInteger(l.bulbs.from) && Number.isInteger(l.bulbs.to) ? { bulbs: { from: l.bulbs.from, to: l.bulbs.to } } : {}),
+        ...(Array.isArray(l.pins) ? { pins: l.pins.filter(p => Array.isArray(p) && p.length === 3 && Number.isInteger(p[0]) && p[0] >= 1 && p.slice(1).every(n => Number.isFinite(n) && n >= 0 && n <= 100)).slice(0, HouseFX.MAX_PINS) } : {}) }));
+    if (lines.length) { rooflines[id] = lines; work.rooflines[id] = lines; }
+    for (const p of Array.isArray(v.pins) ? v.pins.slice(0, 200) : []) {
+      if (!p || !Number.isInteger(p.bulb) || p.bulb < 1 || p.bulb > 10000 || !(p.x >= 0 && p.x <= 1 && p.y >= 0 && p.y <= 1)) continue;
+      const nm = String(p.name || '').trim().slice(0, 60); if (!nm) continue;
+      landmarks.push({ name: nm, bulb: p.bulb, side: id, x: p.x, y: p.y, ...(okDev(p.device) ? { device: p.device } : {}) });
+    }
+    if (typeof v.photo === 'string' && /^data:image\/(jpeg|png|webp);base64,/.test(v.photo)) photos.push([id, v.photo]);
+  });
+  if (Number.isInteger(f.use) && f.use > 0 && f.use < sides.length) sides[0].use = sides[f.use].id;
+  return { sides, rooflines, landmarks, photos };
+}
+async function elevImport(file, F, render) {
+  try {
+    await busy(null, async () => {
+      if (file.size > 60_000_000) throw new Error('That file is too big to be an elevation.');
+      const md = mapData(), got = elevParse(await file.text(), md, (S.devices || []).map(x => x.id));
+      for (const [key, url] of got.photos) {
+        const [head, b64] = url.split(','), bin = atob(b64), bytes = new Uint8Array(bin.length);   // no fetch of data: links (CSP)
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        const blob = new Blob([bytes], { type: head.slice(5, head.indexOf(';')) });
+        await uploadPhoto(key, new File([blob], key + '.jpg', { type: blob.type }));
+        S.photos.add(key);
+      }
+      await saveMap(mp => { mp.sides.push(...got.sides); Object.assign(mp.rooflines, got.rooflines); mp.landmarks.push(...got.landmarks); },
+        `Imported \u201c${got.sides[0].name}\u201d`);
+      S.photoV = Date.now(); F.side = got.sides[0].use || got.sides[0].id; roofReset(); render();
+    });
+  } catch { /* busy() has shown the error */ }
+}
 
 /* ---------------------------------------------------------------- HOUSE MAP: house view (3.17)
    The photo with each bulb where it sits (from the bulb numbers given to the
@@ -3860,7 +4846,7 @@ function sceneSlots(T) { return Painter.slotsAt(HouseFX.sceneCanvas(T, HV.groups
 async function houseView(box, side) {
   if (!box) return;
   const md = mapData(), T = houseSpace(), lines = md.rooflines[side] || [];
-  const bulbs = HouseFX.sideBulbs(lines), sideName = (md.sides.find(x => x.id === side) || {}).name || side;
+  const bulbs = HouseFX.sideBulbs(lines), sideName = Elev.label(md, side);
   const effs = Object.entries(S.settings.effects || {}).filter(([, e]) => e.colors);
   const designed = S.housePreview;
   if (!HV.effect) HV.effect = designed ? '_design' : (effs[0] || [])[0] || null;
@@ -3871,13 +4857,14 @@ async function houseView(box, side) {
   const past = bulbs.filter(p => p.b > T).length;
   box.innerHTML = `<div class="panel-head"><h2>House view</h2>
       <div class="row"><button class="small ${HV.mode === 'preview' ? 'current' : 'ghost'}" data-hvmode="preview">Preview a pattern</button>
-      <button class="small ${HV.mode === 'scene' ? 'current' : 'ghost'}" data-hvmode="scene" ${ro ? 'disabled' : ''}>Build a scene</button></div></div>
+      <button class="small ${HV.mode === 'scene' ? 'current' : 'ghost'}" data-hvmode="scene" ${ro ? 'disabled' : ''}>Build a scene</button>
+      <button class="small ${HV.mode === 'bulbs' ? 'current' : 'ghost'}" data-hvmode="bulbs" ${ro ? 'disabled' : ''}>Place bulbs</button></div></div>
     ${!S.photos.has(side) ? `<p class="muted small">Upload a photo of the ${esc(sideName.toLowerCase())} first.</p>`
       : !bulbs.length ? `<p class="callout small">Give this side's traced lines their bulb numbers first: under the photo, tap <b>Bulbs</b> next to each roof edge and enter the first and last bulb on it. ${lines.length ? '' : 'Trace the roofline first (Auto-detect or Trace by hand).'}</p>` : ''}
     ${past ? `<p class="callout warn small">${past} bulb${past === 1 ? '' : 's'} on this side ${past === 1 ? 'is' : 'are'} numbered past bulb ${T}, the last one your lights have now. Check the <b>Bulbs</b> numbers under the photo; ${past === 1 ? 'it isn’t' : 'they aren’t'} shown.</p>` : ''}
     ${HV.mode === 'scene' && HV.key && HouseFX.sceneTotal((S.settings.effects || {})[HV.key]) && HouseFX.sceneTotal(S.settings.effects[HV.key]) !== T ? `<p class="callout warn small">This scene was made for ${HouseFX.sceneTotal(S.settings.effects[HV.key])} bulbs; your lights now have ${T}. Save it again to fit.</p>` : ''}
     <div class="hview" ${bulbs.length && S.photos.has(side) ? '' : 'hidden'}><canvas id="hvcv" aria-label="The ${esc(sideName.toLowerCase())} with its bulbs"></canvas></div>
-    ${HV.mode === 'preview' ? `<div class="row">
+    ${HV.mode === 'bulbs' ? hvBulbsHtml(md, side, bulbs) : HV.mode === 'preview' ? `<div class="row">
         <label class="field grow">Pattern<select id="hveff">${designed ? `<option value="_design" ${HV.effect === '_design' ? 'selected' : ''}>From Create: ${esc(designed.label || 'your design')}</option>` : ''}
           ${effs.map(([k, e]) => `<option value="${esc(k)}" ${HV.effect === k ? 'selected' : ''}>${esc(e.label || k)}</option>`).join('')}</select></label>
         <label class="check small"><input type="checkbox" id="hvnight" ${HV.night ? 'checked' : ''}> Night</label></div>
@@ -3899,7 +4886,9 @@ async function houseView(box, side) {
         ${HV.key ? '<button class="small ghost" data-hvnew>New scene</button>' : ''}</div>
       <p class="note">Tap a bulb on the photo to light it (with the bulbs around it, as set by <b>Tap lights</b>); tap again to turn it back off. A scene is an ordinary pattern: schedule it like any other.</p>
       ${Object.entries(S.settings.effects || {}).filter(([, e]) => e.scene).length ? `<p class="small">Edit a saved scene: ${Object.entries(S.settings.effects).filter(([, e]) => e.scene).map(([k, e]) => `<a href="#" data-hvedit="${esc(k)}">${esc(e.label || k)}</a>`).join(', ')}</p>` : ''}`}`;
-  hvDraw(box, side, bulbs, T);
+  const B = { list: bulbs };
+  hvDraw(box, side, B, T);
+  if (HV.mode === 'bulbs') hvBulbsWire(box, side, B, T);
   box.onclick = e => hvClick(e, box, side, bulbs, T);
   box.onchange = e => {
     const t = e.target;
@@ -3914,8 +4903,8 @@ async function houseView(box, side) {
     houseView(box, side);
   };
 }
-function hvDraw(box, side, bulbs, T) {
-  const cv = $('#hvcv', box); if (!cv || !bulbs.length) return;
+function hvDraw(box, side, B, T) {
+  const cv = $('#hvcv', box); if (!cv || !B.list.length) return;
   const ctx = cv.getContext('2d'), view = S.view, token = (HV.token = (HV.token || 0) + 1), t0 = performance.now();
   let img = null;
   loadPhoto(side).then(url => { const im = new Image(); im.onload = () => { img = im; }; im.src = url; }).catch(() => {});
@@ -3929,9 +4918,10 @@ function hvDraw(box, side, bulbs, T) {
     if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
     ctx.clearRect(0, 0, W, H);
     if (img) { ctx.drawImage(img, 0, 0, W, H); if (HV.mode === 'scene' || HV.night) { ctx.fillStyle = 'rgba(5,7,18,.62)'; ctx.fillRect(0, 0, W, H); } }
+    if (HV.mode === 'bulbs') { hvBulbsFrame(ctx, B.list, W, H, dpr, T); return setTimeout(() => requestAnimationFrame(frame), 120); }
     const cols = def ? HouseFX.colorsAt(def, T, (now - t0) / 1000) : null;
     const r = Math.max(2, W / 260);
-    for (const p of bulbs) {
+    for (const p of B.list) {
       if (p.b > T) continue;                // numbered past the last bulb: not on the lights (3.17.1)
       const x = p.x / 100 * W, y = p.y / 100 * H;
       let c = null, a = 1;
@@ -3955,6 +4945,73 @@ function hvSceneEffect(T, label) {
   return { label, colors: segs.map(x => x.c), counts: segs.map(x => x.n), custom_mode: 0, speed: 0, brightness: 255,
     scene: { groups: HV.groups.map(x => ({ color: x.color, level: x.level, bulbs: [...x.bulbs].sort((a, b) => a - b) })) } };
 }
+/* ---- 4.12: Place bulbs. Drag a bulb to where it really sits on the photo;
+   it's pinned there, and the bulbs between pins spread out again along the
+   line. Tap one to select it; arrow keys nudge it; Light it shows it on the
+   house. */
+function hvBulbsHtml(md, side, bulbs) {
+  const sel = HV.sel && bulbs.find(p => p.line === HV.sel.line && p.b === HV.sel.b);
+  const pinned = (md.rooflines[side] || []).reduce((n, l) => n + (l.pins || []).length, 0);
+  return `<p class="small">${sel ? `<b>Bulb ${sel.b}</b> ${sel.pinned ? '(pinned)' : '(spread evenly)'}` : 'Tap a bulb to select it, or drag it to where it really is.'}
+      ${pinned ? ` \u00b7 ${pinned} pinned on this ${md.sides.find(x => x.id === side)?.of ? 'version' : 'elevation'}` : ''}</p>
+    <div class="row">${sel ? `<button class="small" data-hvlight>Light bulb ${sel.b} on the house</button>${sel.pinned ? '<button class="small ghost" data-hvunpin>Unpin it</button>' : ''}` : ''}
+      ${pinned ? '<button class="small ghost danger" data-hvunpinall>Unpin all on this photo</button>' : ''}</div>
+    <p class="note">Drag a bulb dot to where that bulb sits on the photo; it turns green (pinned) and the bulbs between it and the next pin, or the end of the line, spread out evenly again. Light it on the house to check. With a bulb selected, the arrow keys nudge it (Shift: farther).</p>`;
+}
+function hvBulbsFrame(ctx, list, W, H, dpr, T) {
+  const r = Math.max(2.5, W / 220);
+  for (const p of list) {
+    if (p.b > T) continue;
+    const x = p.x / 100 * W, y = p.y / 100 * H, sel = HV.sel && HV.sel.line === p.line && HV.sel.b === p.b;
+    ctx.fillStyle = sel ? '#FFC062' : p.pinned ? '#62D682' : 'rgba(255,226,184,.9)';
+    ctx.beginPath(); ctx.arc(x, y, sel ? r * 1.8 : r, 0, 7); ctx.fill();
+    if (p.pinned || sel) { ctx.strokeStyle = '#171C33'; ctx.lineWidth = dpr; ctx.stroke(); }
+    if (sel) { ctx.fillStyle = '#FFE2B0'; ctx.font = `${Math.round(12 * dpr)}px system-ui, sans-serif`; ctx.fillText(String(p.b), x + r * 2.4, y - r * 2); }
+  }
+}
+function hvBulbsWire(box, side, B, T) {
+  const cv = $('#hvcv', box); if (!cv) return;
+  cv.tabIndex = 0;
+  const pos = e => { const r = cv.getBoundingClientRect(); return [Math.max(0, Math.min(100, (e.clientX - r.left) / r.width * 100)), Math.max(0, Math.min(100, (e.clientY - r.top) / r.height * 100))]; };
+  const lines = () => clone(mapData().rooflines[side] || []);
+  // Positions with bulb b of a line held at (x, y), for the live redraw
+  const withPin = (lineId, b, x, y) => HouseFX.sideBulbs(lines().map(l => l.id === lineId ? { ...l, pins: HouseFX.setPin(l, b, x, y) } : l));
+  const save = (lineId, b, x, y, msg) => busy(null, () => saveMap(mp => {
+    const l = (mp.rooflines[side] || []).find(z => z.id === lineId); if (!l) throw new Error('That line was deleted.');
+    l.pins = HouseFX.setPin(l, b, x, y); if (!l.pins.length) delete l.pins;
+  }, msg)).then(() => houseView(box, side)).catch(() => houseView(box, side));
+  let drag = null;
+  cv.onpointerdown = e => {
+    const [x, y] = pos(e), p = HouseFX.nearest(B.list.filter(q => q.b <= T), x, y, 4); if (!p) return;
+    e.preventDefault(); cv.setPointerCapture(e.pointerId); cv.focus();
+    drag = { line: p.line, b: p.b, x0: x, y0: y, moved: false };
+    HV.sel = { line: p.line, b: p.b };
+  };
+  cv.onpointermove = e => {
+    if (!drag) return;
+    const [x, y] = pos(e);
+    if (!drag.moved && Math.hypot(x - drag.x0, y - drag.y0) < 0.6) return;
+    drag.moved = true; drag.x = x; drag.y = y;
+    try { B.list = withPin(drag.line, drag.b, x, y); } catch (err) { toast(err.message, true); drag = null; }
+  };
+  cv.onpointerup = cv.onpointercancel = e => {
+    if (!drag) return;
+    if (cv.hasPointerCapture(e.pointerId)) cv.releasePointerCapture(e.pointerId);
+    const d = drag; drag = null;
+    if (d.moved) save(d.line, d.b, d.x, d.y, `Bulb ${d.b} pinned`); else houseView(box, side);
+  };
+  let nudge = null;
+  cv.onkeydown = e => {
+    const k = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
+    if (!k || !HV.sel) return;
+    const p = B.list.find(q => q.line === HV.sel.line && q.b === HV.sel.b); if (!p) return;
+    e.preventDefault();
+    const st = e.shiftKey ? 1.5 : 0.3, x = Math.max(0, Math.min(100, p.x + k[0] * st)), y = Math.max(0, Math.min(100, p.y + k[1] * st));
+    B.list = withPin(p.line, p.b, x, y);
+    clearTimeout(nudge); nudge = setTimeout(() => save(p.line, p.b, x, y, `Bulb ${p.b} pinned`).then(() => $('#hvcv', box)?.focus()), 600);
+  };
+  box._hvPin = (lineId, b) => save(lineId, b, null, null, `Bulb ${b} unpinned`);
+}
 function hvClick(e, box, side, bulbs, T) {
   const b = e.target.closest('button, a'), again = () => houseView(box, side);
   const g = HV.groups[HV.cur];
@@ -3968,6 +5025,11 @@ function hvClick(e, box, side, bulbs, T) {
   }
   const d = b.dataset;
   if (d.hvmode) { HV.mode = d.hvmode; return again(); }
+  if (d.hvlight !== undefined && HV.sel) return busy(b, () => housePreview(highlightDef(HV.sel.b, HV.sel.b, T, '#FFC062'), 10))
+    .then(() => toast(`Showing bulb ${HV.sel.b}`)).catch(() => {});
+  if (d.hvunpin !== undefined && HV.sel) return box._hvPin(HV.sel.line, HV.sel.b);
+  if (d.hvunpinall !== undefined) return confirmBox('Unpin every bulb on this photo?', 'They spread out evenly along their lines again.', 'Unpin all', true).then(ok => ok &&
+    busy(b, () => saveMap(mp => { for (const l of mp.rooflines[side] || []) delete l.pins; }, 'Unpinned')).then(again).catch(() => {}));
   if (d.hvg) { HV.cur = +d.hvg; return again(); }
   if (d.hvc) { g.color = d.hvc; return again(); }
   if (d.hvadd !== undefined) { HV.groups.push({ color: '#FFFFFF', level: 100, bulbs: [] }); HV.cur = HV.groups.length - 1; return again(); }
@@ -4039,10 +5101,10 @@ function roofSvg(md, side) {
 }
 function roofHtml(md, side) {
   const lines = md.rooflines[side] || [], has = S.photos.has(side);
-  const sideName = (md.sides.find(x => x.id === side) || {}).name || side;
+  const sideName = Elev.label(md, side);
   const flat = R.flat ? `<div class="panel stack"><div class="row"><h2 class="grow">Flat diagram</h2>
       <button class="small" data-flatsvg>Download SVG</button><button class="small ghost" data-flat>Close</button></div>
-      <div class="flatmap">${RL.flatHouseSvg(md.sides, md.rooflines, md.landmarks, 'Flat diagram of every side')}</div>
+      <div class="flatmap">${RL.flatHouseSvg(flatSides(md), md.rooflines, md.landmarks, 'Flat diagram of every elevation')}</div>
       <p class="note">Every side unfolded, with landmark pins and their bulb numbers. Traced from your photos, so it isn't to scale.</p></div>` : '';
   const toolbar = R.tracing ? `<div class="roofbar">
       <label class="field">Kind<select id="rkind"><option value="edge" ${R.kind === 'edge' ? 'selected' : ''}>Roof edge / eave</option><option value="ridge" ${R.kind === 'ridge' ? 'selected' : ''}>Ridge</option></select></label>
@@ -4141,7 +5203,7 @@ async function roofClick(e, b, md, side) {
   const d = b.dataset;
   if (d.flat !== undefined) { R.flat = !R.flat; VIEWS.mapRender(); return true; }
   if (d.flatsvg !== undefined) {
-    const url = URL.createObjectURL(new Blob([RL.flatHouseSvg(md.sides, md.rooflines, md.landmarks)], { type: 'image/svg+xml' }));
+    const url = URL.createObjectURL(new Blob([RL.flatHouseSvg(flatSides(md), md.rooflines, md.landmarks)], { type: 'image/svg+xml' }));
     const a = Object.assign(document.createElement('a'), { href: url, download: 'eaveluxos-house-rooflines.svg' });
     document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 2000); return true;
   }
@@ -4155,6 +5217,7 @@ async function roofClick(e, b, md, side) {
     const line = { id: R.editing || roofId(), kind: R.kind, points: R.draft.map(p => [...p]), wire: [...R.wire].sort((x, y) => x - y) };
     const before = R.editing && (md.rooflines[side] || []).find(l => l.id === R.editing);
     if (before && before.bulbs) line.bulbs = { ...before.bulbs };          // its bulb numbers stay (3.17)
+    if (before && before.pins) line.pins = before.pins.map(p => [...p]);   // and its pinned bulbs (4.12)
     if (!RL.validSection(line)) { toast('That section needs 2 to 100 points on the photo.', true); return true; }
     await busy(b, () => saveMap(mp => {
       const list = (mp.rooflines[side] || []).slice(), i = list.findIndex(l => l.id === line.id);
@@ -4171,14 +5234,17 @@ async function roofClick(e, b, md, side) {
       <p class="small">Which bulb numbers run along this line, from its first point to its last? Use the bulb finder to check the two ends. If they count down (for example 84 to 40), enter them that way.</p>
       <div class="row"><label class="field">First point<input type="number" name="a" min="1" max="${T}" value="${l.bulbs ? l.bulbs.from : ''}" required></label>
         <label class="field">Last point<input type="number" name="z" min="1" max="${T}" value="${l.bulbs ? l.bulbs.to : ''}" required></label></div>
-      <p class="note">The bulbs are spread evenly along the line, skipping wire-only stretches. That's what the house preview and scene builder use.</p>`, async f => {
+      <p class="note">The bulbs are spread evenly along the line, skipping wire-only stretches. That's what the house preview and scene builder use. To move single bulbs to where they really are, use <b>House view \u203a Place bulbs</b>.</p>`, async f => {
       const a = Math.round(+f.a.value), z = Math.round(+f.z.value);
       if (!(a >= 1 && z >= 1 && a <= T && z <= T)) throw new Error(`Bulb numbers go from 1 to ${T}.`);
-      await saveMap(mp => { const x = (mp.rooflines[side] || []).find(q => q.id === l.id); if (x) x.bulbs = { from: a, to: z }; }, 'Bulbs saved');
+      await saveMap(mp => { const x = (mp.rooflines[side] || []).find(q => q.id === l.id); if (!x) return;
+        x.bulbs = { from: a, to: z };
+        if (x.pins) { x.pins = x.pins.filter(p => p[0] >= Math.min(a, z) && p[0] <= Math.max(a, z)); if (!x.pins.length) delete x.pins; }   // 4.12
+      }, 'Bulbs saved');
       VIEWS.mapRender();
     }, { ok: 'Save', extraFoot: l.bulbs ? '<button type="button" class="ghost danger" data-rbclear>Clear</button>' : '',
       onOpen: f => { const c = f.querySelector('[data-rbclear]'); if (c) c.onclick = () => busy(c, () => saveMap(mp => {
-        const x = (mp.rooflines[side] || []).find(q => q.id === l.id); if (x) delete x.bulbs; }, 'Bulbs cleared')).then(() => { $('#dlg').close(); VIEWS.mapRender(); }).catch(() => {}); } });
+        const x = (mp.rooflines[side] || []).find(q => q.id === l.id); if (x) { delete x.bulbs; delete x.pins; } }, 'Bulbs cleared')).then(() => { $('#dlg').close(); VIEWS.mapRender(); }).catch(() => {}); } });
     return true;
   }
   if (d.rdel) {
@@ -4322,6 +5388,49 @@ function painterChange(D, t) {
 
 /* Edit a zone: fix its name or bulb numbers (for example after a counting
    mistake), check it by lighting it, then save. */
+/* 4.12: a zone lit for checking: its first bulb green and its last red
+   (the other way round when it runs backward), the rest in the finder color,
+   so it's plain on the house where it starts, where it ends, and which way. */
+function zoneCheckDef(start, end, total, color, reverse) {
+  if (end === start) return highlightDef(start, end, total, color);
+  const [first, last] = reverse ? ['#FF0000', '#00FF00'] : ['#00FF00', '#FF0000'];
+  // Review #4: never a middle the same as an end marker
+  const mid = /^#(FF0000|00FF00)$/i.test(color) ? '#FFC062' : color;
+  const runs = [];
+  if (start > 1) runs.push(['#000000', start - 1]);
+  runs.push([first, 1]);
+  if (end - start > 1) runs.push([mid, end - start - 1]);
+  runs.push([last, 1]);
+  if (end < total) runs.push(['#000000', total - end]);
+  const segs = runsToSegs(runs);
+  if (segs.length > MAX_SLOTS) throw new Error(`That needs ${segs.length} color slots; the controller allows ${MAX_SLOTS}.`);
+  return { label: `Zone ${start}–${end}`, colors: segs.map(x => x.c), counts: segs.map(x => x.n), custom_mode: 0, brightness: 255, speed: 0 };
+}
+/* The elevations (as shown in the whole house) with some of bulbs a..z. */
+function zoneElevs(md, a, z, dev) {
+  return Elev.list(md).filter(e => forDev(e, dev)).map(e => Elev.use(md, e))
+    .filter(k => HouseFX.sideBulbs(md.rooflines[k] || []).some(p => p.b >= a && p.b <= z));
+}
+/* A still picture of one photo with a zone's bulbs marked: green where it
+   starts, red where it ends, amber between, the rest dim. */
+function zonePicture(cv, side, a, z, reverse) {
+  const md = mapData(), bulbs = HouseFX.sideBulbs(md.rooflines[side] || []);
+  const ctx = cv.getContext('2d'), tok = (cv._tok = (cv._tok || 0) + 1);
+  const draw = img => {
+    if (cv._tok !== tok) return;
+    const dpr = window.devicePixelRatio || 1, W = Math.round((cv.clientWidth || 320) * dpr), H = img ? Math.round(W * img.naturalHeight / img.naturalWidth) : Math.round(W * .6);
+    cv.width = W; cv.height = H; ctx.clearRect(0, 0, W, H);
+    if (img) { ctx.drawImage(img, 0, 0, W, H); ctx.fillStyle = 'rgba(5,7,18,.6)'; ctx.fillRect(0, 0, W, H); }
+    const r = Math.max(2, W / 200), [s, e] = reverse ? [z, a] : [a, z];
+    for (const p of bulbs) {
+      const x = p.x / 100 * W, y = p.y / 100 * H, inz = p.b >= a && p.b <= z;
+      ctx.fillStyle = !inz ? 'rgba(170,175,205,.35)' : p.b === s ? '#00FF00' : p.b === e ? '#FF3030' : '#FFC062';
+      ctx.beginPath(); ctx.arc(x, y, inz ? r * (p.b === s || p.b === e ? 1.9 : 1.2) : r * .7, 0, 7); ctx.fill();
+    }
+  };
+  draw(null);
+  if (S.photos.has(side)) loadPhoto(side).then(url => { const im = new Image(); im.onload = () => draw(im); im.src = url; }).catch(() => {});
+}
 function zoneDialog(i, F, rerender) {
   const md = mapData(), z = md.zones[i];
   if (!z) return;
@@ -4330,36 +5439,61 @@ function zoneDialog(i, F, rerender) {
   const read = f => {
     const name = f.zn.value.trim(), start = Number(f.zs.value), end = Number(f.ze.value);
     if (!name) throw new Error('Give the zone a name.');
-    if (md.zones.some((o, j) => j !== i && o.name.trim().toLowerCase() === name.toLowerCase())) throw new Error(`There's already a zone named \u201c${name}\u201d.`);
+    if (md.zones.some((o, j) => j !== i && o.name.trim().toLowerCase() === name.toLowerCase() && (o.device || null) === (z.device || null))) throw new Error(`There's already a zone named “${name}”.`);
     if (!Number.isInteger(start) || !Number.isInteger(end)) throw new Error('Bulb numbers must be whole numbers.');
     if (start < 1 || end > T) throw new Error(`Bulbs go from 1 to ${T}.`);
     if (end < start) throw new Error('The last bulb can\u2019t be before the first.');
-    return { name, start, end };
+    return { name, start, end, reverse: f.zrev.checked };
   };
+  const nudge = (k, by) => `<button type="button" class="small ghost" data-znudge="${k}" data-by="${by}" aria-label="${{ s: 'First bulb', e: 'Last bulb', b: 'The whole zone' }[k]} ${by > 0 ? 'one later' : 'one earlier'}">${by > 0 ? '+1' : '−1'}</button>`;
   dialog(`<h2>Edit zone</h2>
     <label class="field">Name<input type="text" name="zn" maxlength="60" required value="${esc(z.name)}"></label>
     <div class="row"><label class="field">First bulb<input type="number" name="zs" min="1" max="${T}" value="${z.start}"></label>
       <label class="field">Last bulb<input type="number" name="ze" min="1" max="${T}" value="${z.end}"></label></div>
     <p class="note" data-zcount>${z.end - z.start + 1} bulbs, out of ${T}.</p>
+    <div class="row small zcal" aria-label="Line it up"><span>First ${nudge('s', -1)}${nudge('s', 1)}</span><span>Last ${nudge('e', -1)}${nudge('e', 1)}</span><span>Whole zone ${nudge('b', -1)}${nudge('b', 1)}</span></div>
+    <label class="check"><input type="checkbox" name="zrev" ${z.reverse ? 'checked' : ''}> Runs the other way (from its last bulb to its first)</label>
     <div class="row"><button type="button" class="small" data-zlight>Light these bulbs</button>
-      ${F.range ? `<button type="button" class="small ghost" data-zfinder>Use the finder's range (${F.bulb}\u2013${F.end})</button>` : ''}</div>
-    <p class="note">Light the zone to check it on the house before saving. The schedule comes back by itself 10 minutes after the last change.</p>`,
+      ${F.range ? `<button type="button" class="small ghost" data-zfinder>Use the finder's range (${F.bulb}–${F.end})</button>` : ''}</div>
+    <div class="zpic"><div class="row small" data-zsides></div><canvas data-zcv aria-label="This zone on the photo"></canvas></div>
+    <p class="note">Light the zone: its first bulb is <b style="color:#1DB954">green</b> and its last <b style="color:#E5484D">red</b>. If they're not where the zone starts and ends on the house, nudge them; while it's lit, the house follows each change. <b>Runs the other way</b> makes a zone's patterns (Combine patterns by zone) start from its last bulb. The schedule comes back by itself 10 minutes after the last change.</p>`,
     async f => {
       const v = read(f);
-      await saveMap(mp => { mp.zones[i] = { ...mp.zones[i], ...v }; }, `Zone \u201c${v.name}\u201d saved`);
+      await saveMap(mp => { mp.zones[i] = { ...mp.zones[i], ...v }; if (!v.reverse) delete mp.zones[i].reverse; }, `Zone “${v.name}” saved`);
       rerender();
     }, { ok: 'Save zone', onOpen: f => {
-      const count = () => { const a = Number(f.zs.value), b = Number(f.ze.value); $('[data-zcount]', f).textContent = Number.isInteger(a) && Number.isInteger(b) && b >= a ? `${b - a + 1} bulbs, out of ${T}.` : 'Check the bulb numbers.'; };
-      f.zs.oninput = f.ze.oninput = count;
+      let lit = false, timer = null, side = null;
+      const light = btn => { let v; try { v = read(f); } catch (err) { return toast(err.message, true); }
+        return busy(btn, () => housePreview(zoneCheckDef(v.start, v.end, T, F.color, v.reverse), 10))
+          .then(() => { lit = true; toast(`Showing bulbs ${v.start}–${v.end}`); }).catch(() => {}); };
+      const picture = () => {
+        const a = Number(f.zs.value), b = Number(f.ze.value), md2 = mapData();
+        const ks = Number.isInteger(a) && Number.isInteger(b) && b >= a ? zoneElevs(md2, a, b, z.device) : [];
+        if (!ks.includes(side)) side = ks.includes(Elev.use(md2, Elev.of(md2, F.side) || {})) ? Elev.use(md2, Elev.of(md2, F.side)) : ks[0] || null;
+        $('[data-zsides]', f).innerHTML = ks.length ? 'On ' + ks.map(k => `<button type="button" class="small ${k === side ? 'current' : 'ghost'}" data-zside="${esc(k)}">${esc(Elev.label(md2, k))}</button>`).join('')
+          : '<span class="muted">None of these bulbs is on a traced photo yet (House view › Bulbs on each line).</span>';
+        const cv = $('[data-zcv]', f); cv.hidden = !side; if (side) zonePicture(cv, side, a, b, f.zrev.checked);
+      };
+      const changed = () => {
+        const a = Number(f.zs.value), b = Number(f.ze.value);
+        $('[data-zcount]', f).textContent = Number.isInteger(a) && Number.isInteger(b) && b >= a ? `${b - a + 1} bulbs, out of ${T}.` : 'Check the bulb numbers.';
+        picture();
+        if (lit) { clearTimeout(timer); timer = setTimeout(() => light(null), 450); }
+      };
+      f.zs.oninput = f.ze.oninput = changed; f.zrev.onchange = changed;
       f.addEventListener('click', e => {
         const b = e.target.closest('button'); if (!b) return;
-        if (b.dataset.zfinder !== undefined) { f.zs.value = F.bulb; f.ze.value = F.end; count(); }
-        if (b.dataset.zlight !== undefined) {
-          let v; try { v = read(f); } catch (err) { return toast(err.message, true); }
-          busy(b, () => housePreview(highlightDef(v.start, v.end, T, F.color), 10))
-            .then(() => toast(`Showing bulbs ${v.start}\u2013${v.end}`)).catch(() => {});
+        if (b.dataset.zfinder !== undefined) { f.zs.value = F.bulb; f.ze.value = F.end; changed(); }
+        if (b.dataset.zside) { side = b.dataset.zside; picture(); }
+        if (b.dataset.znudge) {
+          const by = +b.dataset.by, k = b.dataset.znudge; let a = Number(f.zs.value), c = Number(f.ze.value);
+          if (k === 's') a += by; else if (k === 'e') c += by; else { if (a + by < 1 || c + by > T) return toast(`Bulbs go from 1 to ${T}.`, true); a += by; c += by; }
+          if (a < 1 || c > T || c < a) return toast(a < 1 || c > T ? `Bulbs go from 1 to ${T}.` : 'The last bulb can\u2019t be before the first.', true);
+          f.zs.value = a; f.ze.value = c; changed();
         }
+        if (b.dataset.zlight !== undefined) light(b);
       });
+      picture();
     } });
 }
 
@@ -4418,7 +5552,8 @@ function zoneCombiner(D, rerender) {
   if (!md.zones.length) return confirmBox('No zones yet', 'Open the <b>House</b> tab, select a range with the bulb finder and save it as a zone (for example “Garage roof”). Then come back here to give each zone a pattern.', 'OK');
   const pats = Object.entries(S.settings.effects || {}).filter(([, e]) => combinable(e));
   if (!pats.length) return confirmBox('No patterns to combine', 'Combine uses patterns of your own colors (made in Create). Built-in effects and patterns saved only on the controller can’t be laid along a zone.', 'OK');
-  const opts = `<option value="">Leave as the rest</option>${pats.map(([k, e]) => `<option value="${esc(k)}">${esc(e.label || k)}</option>`).join('')}`;
+  const pre = S.combinePrefill || {}; S.combinePrefill = null;          // 4.12: from the whole-house view
+  const optsFor = i => `<option value="">Leave as the rest</option>${pats.map(([k, e]) => `<option value="${esc(k)}" ${pre[i] === k ? 'selected' : ''}>${esc(e.label || k)}</option>`).join('')}`;
   const modes = S.catalog.custom_modes;
   // 4.10: zones for one controller (House tab). When a chosen zone is one
   // controller's, each controller gets its own combined pattern, along its
@@ -4443,7 +5578,7 @@ function zoneCombiner(D, rerender) {
     <p class="note">${owned ? 'Each zone shows the pattern you choose, along its own controller’s bulbs (a zone for every controller shows on each). With a zone for one controller chosen, this saves one pattern for each controller, together as a <b>Split by controller</b> pattern.' : `${T} bulbs. Each zone shows the pattern you choose, repeated along that zone only.`} Later zones in the list win where zones overlap.</p>
     ${owned ? '<label class="field">Name<input type="text" name="nm" maxlength="40" placeholder="e.g. Holidays by zone"></label>' : ''}
     <div class="stack">${md.zones.map((z, i) => `<div class="row"><div class="grow" style="min-width:9em"><b>${esc(z.name)}</b><div class="small muted">Bulbs ${z.start}–${z.end}${owned ? ' · ' + (z.device ? esc(devName(z.device)) : 'every controller') : ''}</div></div>
-      <select name="p${i}" style="flex:1 1 11em;min-width:0;max-width:100%" aria-label="Pattern for ${esc(z.name)}">${opts}</select></div>`).join('')}</div>
+      <select name="p${i}" style="flex:1 1 11em;min-width:0;max-width:100%" aria-label="Pattern for ${esc(z.name)}">${optsFor(i)}</select></div>`).join('')}</div>
     <label class="field">Everything else<select name="base"><option value="off">✕ Off (dark, never moves)</option><option value="#000000">Black</option>${S.catalog.palette.filter(p => p.hex !== '#000000').map(p => `<option value="${p.hex}">${esc(p.name)}</option>`).join('')}</select></label>
     <fieldset class="stack" style="border:0;padding:0;margin:0"><legend class="small" style="font-weight:650">Motion</legend>
       <label class="check"><input type="radio" name="mv" value="still" checked> Still: each zone stays in place (looks best)</label>

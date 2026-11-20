@@ -1,7 +1,7 @@
 # Publish a release with a version tag (for example v3.2.2), or push the tag
 # from the command line, and GitHub tests the code, then builds:
 #   Windows       EaveLuxOS-Windows.zip
-#   macOS         EaveLuxOS-macOS.dmg (Apple silicon)
+#   macOS         EaveLuxOS-macOS.dmg (Apple silicon), EaveLuxOS-macOS-Intel.dmg (Intel, 4.10.1)
 #   Linux PC      eaveluxos_<ver>_amd64.deb + EaveLuxOS-Linux-x86_64.tar.gz
 #   Raspberry Pi  eaveluxos_<ver>_arm64.deb + EaveLuxOS-Linux-aarch64.tar.gz (64-bit Pi OS)
 # Linux builds run on Ubuntu 22.04 so they also work on older systems such as
@@ -29,7 +29,8 @@ jobs:
     strategy:
       matrix:
         # macOS 15 (4.7.3): the same Mac the tests run on, not a label that moves
-        os: [windows-latest, macos-15, ubuntu-22.04, ubuntu-22.04-arm]
+        # macos-15-intel (4.10.1): GitHub's Intel Mac, for the Intel download
+        os: [windows-latest, macos-15, macos-15-intel, ubuntu-22.04, ubuntu-22.04-arm]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
@@ -62,7 +63,7 @@ jobs:
             dist/*.tar.gz
   # One job attaches everything, so the release notes are written once (with
   # one upload per build machine, each added its own "Full Changelog" line),
-  # and files are attached only when all four builds succeeded.
+  # and files are attached only when all five builds succeeded.
   publish:
     needs: build
     if: startsWith(github.ref, 'refs/tags/')

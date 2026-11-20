@@ -70,7 +70,7 @@ def parse_games(raw: bytes) -> list[dict]:
         state = str((typ or {}).get("state") or "").lower()
         if state not in ("pre", "in", "post"):
             continue
-        teams = {}
+        teams, home = {}, None
         for c in comp.get("competitors") or []:
             if not isinstance(c, dict):
                 continue
@@ -81,6 +81,8 @@ def parse_games(raw: bytes) -> list[dict]:
                 continue
             if abbr:
                 teams[abbr] = score
+                if c.get("homeAway") == "home":
+                    home = abbr                 # 4.11: for automations' home and away
         start = None
         s = ev.get("date")
         if isinstance(s, str):
@@ -91,14 +93,19 @@ def parse_games(raw: bytes) -> list[dict]:
             except ValueError:
                 start = None
         out.append({"id": str(ev.get("id") or ""), "state": state, "start": start,
-                    "detail": str((typ or {}).get("shortDetail") or "")[:40], "teams": teams})
+                    "detail": str((typ or {}).get("shortDetail") or "")[:40], "teams": teams, "home": home})
     return out
 
 
 class ScoreWatch:
-    def __init__(self, on_score, fetch=None, now=time.time):
-        """on_score(team, points, game): called when a watched team scores."""
+    def __init__(self, on_score, fetch=None, now=time.time, on_game=None):
+        """on_score(team, points, game): called when a watched team scores.
+        on_game(team, "start" or "end", game): a game seen starting or ending
+        (4.11, for automations); a game first seen already under way or over
+        isn't announced."""
         self.on_score = on_score
+        self.on_game = on_game
+        self.states: dict = {}          # (game id, team key) -> the state last seen
         self.fetch = fetch or _fetch
         self.now = now
         self.lock = threading.Lock()
@@ -178,6 +185,17 @@ class ScoreWatch:
         how soon to look again."""
         score = g["teams"][t["team"]]
         others = [(a, s) for a, s in g["teams"].items() if a != t["team"]]
+        sk = (g["id"], t["key"])
+        was = self.states.get(sk)
+        self.states[sk] = g["state"]
+        while len(self.states) > KEEP_GAMES:
+            del self.states[next(iter(self.states))]
+        kind = "start" if (was, g["state"]) == ("pre", "in") else "end" if was == "in" and g["state"] == "post" else None
+        if self.on_game and kind:
+            try:
+                self.on_game(t, kind, g)
+            except Exception:
+                log.exception("Game event failed")
         with self.lock:
             self.live[t["key"]] = {"state": g["state"], "detail": g["detail"], "score": score,
                                    "vs": others[0][0].upper() if others else "", "them": others[0][1] if others else None}

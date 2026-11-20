@@ -1,4 +1,12 @@
-{"name":"EaveLuxOS","short_name":"EaveLuxOS","description":"The Intelligent Lighting Control Platform","start_url":"./","display":"standalone",
- "background_color":"#171628","theme_color":"#171628",
- "icons":[{"src":"icon-192.png","sizes":"192x192","type":"image/png"},{"src":"icon-512.png","sizes":"512x512","type":"image/png"},
-          {"src":"icon-512.png","sizes":"512x512","type":"image/png","purpose":"maskable"},{"src":"icon.svg","sizes":"any","type":"image/svg+xml"}]}
+{"id": "./", "name": "EaveLuxOS", "short_name": "EaveLuxOS", "description": "The Intelligent Lighting Control Platform",
+ "start_url": "./?app=1#quick", "scope": "./", "display": "standalone", "display_override": ["standalone", "minimal-ui"],
+ "orientation": "any", "background_color": "#171628", "theme_color": "#171628", "categories": ["utilities", "lifestyle"],
+ "icons": [{"src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+           {"src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+           {"src": "icon-maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable"},
+           {"src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"},
+           {"src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any"}],
+ "shortcuts": [{"name": "Lights on", "short_name": "On", "url": "./?app=1&do=on#quick", "icons": [{"src": "sc-on.png", "sizes": "96x96", "type": "image/png"}]},
+               {"name": "Lights off", "short_name": "Off", "url": "./?app=1&do=off#quick", "icons": [{"src": "sc-off.png", "sizes": "96x96", "type": "image/png"}]},
+               {"name": "Back to the schedule", "short_name": "Schedule", "url": "./?app=1&do=resume#quick", "icons": [{"src": "sc-schedule.png", "sizes": "96x96", "type": "image/png"}]},
+               {"name": "Security flash", "short_name": "Flash", "url": "./?app=1&do=flash#quick", "icons": [{"src": "sc-flash.png", "sizes": "96x96", "type": "image/png"}]}]}

@@ -837,6 +837,8 @@ class Config:
     zones: list = field(default_factory=list)          # House map zones: [{"name", "start", "end"}]
     total_bulbs: int | None = None                     # House map address space, when set there
     celebrate: dict = field(default_factory=dict)      # team key -> score celebration settings (3.16)
+    automations: list = field(default_factory=list)   # 4.11: When/If/Then (automations.py)
+    watch: dict = field(default_factory=dict)          # 4.11: teams automations follow, celebrations off or not
     gamma: float | None = None
 
 
@@ -1135,6 +1137,17 @@ def build_config(raw: dict, secrets: dict, need_secrets: bool = True, gamedates:
     tb = mp.get("total_bulbs")
     total_bulbs = tb if isinstance(tb, int) and not isinstance(tb, bool) and 1 <= tb <= 10000 else None
 
+    # 4.11: automations (When / If / Then), with the Game-day teams they may name
+    from .automations import parse as _ap, watch_teams as _aw
+    from .gameday import GameDayError as _GE, check_team as _ct, team_key as _tk
+    gd_teams = set()
+    for t in ((raw.get("gameday") or {}).get("teams") or []) if isinstance(raw.get("gameday"), dict) else []:
+        try:
+            ct = _ct(t)
+            gd_teams.add(_tk(ct["league"], ct["team"]))
+        except (_GE, TypeError, KeyError, AttributeError):
+            pass
+    autos = _ap(raw.get("automations"), effects, gd_teams)
     return Config(
         loc=loc, effects=effects, schedule=Schedule(rules, loc, away), weather_rules=wrules,
         weather=weather, security=security, safety=safety,
@@ -1148,6 +1161,7 @@ def build_config(raw: dict, secrets: dict, need_secrets: bool = True, gamedates:
         music=build_music(raw, loc),
         weather_alerts=wx_alerts, zones=zones, total_bulbs=total_bulbs,
         celebrate=_celebrations(raw.get("gameday"), effects), gamma=gamma,
+        automations=autos, watch=_aw(raw.get("gameday"), autos),
     )
 
 

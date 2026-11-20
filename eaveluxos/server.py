@@ -38,12 +38,12 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from zoneinfo import available_timezones
 
-from . import alerts, autostart, catalog, community, gameday, holidays, keepawake, lanlink, localmode, restore, scores, sharecode, sound, updates, winfirewall
+from . import alerts, automations, autostart, catalog, community, gameday, holidays, keepawake, lanlink, localmode, restore, scores, sharecode, sound, updates, winfirewall
 from .api import TrimlightAPI, TrimlightError, port_base
 from .controller import Controller
 from . import safety
 from .safety import SafetyNet
-from .schedule import CELEBRATE_POINTS, ConfigError, Effect, SetupNeeded, add_real, build_config, color_gamma, tz_info
+from .schedule import CELEBRATE_POINTS, ConfigError, Effect, SetupNeeded, add_real, build_config, color_gamma, tz_info, ts
 from .store import Conflict, Store, check_password, hash_password, needs_rehash
 
 _DUMMY_HASH = hash_password("timing-equalizer-not-a-password")
@@ -193,7 +193,8 @@ class ApiError(Exception):
 # phone that's still signed in can't take over the account, webhooks or port.
 SENSITIVE = {"/api/credentials", "/api/webhook", "/api/port", "/api/autostart", "/api/awake", "/api/local_login",
              "/api/users", "/api/users/delete", "/api/session_policy",
-             "/api/ai/settings"}      # a paid key: swapping or removing it needs the password (3.18.2)
+             "/api/ai/settings",      # a paid key: swapping or removing it needs the password (3.18.2)
+             "/api/update/install", "/api/update/rollback", "/api/update/auto"}   # 4.15: replacing the program
 REAUTH_SECONDS = 300
 
 # Roles (3.4). Administrators can do everything. Editors design patterns,
@@ -202,8 +203,11 @@ REAUTH_SECONDS = 300
 # or anything on the admin list. Viewers can look but not change anything.
 EDITOR_POSTS = {"/api/action", "/api/settings", "/api/photo", "/api/photo/upload", "/api/photo/delete", "/api/device/save_effect", "/api/import",
                 "/api/sound/upload", "/api/sound/delete", "/api/sound/test",     # 4.9: celebration sounds
+                "/api/automation/try", "/api/automation/check",                  # 4.11: automations
                 "/api/textpattern", "/api/mood", "/api/holidays/refresh", "/api/share", "/api/share/open",
-                "/api/musiclink"}    # 4.1: a music show from this computer (address, finding and tests: Administrators)
+                "/api/musiclink",    # 4.1: a music show from this computer (address, finding and tests: Administrators)
+                "/api/musiczones",   # 4.13: zones that follow the music
+                "/api/health/check"} # 4.15: check the controllers now
 # Viewers may make a share code: it only reads patterns (3.19.1).
 VIEWER_POSTS = {"/api/share"}
 MOOD_LEVELS = ("calm", "lively", "party")
@@ -333,11 +337,17 @@ class App:
         self.gameday = gameday.GameDays(self.store.dir, on_change=self.rebuild)  # game-day lights
         self.country = holidays.CountryHolidays(self.store.dir, on_change=self.rebuild)  # public holidays (3.19)
         self._country_checked = {}                                               # code -> last "Check now" (3.19.1)
-        self.scores = scores.ScoreWatch(self.celebrate)                          # score celebrations (3.16)
+        self.scores = scores.ScoreWatch(self.on_score, on_game=self.on_game)     # score celebrations (3.16), automations (4.11)
+        self.autos = automations.Engine(self)                                   # When / If / Then (4.11)
         self.ai_fetch = None                                                     # tests replace the AI call (3.18)
         self.ai_calls = []                                                       # times of AI calls, for the limits (3.18.2)
         self.mood_state = None                                                   # mood follow: {"level", "key", "at"}
         self.lanshow = lanlink.Streamer(on_end=self._musiclink_ended)          # music from this computer (4.1)
+        from . import health as _health
+        from . import api as _api
+        self.health = _health.Health(self.store.dir)            # 4.15: how each controller has been answering
+        _api.RECORDER = self.health.record
+        self.zoneshows = {}           # 4.13: a controller id -> its musicsync.ZoneStreamer while zones follow the music
         self.lan_seen = {}                  # address -> {"ok", "at", "checking", "gen"}: answering there? (4.1.2; 4.5: each address)
         self._acct = []                     # the account's controllers, from the last listing here (4.5)
         self._acct_tried = -1e9             # when they were last asked for
@@ -427,11 +437,17 @@ class App:
         if os.environ.get("EAVELUXOS_BACKGROUND") != "0":
             if os.environ.get("EAVELUXOS_UPDATE_CHECK") != "0":
                 self.updates.start()
+
+                def auto_updates():                # 4.15: install by themselves, when chosen
+                    while not self.updates.stop.wait(600):
+                        self.auto_update_step()
+                threading.Thread(target=auto_updates, daemon=True, name="auto-update").start()
             self.alerts.start()
             self.gameday.start(self.game_teams, lambda: self.cfg.loc.tz if self.cfg else timezone.utc)
             self.country.start(self.country_code)
-            self.scores.start(lambda: self.cfg.celebrate if self.cfg else {}, self.gameday.dates,
+            self.scores.start(lambda: {**self.cfg.watch, **self.cfg.celebrate} if self.cfg else {}, self.gameday.dates,
                               lambda: self.cfg.loc.now() if self.cfg else datetime.now())
+            self.autos.start()
 
     def gamma(self) -> float | None:
         """Gamma correction in effect (None = off); bad values count as off
@@ -458,6 +474,18 @@ class App:
         elsewhere, so validate with a stand-in location in that case."""
         self._validate_map(data.get("map"))
         self._validate_scenes(data.get("effects"))
+        self._validate_music_zones(data.get("music_zones"))
+        q = data.get("quick")
+        if q is not None:     # 4.14: Quick's buttons
+            if not isinstance(q, list) or len(q) > 12:
+                raise ApiError("Quick holds up to 12 buttons.")
+            for x in q:
+                ok = isinstance(x, dict) and (
+                    (x.get("type") in ("on", "off", "resume", "flash") and set(x) == {"type"})
+                    or (x.get("type") == "pattern" and set(x) == {"type", "key"} and isinstance(x["key"], str) and 1 <= len(x["key"]) <= 80)
+                    or (x.get("type") == "auto" and set(x) == {"type", "id"} and isinstance(x["id"], str) and 1 <= len(x["id"]) <= 40))
+                if not ok:
+                    raise ApiError("A Quick button is malformed.")
         for f in ("unused_ports", "ports_set"):
             up = (data.get("service") or {}).get(f)
             if up is not None and not (isinstance(up, dict) and all(
@@ -538,6 +566,30 @@ class App:
                 raise ApiError(f"The scene \u201c{e.get('label', k)}\u201d is malformed. Rebuild it on the House tab.")
 
     @staticmethod
+    def _validate_music_zones(mz):
+        """4.13: which zone follows what in a music show from this computer."""
+        if mz is None:
+            return
+        hexc = re.compile(r"#[0-9A-Fa-f]{6}")
+        if not isinstance(mz, dict) or set(mz) - {"maps", "base", "tested"}:
+            raise ApiError("The music zones settings are malformed.")
+        maps = mz.get("maps", [])
+        if not isinstance(maps, list) or len(maps) > 60:
+            raise ApiError("Up to 60 zones can follow the music.")
+        for m in maps:
+            if not (isinstance(m, dict) and isinstance(m.get("zone"), str) and 1 <= len(m["zone"]) <= 60
+                    and m.get("follows") in ("bass", "mid", "treble", "beat", "off") and m.get("shows") in ("glow", "meter")
+                    and isinstance(m.get("color"), str) and hexc.fullmatch(m["color"])
+                    and (m.get("device") is None or (isinstance(m["device"], str) and 1 <= len(m["device"]) <= 80))
+                    and not set(m) - {"zone", "device", "follows", "shows", "color"}):
+                raise ApiError("A zone's music choice is malformed.")
+        if mz.get("base") is not None and not (isinstance(mz["base"], str) and hexc.fullmatch(mz["base"])):
+            raise ApiError("The color for the rest is like #000000.")
+        t = mz.get("tested", {})
+        if not isinstance(t, dict) or len(t) > 20 or not all(isinstance(k, str) and isinstance(v, dict) for k, v in t.items()):
+            raise ApiError("The speed test results are malformed.")
+
+    @staticmethod
     def _validate_map(m):
         if m is None:
             return
@@ -551,12 +603,37 @@ class App:
         tb = m.get("total_bulbs")
         if tb is not None and not (isinstance(tb, int) and 1 <= tb <= 10000):
             raise ApiError("Total bulbs must be 1-10000.")
-        for side in m.get("sides", []) or []:
-            if not (isinstance(side, dict) and re.fullmatch(r"[a-z0-9_-]{1,40}", str(side.get("id", "")))
-                    and 1 <= len(str(side.get("name", ""))) <= 30):
+        sides = m.get("sides", []) or []
+        if not isinstance(sides, list) or len(sides) > 80:
+            raise ApiError("Use at most 80 elevations and versions.")
+        sid = re.compile(r"[a-z0-9_-]{1,40}")
+        seen = set()
+        for side in sides:
+            if not (isinstance(side, dict) and sid.fullmatch(str(side.get("id", "")))
+                    and 1 <= len(str(side.get("name", ""))) <= 30) or side["id"] in seen:
                 raise ApiError("A house side has an invalid id or name.")
+            seen.add(side["id"])
             if not device_ok(side):
                 raise ApiError("A house side names an invalid controller.")
+            # 4.12: elevations: a kind; versions of one (day and night photos,
+            # before and after) are sides of their own that name the one
+            # they're a version of ("of"); "use" is the version the whole-house
+            # view and flat diagram show; "vname" names the first version.
+            if side.get("kind") is not None and side["kind"] not in ("front", "side", "rear", "other"):
+                raise ApiError("An elevation is front, side, rear or other.")
+            for k in ("of", "use"):
+                if side.get(k) is not None and not sid.fullmatch(str(side[k])):
+                    raise ApiError("A version of an elevation is malformed.")
+            if side.get("vname") is not None and not 1 <= len(str(side["vname"])) <= 30:
+                raise ApiError("A version name is 1 to 30 characters.")
+            if set(side) - {"id", "name", "device", "kind", "of", "use", "vname"}:
+                raise ApiError("A house side has unknown fields.")
+        by_id = {x["id"]: x for x in sides}
+        for side in sides:
+            if side.get("of") is not None and (side["of"] == side["id"] or side["of"] not in by_id or by_id[side["of"]].get("of")):
+                raise ApiError("A version must belong to an elevation, not to another version.")
+            if side.get("use") is not None and side["use"] != side["id"] and by_id.get(side["use"], {}).get("of") != side["id"]:
+                raise ApiError("An elevation shows one of its own versions.")
         for lm in m.get("landmarks", []) or []:
             if not (isinstance(lm, dict) and isinstance(lm.get("bulb"), int) and 1 <= lm["bulb"] <= 10000
                     and 1 <= len(str(lm.get("name", "")).strip()) <= 60):
@@ -593,7 +670,15 @@ class App:
                     if bl is not None and not (isinstance(bl, dict) and set(bl) == {"from", "to"} and all(
                             isinstance(bl[k], int) and not isinstance(bl[k], bool) and 1 <= bl[k] <= 10000 for k in ("from", "to"))):
                         raise ApiError("A roofline section's bulbs need a first and last bulb number (1-10000).")
-                    extra = set(ln) - {"id", "kind", "points", "wire", "bulbs"}
+                    pins = ln.get("pins", [])
+                    # 4.12: bulbs dragged to where they sit: [bulb, x%, y%], one each
+                    if not (isinstance(pins, list) and len(pins) <= 200 and all(
+                            isinstance(p, list) and len(p) == 3 and isinstance(p[0], int) and not isinstance(p[0], bool)
+                            and 1 <= p[0] <= 10000 and all(isinstance(v, (int, float)) and not isinstance(v, bool)
+                                                           and 0 <= v <= 100 for v in p[1:]) for p in pins)
+                            and len({p[0] for p in pins}) == len(pins)):
+                        raise ApiError("A roofline section's pinned bulbs are malformed.")
+                    extra = set(ln) - {"id", "kind", "points", "wire", "bulbs", "pins"}
                     if extra:
                         raise ApiError("A roofline section has unknown fields.")
         names = set()
@@ -603,6 +688,8 @@ class App:
                 raise ApiError("Each zone needs a name and a first and last bulb (first not after last).")
             if not device_ok(z):
                 raise ApiError("A zone names an invalid controller.")
+            if not isinstance(z.get("reverse", False), bool):     # 4.12: runs from its last bulb to its first
+                raise ApiError("A zone's direction is malformed.")
             # 4.10: the same name may be used once for each controller
             k = (z["name"].strip().lower(), z.get("device"))
             if k in names:
@@ -765,6 +852,9 @@ class App:
     def save_settings(self, data: dict, expect_rev=None):
         if not isinstance(data, dict):
             raise ApiError("Settings must be an object.")
+        if isinstance(data.get("music_zones"), dict):
+            # 4.13: speed test results come only from the test, never from a page
+            data["music_zones"]["tested"] = copy.deepcopy((self.store.settings.get("music_zones") or {}).get("tested") or {})
         self.validate(data)
         teams_before = self._team_keys()
         try:
@@ -1274,6 +1364,54 @@ class App:
         return (f"The controller at {addr} has {fmt(here)}, but {self._name_of(dev)} has {fmt(cloud)} in "
                 f"Trimlight\u2019s cloud. It may be another controller.")
 
+    def local_discover(self, scan: bool = False) -> dict:
+        """Administrators (4.15): find the controllers on the home network
+        and say which is which. The finding broadcast first; with scan (or
+        when nothing answers it), a knock on the controllers' port at each
+        address of this computer's own network. Each controller found is read
+        (its ports), and matched to the account's controllers by the ports
+        Trimlight's cloud has for them."""
+        found, how = [], {}
+        try:
+            for a in lanlink.find():
+                found.append(a)
+                how[a] = "answered"
+        except OSError:
+            pass
+        if scan or not found:
+            for own in lan_addresses()[:2]:
+                for a in lanlink.scan(own):
+                    if a not in found:
+                        found.append(a)
+                        how[a] = "port open"
+        acct = self._account(fetch=True)
+        cloud = {}
+        for d in acct:
+            try:
+                det = self.client().get_device(d["id"], self.now(), resync=False)
+                base = port_base(det.get("ports"))
+                cloud[d["id"]] = {p.get("id", 0) - base: (p.get("start"), p.get("end")) for p in det.get("ports") or []
+                                  if (p.get("start"), p.get("end")) != (0, 0)}
+            except Exception:
+                cloud[d["id"]] = None
+        saved = {v: k for k, v in ((self.store.settings.get("lan") or {}).get("devices") or {}).items() if v}
+        out = []
+        for a in found[:16]:
+            row = {"address": a, "how": how[a], "saved_for": saved.get(a), "match": None}
+            try:
+                got = self.local_identify(a)
+                row.update(ports=got["ports"], patterns=got["patterns"], count=got["count"])
+                here = {i: (p["start"], p["end"]) for i, p in enumerate(got["ports"])}
+                fits = [dev for dev, c in cloud.items() if c and all(here.get(i) == se for i, se in c.items())]
+                if len(fits) == 1:
+                    row["match"] = fits[0]
+                elif len(fits) > 1:
+                    row["note"] = "Its ports match more than one of your controllers; use Which is this? to tell."
+            except ApiError as e:
+                row["error"] = str(e)
+            out.append(row)
+        return {"found": out, "devices": acct, "scanned": bool(scan or how and "port open" in how.values())}
+
     def local_identify(self, addr) -> dict:
         """Administrators (4.5): what the controller at an address holds (its
         ports and first pattern names), to tell two controllers apart."""
@@ -1414,6 +1552,8 @@ class App:
             raise ApiError("Enter the controller's address on your home network first (Music › Music from this computer).", 409)
         if self.local_busy.locked():
             raise ApiError("A change to the controller over the home network is running. Start the show when it's done.", 409)
+        if any(z.running() for z in self.zoneshows.values()):     # 4.13
+            raise ApiError("Zones are following the music. Stop that first.", 409)
         pattern, sens = num("pattern", *lanlink.PATTERNS), num("sensitivity", *lanlink.SENSITIVITY)
         try:
             color = lanlink.check_color(b.get("color", "#FF0000"))      # for the "Single Color" patterns (4.2)
@@ -1455,6 +1595,155 @@ class App:
             self.lan_io.release()
         return self.musiclink_status()
 
+    # --- 4.13: music sync 2.0, zones that follow the music (musicsync.py) -------------
+
+    def musiczones_status(self) -> dict:
+        c = self.ctrl
+        mz = self.store.settings.get("music_zones") or {}
+        devs = {}
+        for d in (c.devices if c else []):
+            dev = d["deviceId"]
+            zs = self.zoneshows.get(dev)
+            devs[dev] = {"name": d.get("name") or dev, "address": bool(self._lan_address(dev)),
+                         "tested": (mz.get("tested") or {}).get(dev), "show": zs.status() if zs else {"running": False}}
+        return {"devices": devs, "running": any(z.running() for z in self.zoneshows.values()),
+                "link": self.lanshow.running()}
+
+    def _zone_busy(self) -> str | None:
+        if self.lanshow.running():
+            return "A music show from this computer (the controller's music patterns) is on. Stop it first."
+        if any(z.running() for z in self.zoneshows.values()):
+            return "Zones are following the music already. Stop that first."
+        c = self.ctrl
+        other = c.other_show_on() if c else None
+        return f"{other} is on. Stop it first (Music \u203a Music show)." if other else None
+
+    def musiczones(self, b: dict) -> dict:
+        """Editors: zones that follow the music. op "test" (a controller's
+        speed test), "start", "frame" (the page's latest frame for each
+        controller) and "stop"."""
+        from . import musicsync
+        op, c = b.get("op"), self.ctrl
+        if c is None:
+            raise ApiError("Finish setup first.", 409)
+        known = {d["deviceId"]: d for d in c.devices}
+        if op == "frame":
+            tab, frames = b.get("tab"), b.get("frames")
+            if not isinstance(frames, dict) or len(frames) > 20:
+                raise ApiError("A frame for each controller.")
+            out = {}
+            for dev, f in frames.items():
+                zs = self.zoneshows.get(dev)
+                try:
+                    out[dev] = bool(zs and zs.feed((f or {}).get("colors"), (f or {}).get("counts"), tab))
+                except ValueError as e:
+                    raise ApiError(str(e)) from None
+            st = self.musiczones_status()
+            return {"running": any(out.values()), "devices": {d: v["show"] for d, v in st["devices"].items()}}
+        if op == "stop":
+            tab = b.get("tab")
+            if not isinstance(tab, str) or not 1 <= len(tab) <= 40:      # Review #3: one page's show, never any
+                raise ApiError("Unknown listening page.")
+            for zs in list(self.zoneshows.values()):
+                zs.stop(tab, "stopped")
+            if self._our_show():
+                c.stop_music()
+            return self.musiczones_status()
+        if op == "test":
+            dev = b.get("device")
+            if dev not in known:
+                raise ApiError("Choose one of your controllers.")
+            addr = self._lan_address(dev)
+            if not addr:
+                raise ApiError("Enter this controller's address on your home network first (Setup \u203a Local mode).", 409)
+            busy = self._zone_busy()
+            if busy:
+                raise ApiError(busy, 409)
+            if not self.lan_io.acquire(timeout=20):
+                raise ApiError("The connection to the controller is busy. Try again in a moment.", 409)
+            sid = "t" + secrets.token_hex(4)
+            try:
+                try:
+                    c.start_music(5, by=f"lan:{sid}")      # step aside while the frames go out
+                except ValueError as e:
+                    raise ApiError(str(e), 409) from None
+                try:
+                    r = musicsync.speed_test(addr, clock=self.controller_now)
+                except lanlink.LinkError as e:
+                    raise ApiError(f"The speed test couldn't finish: {e}", 502) from None
+            finally:
+                if self._our_show(sid):
+                    c.stop_music()                     # the schedule's pattern again
+                self.lan_io.release()
+            r["at"] = c.cfg.loc.now().isoformat(timespec="minutes")
+            s = copy.deepcopy(self.store.settings)
+            mz = s.setdefault("music_zones", {})
+            mz.setdefault("tested", {})[dev] = r
+            self.validate(s)
+            self.store.save_settings(s)
+            c.note(f"Music zones: {known[dev].get('name') or dev} took {r['fps']} frames a second in its speed test.")
+            return {**r, **self.musiczones_status()}
+        if op != "start":
+            raise ApiError("Unknown music step.")
+        tab, devs, minutes = b.get("tab"), b.get("devices"), b.get("minutes", 0)
+        if not isinstance(tab, str) or not 1 <= len(tab) <= 40:
+            raise ApiError("Unknown listening page.")
+        if not (isinstance(devs, list) and 1 <= len(devs) <= len(known) and all(d in known for d in devs)) or len(set(devs)) != len(devs):
+            raise ApiError("Choose the controllers whose zones follow the music.")
+        if isinstance(minutes, bool) or not isinstance(minutes, int) or not 0 <= minutes <= 360:
+            raise ApiError("Minutes must be from 0 (until stopped) to 360.")
+        tested = (self.store.settings.get("music_zones") or {}).get("tested") or {}
+        for d in devs:
+            if not self._lan_address(d):
+                raise ApiError(f"Enter {known[d].get('name') or d}'s address on your home network first (Setup \u203a Local mode).", 409)
+            if not (tested.get(d) or {}).get("fps"):
+                raise ApiError(f"Run {known[d].get('name') or d}'s speed test first. It shows how many frames a second it can take.", 409)
+        busy = self._zone_busy()
+        if busy:
+            raise ApiError(busy, 409)
+        if not self.lan_io.acquire(timeout=20):
+            raise ApiError("The connection to the controller is busy. Try again in a moment.", 409)
+        sid = "z" + secrets.token_hex(4)
+        started = []
+        try:
+            try:
+                c.start_music(minutes or None, by=f"lan:{sid}")
+            except ValueError as e:
+                raise ApiError(str(e), 409) from None
+            try:
+                for d in devs:
+                    zs = self.zoneshows.get(d) or musicsync.ZoneStreamer(on_end=lambda why, s_, dv=d: self._zones_ended(dv, why, s_))
+                    self.zoneshows[d] = zs
+                    zs.start(self._lan_address(d), tab, tested[d]["fps"], sid, wanted=lambda: self._our_show(sid),
+                             clock=self.controller_now)
+                    started.append(zs)
+            except (lanlink.LinkError, ValueError) as e:
+                for zs in started:
+                    zs.stop(tab, "stopped")
+                if self._our_show(sid):
+                    c.stop_music()
+                raise ApiError(str(e), 502 if isinstance(e, lanlink.LinkError) else 400) from None
+        finally:
+            self.lan_io.release()
+        c.note("Music zones: started on " + ", ".join(known[d].get("name") or d for d in devs) + ".")
+        return self.musiczones_status()
+
+    def _zones_ended(self, dev: str, why: str, sid: str | None):
+        c = self.ctrl
+        if c is None:
+            return
+        zs = self.zoneshows.get(dev)
+        text = {"stopped": "stopped", "idle": "the listening page stopped sending", "app": "the music show ended",
+                "lost": f"the connection was lost ({zs.last_error if zs else ''})"}.get(why, why)
+        name = next((d.get("name") for d in c.devices if d["deviceId"] == dev), dev)
+        c.note(f"Music zones on {name}: {text}.")
+        if why in ("idle", "lost"):            # one controller gone: end the whole show, the others too
+            for other in list(self.zoneshows.values()):
+                if other is not zs:
+                    other.stop(None, "stopped")
+        if why != "app" and self._our_show(sid) and not any(z.running() for z in self.zoneshows.values() if z is not zs):
+            c.stop_music()
+
     def _musiclink_ended(self, why: str, sid: str | None = None):
         c = self.ctrl
         if c is None:
@@ -1481,6 +1770,342 @@ class App:
             self.ai_calls = calls
         model = (self.store.settings.get("ai") or {}).get("model") or textpattern.AI_MODEL
         return textpattern.ai_generate(prompt, self.store.secrets.get("ai_key"), fetch=self.ai_fetch, model=model)
+
+    # --- 4.11: automations (automations.py) -------------------------------------
+
+    def on_score(self, team: dict, points: int, game: dict):
+        """A watched team scored: its celebration (when on), then automations."""
+        if not team.get("automation_only"):
+            self.celebrate(team, points, game)
+        self._auto_event({"type": "score", "team": team["key"], "abbr": team["team"], "game": game, "points": points})
+
+    def _auto_event(self, ev: dict) -> list:
+        """Review #6: an automation that fails never stops the scoreboard."""
+        try:
+            return self.autos.event(ev)
+        except Exception:
+            log.exception("Automations for %s failed", ev.get("type"))
+            return []
+
+    def on_game(self, team: dict, kind: str, game: dict):
+        us = game["teams"].get(team["team"])
+        them = [v for k, v in game["teams"].items() if k != team["team"]]
+        result = None
+        if kind == "end" and us is not None and them:
+            result = "win" if us > them[0] else "loss" if us < them[0] else "tie"
+        self._auto_event({"type": "game_start" if kind == "start" else "game_end", "team": team["key"],
+                          "abbr": team["team"], "game": game, "result": result})
+
+    def _auto_zones(self, dev):
+        zs = (self.ctrl.cfg.zones or []) if self.ctrl else []
+        return [z for z in zs if not dev or not z.get("device") or z["device"] == dev] if dev else zs
+
+    def auto_flash(self, x: dict, a: dict, ev: dict):
+        from .triggers import flash_effect
+        c = self.ctrl
+        cfg, dev = c.cfg, x.get("device")
+        eff = flash_effect(cfg.effects, cfg.gamma, effect=x.get("effect"), color=x.get("color"), zone=x.get("zone"),
+                           zones=self._auto_zones(dev), total=self.address_space() if x.get("zone") else None)
+        if dev:
+            c.flash_one(dev, eff, x["seconds"])      # Review #3: then back to what it showed
+        elif not c.start_flash(seconds=x["seconds"], effect=eff, label=a["name"], kind="automation"):
+            raise RuntimeError("something more important is showing")
+
+    def auto_show(self, x: dict, a: dict, ev: dict):
+        c = self.ctrl
+        if x.get("device"):
+            c.manual_one(x["device"], True, x["effect"], expires_min=x.get("minutes"))
+        else:
+            c.manual(True, x["effect"], expires_min=x.get("minutes"))
+        c.mark_automation(x.get("device"))
+
+    def auto_off(self, x: dict, a: dict, ev: dict):
+        c = self.ctrl
+        if x.get("device"):
+            c.manual_one(x["device"], False, expires_min=x["minutes"])
+        else:
+            c.manual(False, expires_min=x["minutes"])
+        c.mark_automation(x.get("device"))
+
+    def auto_sound(self, x: dict, a: dict, ev: dict):
+        snd = self._team_sound(x["team"])
+        if not snd:
+            raise ValueError("that team has no sound (Schedule \u203a Game-day lights)")
+        if not self._play_sound(x["team"], snd):
+            raise RuntimeError("the sound couldn't be played")
+
+    def _automation(self, aid: str) -> dict:
+        if not self.ctrl:
+            raise ApiError("Set up first.", 409)
+        a = next((x for x in self.ctrl.cfg.automations if x["id"] == aid), None)
+        if a is None:
+            raise ApiError("Save the automation first.", 404)
+        return a
+
+    def automation_try(self, aid: str) -> dict:
+        return {"result": self.autos.try_now(self._automation(aid))}
+
+    def automation_check(self, aid: str) -> dict:
+        a = self._automation(aid)
+        rows = self.autos.check(a)
+        return {"conditions": [{"text": t, "ok": ok} for t, ok in rows],
+                "game_only": any(c["type"] in ("home", "away", "winning", "losing") for c in a["if"])}
+
+    def health_status(self) -> dict:
+        """4.15: each controller: what the cloud says (online, firmware), how
+        its requests went (today and 14 days), and the home-network check."""
+        listed = (self.ctrl.account if self.ctrl else None) or self._acct or (self.ctrl.devices if self.ctrl else None) or []
+        if not listed:
+            self._account(fetch=True)
+            listed = (self.ctrl.account if self.ctrl else None) or self._acct or []
+        run = {d["deviceId"] for d in (self.ctrl.devices if self.ctrl else [])}
+        out = []
+        for d in listed:
+            dev = d.get("deviceId")
+            if not dev:
+                continue
+            con = d.get("connectivity")
+            out.append({"id": dev, "name": d.get("name") or dev, "run": dev in run,
+                        "online": None if con is None else con == 1, "firmware": d.get("fwVersionName"),
+                        "address": self._lan_address(dev) or None, **self.health.summary(dev)})
+        return {"devices": out, "now": time.time()}
+
+    def health_check(self, dev: str | None = None) -> dict:
+        """List the controllers again (online, firmware), read each one's
+        detail (timed like any request), and greet each over the home
+        network (its round trip)."""
+        if self.ctrl is None:
+            raise ApiError("Finish setup first.", 409)
+        try:
+            listed = list(self.client().list_devices())
+            self._acct = listed
+            if self.ctrl:
+                self.ctrl.account = listed
+        except Exception as e:
+            raise ApiError(f"Trimlight's cloud didn't answer: {e}", 502) from None
+        for d in listed:
+            did = d.get("deviceId")
+            if not did or (dev and did != dev):
+                continue
+            try:
+                self.client().get_device(did, self.controller_now(), resync=False)
+            except Exception:
+                pass                                  # counted by the recorder
+            addr = self._lan_address(did)
+            if addr and not (self.lanshow.running() or any(z.running() for z in self.zoneshows.values()) or self.local_busy.locked()):
+                if self.lan_io.acquire(timeout=5):
+                    try:
+                        with lanlink.Link(addr) as link:
+                            self.health.record_lan(did, link.ping())
+                    except lanlink.LinkError as e:
+                        self.health.record_lan(did, None, str(e))
+                    finally:
+                        self.lan_io.release()
+        return self.health_status()
+
+    # --- 4.15: install a new version, and go back if it doesn't start ----------------
+    def _updater(self):
+        from . import selfupdate
+        if getattr(self, "_upd", None) is None:
+            self._upd = selfupdate.Updater(self.store.dir, stop=self._update_stop, spawn=self._update_spawn,
+                                           answers=self._update_answers, quit=lambda: os._exit(0))
+            self._upd.cleanup()
+        return self._upd
+
+    def _update_stop(self):
+        """This copy steps aside: the scheduler stops (it may be sending),
+        then the web server lets go of the port."""
+        if self.ctrl:
+            self.ctrl.stop_event.set()
+            if self.thread:
+                self.thread.join(timeout=120)
+        h = getattr(self, "httpd", None)
+        if h is not None:
+            h.shutdown()
+            h.server_close()
+
+    def _update_spawn(self):
+        import subprocess
+        kw = {"cwd": str(self.base), "stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
+        if os.name == "nt":
+            kw["creationflags"] = 0x00000008 | 0x00000200  # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+        else:
+            kw["start_new_session"] = True
+        return subprocess.Popen(autostart.launch_command(self.base), **kw)
+
+    def _update_answers(self):
+        import ssl
+        port = (self.store.settings.get("service") or {}).get("web_port") or 8787
+        ctx = ssl.create_default_context()
+        ctx.check_hostname, ctx.verify_mode = False, ssl.CERT_NONE
+        for scheme in ("https", "http"):
+            try:
+                with urllib.request.urlopen(f"{scheme}://127.0.0.1:{port}/api/session", timeout=2,
+                                            context=ctx if scheme == "https" else None) as r:
+                    return json.loads(r.read()).get("version")
+            except Exception:
+                pass
+        return None
+
+    def update_summary(self) -> dict:
+        u = self.updates.summary()
+        up = self._updater()
+        st = up.state()
+        return {**u, "install": {"ok": up.plan["ok"], "why": up.plan["why"], "can_roll_back": up.can_roll_back(),
+                                 "busy": up.busy, "last": {k: st.get(k) for k in ("stage", "frm", "to", "why", "at")} if st else None,
+                                 "previous": st.get("frm") if up.can_roll_back() else None}}
+
+    def _quiet_for_update(self) -> str | None:
+        c = self.ctrl
+        if self.lanshow.running() or any(z.running() for z in self.zoneshows.values()):
+            return "A music show from this computer is running."
+        if c is not None:
+            with c.lock:
+                if c.music or c.flash:
+                    return "A music show or a flash is running."
+        if self.local_busy.locked():
+            return "A change over the home network is running."
+        return None
+
+    def update_install(self, auto: bool = False) -> dict:
+        from . import selfupdate
+        up = self._updater()
+        u = self.updates.summary()
+        if not u["newer"] or not u["download_name"]:
+            raise ApiError("There's no newer version for this computer to install.", 409)
+        if not up.plan["ok"]:
+            raise ApiError(up.plan["why"], 409)
+        why = self._quiet_for_update()
+        if why:
+            raise ApiError(why + " Install when it's done.", 409)
+        if up.busy:
+            raise ApiError("An update is already being installed.", 409)
+        up.busy = True
+        try:
+            new = up.prepare({"version": u["latest"], "assets": u["assets"]}, u["download_name"])
+        except selfupdate.UpdateError as e:
+            up.busy = False
+            raise ApiError(str(e), 502) from None
+        except Exception as e:             # Review #3: never left "already being installed"
+            up.busy = False
+            log.exception("Preparing the update failed")
+            raise ApiError(f"The update couldn't be prepared: {e}", 500) from None
+        if self.ctrl:
+            self.ctrl.note(f"Installing EaveLuxOS {u['latest']}{' (by itself)' if auto else ''}; the lights pause for a moment.")
+        threading.Thread(target=self._run_update, args=(lambda: up.install(new, VERSION, u["latest"]),), daemon=True,
+                         name="update").start()
+        return {"ok": True, "installing": u["latest"]}
+
+    def update_rollback(self) -> dict:
+        up = self._updater()
+        if not up.can_roll_back():
+            raise ApiError("There's no previous version kept here to go back to.", 409)
+        why = self._quiet_for_update()
+        if why:
+            raise ApiError(why + " Try again when it's done.", 409)
+        up.busy = True
+        if self.ctrl:
+            self.ctrl.note("Going back to the previous EaveLuxOS version; the lights pause for a moment.")
+        threading.Thread(target=self._run_update, args=(lambda: up.roll_back(VERSION),), daemon=True, name="update").start()
+        return {"ok": True}
+
+    def _run_update(self, job):
+        time.sleep(0.8)          # let the answer reach the browser first
+        try:
+            job()
+        except Exception:
+            log.exception("The update couldn't be installed")
+            self._updater().busy = False
+
+    def auto_update_step(self):
+        """Every ten minutes: with Install by themselves on, a newer version
+        is installed while the lights are off and nothing else is running.
+        A version that had to be rolled back isn't tried again by itself."""
+        try:
+            if not self.updates.summary().get("auto"):
+                return
+            u = self.updates.summary()
+            if not u["newer"]:
+                return
+            st = self._updater().state()
+            if st.get("stage") == "rolled_back" and st.get("to") == u["latest"]:
+                return
+            if self.ctrl is None or self.ctrl.lights_on() or self._quiet_for_update():
+                return
+            self.update_install(auto=True)
+        except ApiError as e:
+            log.info("Automatic update not now: %s", e)
+        except Exception:
+            log.exception("Automatic update check failed")
+
+    def conflicts(self, day: str | None = None) -> dict:
+        """4.15: who wins a night (noon to noon), for each controller."""
+        from datetime import date as _date, timedelta
+        from . import conflicts
+        c = self.ctrl
+        if c is None:
+            raise ApiError("Finish setup first.", 409)
+        now = c.cfg.loc.now()
+        if day:
+            try:
+                d = _date.fromisoformat(str(day)[:10])
+            except ValueError:
+                raise ApiError("A date is like 2026-12-24.") from None
+        else:
+            d = now.date() - timedelta(days=1) if now.hour < 12 else now.date()
+        names = {x["deviceId"]: x.get("name") or x["deviceId"] for x in c.devices}
+        r = conflicts.night(c.cfg, list(names), d, names)
+        r["names"] = names
+        return r
+
+    def house_tonight(self) -> dict:
+        """4.12: what each controller's schedule shows from noon today to noon
+        tomorrow (from noon yesterday before noon), for the whole-house
+        timeline: spans of {start, end, effect (key), label, rule}. Only the
+        schedule (rules and holidays): weather, scores, alerts and choices by
+        hand can't be known ahead."""
+        from datetime import timedelta
+        c = self.ctrl
+        if c is None:
+            raise ApiError("Finish setup first.", 409)
+        cfg = c.cfg
+        now = cfg.loc.now()
+        start = now.replace(hour=12, minute=0, second=0, microsecond=0)
+        if now < start:
+            start -= timedelta(days=1)
+        end = start + timedelta(days=1)
+        devs = [d["deviceId"] for d in c.devices] or [None]
+        step = 300
+        out = {}
+        for dev in devs:
+            sch = cfg.schedule.for_controller(dev)
+            spans = []
+            for d in (start.date() - timedelta(days=1), start.date(), end.date()):
+                for p in sch.day_plans(d):
+                    a, b = max(ts(p.start), ts(start)), min(ts(p.end), ts(end))
+                    if a >= b:
+                        continue
+                    u = a
+                    while u < b:              # in real seconds, so a night the clocks change is counted right
+                        eff = p.window.rule.pick(p.window.start, datetime.fromtimestamp(u, now.tzinfo))[0]
+                        nxt = min(b, u + step)
+                        last = spans[-1] if spans else None
+                        if last and last["effect"] == eff.key and last["rule"] == p.rule.name and last["_end"] == u:
+                            last["_end"] = nxt
+                        else:
+                            spans.append({"_start": u, "_end": nxt, "effect": eff.key, "label": eff.label, "rule": p.rule.name})
+                        u = nxt
+            spans.sort(key=lambda x: x["_start"])
+            for x in spans:
+                x["start"] = datetime.fromtimestamp(x.pop("_start"), now.tzinfo).isoformat()
+                x["end"] = datetime.fromtimestamp(x.pop("_end"), now.tzinfo).isoformat()
+            out[dev or "all"] = spans
+        return {"start": start.isoformat(), "end": end.isoformat(), "now": now.isoformat(), "devices": out}
+
+    def automation_history(self) -> list:
+        tz = self.cfg.loc.tz if self.cfg else None
+        return [{"at": datetime.fromtimestamp(h["at"], tz).strftime("%b %d, %I:%M %p").replace(" 0", " "), "id": h["id"],
+                 "text": h["text"]} for h in list(self.autos.history)]
 
     def celebrate(self, team: dict, points: int, game: dict) -> bool:
         """A watched team scored (scores.py): flash its colors, moving fast,
@@ -2348,7 +2973,11 @@ def make_server(app: App, host: str, port: int):
                 ctype = "application/manifest+json"
             if ctype.startswith("text/") or ctype.endswith(("javascript", "json")):
                 ctype += "; charset=utf-8"
-            self._send(200, f.read_bytes(), ctype)
+            body = f.read_bytes()
+            if name == "sw.js":
+                # 4.14: the phone keeps one set of the app's files per version
+                body = body.replace(b"__VERSION__", VERSION.encode())
+            self._send(200, body, ctype)
 
         def _client_key(self) -> str:
             """Who to count failed sign-ins against. Through a proxy on this
@@ -2476,6 +3105,14 @@ def make_server(app: App, host: str, port: int):
                     return self._json(401, {"error": "Sign in first."})
                 if path in ADMIN_GETS and not self._is_admin():
                     return self._json(403, {"error": "Only an Administrator can see that."})
+                if path == "/api/health":                 # 4.15: controller health
+                    return self._json(200, app.health_status())
+                if path == "/api/conflicts":              # 4.15: who wins a night
+                    return self._json(200, app.conflicts(q.get("date")))
+                if path == "/api/house/tonight":          # 4.12: the whole-house timeline
+                    return self._json(200, app.house_tonight())
+                if path == "/api/automations/history":    # 4.11: what automations did lately
+                    return self._json(200, app.automation_history())
                 if path == "/api/sound/clip":      # 4.9: to listen in the browser
                     data, kind = app.sound_clip(q.get("team", ""))
                     return self._send(200, data, "audio/mpeg" if kind == "mp3" else "audio/wav")
@@ -2496,7 +3133,7 @@ def make_server(app: App, host: str, port: int):
 
         def _get(self, path, q):
             if path == "/api/update":
-                return app.updates.summary()
+                return app.update_summary()
             if path == "/api/community":
                 try:
                     return app.community.index(app.store.settings, refresh=q.get("refresh") == "1")
@@ -2509,6 +3146,8 @@ def make_server(app: App, host: str, port: int):
                     raise ApiError(str(e), 502) from None
             if path == "/api/musiclink":
                 return app.musiclink_status()
+            if path == "/api/musiczones":
+                return app.musiczones_status()
             if path == "/api/lan_check":
                 # Why can't a phone open the app? Only from this computer: it
                 # reads this computer's firewall.
@@ -2761,6 +3400,12 @@ def make_server(app: App, host: str, port: int):
                     raise ApiError(str(e)) from None
             if path == "/api/musiclink":           # Editors: music from this computer (4.1)
                 return app.musiclink(b)
+            if path == "/api/local/discover":      # Administrators: find and match controllers (4.15)
+                return app.local_discover(bool(b.get("scan")))
+            if path == "/api/health/check":        # Editors: check the controllers now (4.15)
+                return app.health_check(b.get("device"))
+            if path == "/api/musiczones":          # Editors: zones that follow the music (4.13)
+                return app.musiczones(b)
             if path == "/api/musiclink/address":   # Administrators
                 return app.musiclink_address(b.get("address"))
             if path == "/api/musiclink/test":      # Administrators
@@ -2787,7 +3432,17 @@ def make_server(app: App, host: str, port: int):
                     app.store.save_settings(s)
                 return {"configured": bool(app.store.secrets.get("ai_key"))}
             if path == "/api/update/check":        # Administrators (not on the editor list)
-                return app.updates.check()
+                app.updates.check()
+                return app.update_summary()
+            if path == "/api/update/install":      # Administrators: install the new version (4.15)
+                return app.update_install()
+            if path == "/api/update/rollback":     # Administrators: go back to the previous version (4.15)
+                return app.update_rollback()
+            if path == "/api/update/auto":         # Administrators: install new versions by themselves (4.15)
+                if not isinstance(b.get("auto"), bool):
+                    raise ApiError("Say whether to install new versions by themselves (true or false).")
+                app.updates.set_auto(b["auto"])
+                return app.update_summary()
             if path == "/api/update/settings":
                 if not isinstance(b.get("enabled"), bool):
                     raise ApiError("Say whether to check for new versions (true or false).")
@@ -2997,6 +3652,10 @@ def make_server(app: App, host: str, port: int):
                     raise ApiError("No photo was sent.")
                 app.save_photo(f, shrink_photo(raw))
                 return {"ok": True}
+            if path == "/api/automation/try":
+                return app.automation_try(str(b.get("id", "")))
+            if path == "/api/automation/check":
+                return app.automation_check(str(b.get("id", "")))
             if path == "/api/sound/upload":
                 return app.sound_upload(str(b.get("team", "")), self._read_raw(), str(b.get("name", "")))
             if path == "/api/sound/delete":
@@ -3117,6 +3776,16 @@ def make_server(app: App, host: str, port: int):
                 return self._json(200, self._hook_state())
             if self.command != "POST":
                 return self._json(405, {"error": "Only status can be read with GET; other actions need POST."})
+            if body["action"] == "event":
+                # 4.11: a named event for automations, e.g. POST /api/hook/event {"name": "doorbell"}
+                name = str(body.get("name") or "").strip().lower()[:40]
+                if not name:
+                    return self._json(400, {"error": "Name the event: {\"name\": \"doorbell\"}."})
+                if app.ctrl is None:            # Review #6: before setup, not a crash
+                    return self._json(409, {"error": "Finish setup first."})
+                done = app._auto_event({"type": "webhook", "name": name})
+                app.ctrl.note(f"Webhook event '{name}' from {self.client_address[0]}")
+                return self._json(200, {**self._hook_state(), "automations": done})
             if body["action"] not in ("flash", "stop_flash", "on", "off", "resume", "levels", "music", "stop_music",
                                       "dismiss_alert"):
                 return self._json(400, {"error": "unknown action"})

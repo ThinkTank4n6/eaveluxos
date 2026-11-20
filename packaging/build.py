@@ -128,7 +128,9 @@ def build_mac():
     pyinstaller("EaveLuxOS", "--windowed", "--onedir", "--osx-bundle-identifier", "com.thinktank4n6.eaveluxos")
     app = DIST / "bin" / "EaveLuxOS.app"
     finish_mac_app(app, ver)
-    out = DIST / "EaveLuxOS-macOS.dmg"
+    # 4.10.1: an Intel Mac gets its own (the usual one is for Apple silicon)
+    intel = platform.machine().lower() in ("x86_64", "amd64", "i386")
+    out = DIST / ("EaveLuxOS-macOS-Intel.dmg" if intel else "EaveLuxOS-macOS.dmg")
     make_dmg(app, out)
     return [out]
 

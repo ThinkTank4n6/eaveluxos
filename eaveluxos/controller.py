@@ -41,10 +41,11 @@ from .weather import WeatherService
 
 log = logging.getLogger("eaveluxos")
 VERIFY_EVERY = 300  # seconds between read-backs of the controllers
+OFFLINE_VERIFY_EVERY = 60    # 4.15: while one is offline
 # Which event wins when two happen at once (3.16.1). A severe weather warning
 # sits at 2: above webhook alerts and score celebrations, below the security
 # flash (and alerts marked urgent, like an alarm).
-FLASH_RANK = {"security": 3, "urgent": 3, "alert": 1, "score": 0}
+FLASH_RANK = {"security": 3, "urgent": 3, "alert": 1, "automation": 1, "score": 0}
 ALERT_RANK = 2
 MAX_HELD = 8
 
@@ -164,6 +165,132 @@ class Controller:
         self.reported = self._load_reported()
         self.runtime = Runtime(data_dir, tz=lambda: self.cfg.loc.tz)    # hours on per month; follows a changed time zone
         self.pattern_unverified = set()       # target keys the controller doesn't report back as sent
+        self.offline: set = set()             # 4.15: controllers the cloud said were offline at the last read-back
+        # 4.15: what the lights were doing, kept across app restarts (smart recovery)
+        self.state_path = os.path.join(str(data_dir), "lights-state.json") if data_dir else None
+        self._state_text = None
+        self.recovered = None                 # what a restart brought back, for Activity and Home
+        self._restore_state()
+
+    # --- 4.15: smart recovery after the app restarts or the computer loses power ----
+    RESTORE_WITHIN = 24 * 3600    # older saved state is ignored
+    TRUST_SENT = 1800             # what was sent counts as showing for this long (checked at once)
+
+    @staticmethod
+    def _ser(o):
+        """A choice made by hand, as JSON; None for a preview of an unsaved
+        pattern (its pattern isn't saved anywhere to bring back)."""
+        if not o or o.get("obj") is not None:
+            return None
+        since = o.get("since")
+        return {k: v for k, v in {**o, "since": since.isoformat() if hasattr(since, "isoformat") else since,
+                                  "restore": None}.items() if k not in ("obj", "restore", "n")}
+
+    def _save_state(self):
+        if not self.state_path:
+            return
+        with self.lock:
+            m = self.music
+            fl = self.flash
+            data = {
+                "sched_key": self.sched_key,
+                "override": self._ser(self.override),
+                "dev_override": {d: x for d, o in self.dev_override.items() if (x := self._ser(o))},
+                "adjust": self.adjust or {},
+                # a show from a button, a webhook or a show night; not one from this computer's page (it's gone)
+                "music": {"until": m["until"].isoformat() if m.get("until") else None, "by": m.get("by")}
+                if m and not str(m.get("by") or "").startswith("lan:") else None,
+                "flash": {"until": fl["until"].isoformat(), "label": fl.get("label"), "kind": fl.get("kind"), "rank": fl.get("rank")}
+                if fl and fl.get("eff") is None else None,             # the security flash (its pattern is in the settings)
+                "applied_key": self.applied_key, "applied_parts": self.applied_parts, "known_on": self.known_on,
+                "sent_effect": self.sent_effect, "last_on": self.last_on,
+            }
+        try:
+            text = json.dumps(data, sort_keys=True, default=str)
+        except (TypeError, ValueError):
+            return
+        if text == self._state_text:
+            return
+        self._state_text = text
+        try:
+            tmp = self.state_path + f".{os.getpid()}.tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                f.write(json.dumps({**json.loads(text), "saved_at": time.time()}))
+            os.replace(tmp, self.state_path)
+        except OSError as e:
+            log.debug("Couldn't save the lights' state: %s", e)
+
+    def _restore_state(self):
+        if not self.state_path or not os.path.isfile(self.state_path):
+            return
+        try:
+            with open(self.state_path, encoding="utf-8") as f:
+                d = json.load(f)
+            age = time.time() - float(d.get("saved_at") or 0)
+        except (OSError, ValueError, TypeError):
+            return
+        if not 0 <= age <= self.RESTORE_WITHIN:
+            return
+        now, brought = time.time(), []
+
+        def back(o):
+            if not isinstance(o, dict) or (o.get("expires") and o["expires"] < now):
+                return None
+            o = dict(o)
+            try:
+                o["since"] = datetime.fromisoformat(o["since"]) if o.get("since") else self.cfg.loc.now()
+            except (TypeError, ValueError):
+                o["since"] = self.cfg.loc.now()
+            if o.get("on") and o.get("effect") and o["effect"] not in self.cfg.effects:
+                return None                        # its pattern was deleted meanwhile
+            o["obj"] = None
+            return o
+        try:
+            self.sched_key = d.get("sched_key")        # so a scheduled change while the app was off still ends a choice by hand
+            ov = back(d.get("override"))
+            if ov:
+                self.override = ov
+                brought.append("your choice for every controller" if ov["on"] else "Off, chosen by hand")
+            for dev, o in (d.get("dev_override") or {}).items():
+                o = back(o)
+                if o:
+                    o["n"] = next(self._dov_seq)
+                    self.dev_override[dev] = o
+            if self.dev_override:
+                brought.append("each controller's own choice")
+            if isinstance(d.get("adjust"), dict):
+                self.adjust = d["adjust"]
+            m = d.get("music")
+            if isinstance(m, dict):
+                until = datetime.fromisoformat(m["until"]) if m.get("until") else None
+                if until is None or ts(until) > now:
+                    self.music = {"since": self.cfg.loc.now(), "until": until, "by": m.get("by")}
+                    brought.append("the music show")
+            fl = d.get("flash")
+            if isinstance(fl, dict) and fl.get("until") and self.cfg.security["effect"]:
+                until = datetime.fromisoformat(fl["until"])
+                if ts(until) > now:
+                    self.flash = {"until": until, "eff": None, "label": fl.get("label"), "kind": fl.get("kind") or "security",
+                                  "rank": fl.get("rank", 3), "since": now}
+                    brought.append(fl.get("label") or "the security flash")
+            self.last_on = d.get("last_on") if d.get("last_on") in self.cfg.effects else None
+            if age <= self.TRUST_SENT and d.get("applied_key"):
+                # What was sent a moment ago is most likely still showing: don't
+                # send it again (no restart of its motion, no extra commands),
+                # but check at once, and act on the first difference found.
+                self.applied_key = d["applied_key"]
+                self.applied_parts = d.get("applied_parts") or {}
+                self.known_on = bool(d.get("known_on"))
+                self.sent_effect = d.get("sent_effect") or {}
+                self.mismatches = 1
+                self.pattern_mismatches = 1
+                self.last_verify = 0.0
+        except (TypeError, ValueError, KeyError) as e:
+            log.info("Couldn't bring back the lights' state from before the restart: %s", e)
+            return
+        self.recovered = brought
+        if brought:
+            self.note("After the restart, brought back: " + ", ".join(brought) + ".")
 
     @staticmethod
     def _make_alerts(cfg, old=None):
@@ -461,8 +588,15 @@ class Controller:
                 if dev not in wkeys:
                     continue                      # not run right now; kept for when it is
                 if dov[dev].get("expires") and time.time() > dov[dev]["expires"]:
-                    notes.append(f"Preview ended on {self._dev_name(dev)}; back on the schedule.")
-                    dov.pop(dev)
+                    r = dov[dev].get("restore")
+                    if r and r.get("wkey") == wkeys[dev] and not (r.get("expires") and time.time() > r["expires"]):
+                        # 4.11: an automation's flash on one controller ends;
+                        # back to the choice it covered (Review #3).
+                        notes.append(f"Flash ended on {self._dev_name(dev)}; back to what it showed.")
+                        dov[dev] = {**r, "n": next(self._dov_seq)}
+                    else:
+                        notes.append(f"Preview ended on {self._dev_name(dev)}; back on the schedule.")
+                        dov.pop(dev)
                 elif dov[dev].get("wkey") != wkeys[dev]:
                     notes.append(f"Scheduled change reached for {self._dev_name(dev)}, so its manual setting ended.")
                     dov.pop(dev)
@@ -880,7 +1014,9 @@ class Controller:
         now = time.time()
         today = self.cfg.loc.now().date()
         self._safety_step(now)
-        if not self.devices or (now - self.last_verify < VERIFY_EVERY and self.last_clock_sync == today):
+        # 4.15: while a controller is offline (a power cut), look every minute
+        every = OFFLINE_VERIFY_EVERY if self.offline else VERIFY_EVERY
+        if not self.devices or (now - self.last_verify < every and self.last_clock_sync == today):
             return
         self.last_verify = now
         try:
@@ -904,6 +1040,17 @@ class Controller:
                 if sw in (0, 1):
                     d["switch_raw"], d["switch"] = sw, ("off", "on")[sw]     # Home shows it too (4.4.1)
         restored = None
+        # Review #1 (4.15): a controller back online after a power cut is set
+        # again at once, whatever it shows (it may have come back off, or in
+        # the controller's own default), instead of waiting for two read-backs.
+        back = [d["name"] for d in snap if d["online"] and d["id"] in self.offline]
+        self.offline = {d["id"] for d in snap if not d["online"]}
+        if back:
+            with self.lock:
+                self.mismatches = self.pattern_mismatches = 0
+                self._invalidate()
+            self.note(f"{', '.join(map(str, back))} is back online (after a power cut?). Setting its lights again.",
+                      logging.WARNING)
         with self.lock:
             self.status_cache = {"at": now, "data": snap}
             if t.key != self.applied_key:
@@ -1173,6 +1320,34 @@ class Controller:
                     self.last_on = effect_key
             self._kick()
         self.tick(maintenance=False)
+
+    def flash_one(self, dev: str, obj, seconds: int):
+        """4.11: an automation's flash on one controller. Like the finder's
+        preview, it ends by itself; then that controller goes back to the
+        choice it covered (its own, or one made for all of them), or to the
+        schedule if there was none or the schedule has changed since."""
+        with self.lock:
+            prev = self.dev_override.get(dev)
+            if prev is None and self.override:
+                o, now = self.override, self.cfg.loc.now()
+                w = self.cfg.schedule.for_controller(dev).active_window(now)
+                prev = {"on": bool(o["on"]), "effect": o.get("effect") if o["on"] else None,
+                        "obj": o.get("obj") if o["on"] else None, "since": now,
+                        "wkey": w.key if w else "off", "expires": o.get("expires"), "auto": o.get("auto")}
+            prev = dict(prev) if prev else None
+        self.manual_one(dev, True, obj=obj, expires_min=seconds / 60)     # sends; not under the lock
+        with self.lock:
+            e = self.dev_override.get(dev)
+            if e is not None and prev is not None and e.get("obj") is obj:
+                e["restore"] = prev
+
+    def mark_automation(self, dev: str | None):
+        """4.11: the choice just made was an automation's, not one made by
+        hand, so a later automation may replace it (Review #4)."""
+        with self.lock:
+            o = self.dev_override.get(dev) if dev else self.override
+            if o is not None:
+                o["auto"] = True
 
     def mood_set(self, effect_key: str, expires_min: int) -> str:
         """Mood follow's pattern (3.18.2). It shows like a pattern chosen by
@@ -1483,6 +1658,10 @@ class Controller:
                 self.runtime.add(self.lights_on())
             except Exception:
                 log.exception("Runtime count failed")
+            try:
+                self._save_state()            # 4.15: for the next start (smart recovery)
+            except Exception:
+                log.exception("Saving the lights' state failed")
             # Wake when a flash ends (a 15-second celebration shouldn't last
             # a whole check interval), or when something new starts.
             wait = self.cfg.interval
@@ -1499,6 +1678,7 @@ class Controller:
                 self.stop_event.wait(min(0.5, left))
             self.wake.clear()
         self.runtime.save()
+        self._save_state()
 
     def lights_on(self) -> bool:
         """On as far as this app knows: the scheduled or chosen state was sent

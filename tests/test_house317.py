@@ -227,7 +227,8 @@ class SourceTests(unittest.TestCase):
         self.assertIn("if (before && before.bulbs) line.bulbs = { ...before.bulbs };", self.JS)
 
     def test_both_previews_share_one_motion_model(self):
-        self.assertEqual(self.JS.count("HouseFX.colorsAt("), 2)
+        # 4.12: the whole-house view is a third, on the same model
+        self.assertEqual(self.JS.count("HouseFX.colorsAt("), 3)
 
     def test_patterns_used_by_a_split_can_not_be_deleted_unnoticed(self):
         self.assertIn("the split pattern", self.JS)

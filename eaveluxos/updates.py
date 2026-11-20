@@ -67,7 +67,9 @@ def asset_for_this_computer(names) -> str | None:
     if sysname == "Windows":
         want = [lambda n: n == "EaveLuxOS-Windows.zip"]
     elif sysname == "Darwin":
-        want = [lambda n: n.endswith(".dmg")]
+        # 4.10.1: Apple silicon and Intel Macs each have their own
+        intel = machine in ("x86_64", "amd64", "i386")
+        want = [lambda n: n == ("EaveLuxOS-macOS-Intel.dmg" if intel else "EaveLuxOS-macOS.dmg")]
     elif sysname == "Linux":
         arm = machine in ("aarch64", "arm64")
         want = [lambda n: n.endswith("_arm64.deb" if arm else "_amd64.deb"),
@@ -154,7 +156,8 @@ class UpdateChecker:
         except (OSError, ValueError):
             raw = None
         raw = raw if isinstance(raw, dict) else {}
-        st = {"enabled": raw.get("enabled") if isinstance(raw.get("enabled"), bool) else True}
+        st = {"enabled": raw.get("enabled") if isinstance(raw.get("enabled"), bool) else True,
+              "auto": raw.get("auto") is True}           # 4.15: install new versions by themselves (off unless chosen)
         lt = raw.get("latest")
         if isinstance(lt, dict) and parse_version(lt.get("version")):
             assets = lt.get("assets") if isinstance(lt.get("assets"), dict) else {}
@@ -211,6 +214,12 @@ class UpdateChecker:
             self.next_at = min(self.next_at, self.now() + 5)
         return self.summary()
 
+    def set_auto(self, on: bool) -> dict:
+        with self.lock:
+            self.state["auto"] = bool(on)
+            self._save()
+        return self.summary()
+
     def summary(self) -> dict:
         with self.lock:
             st = dict(self.state)
@@ -218,7 +227,8 @@ class UpdateChecker:
         newer = st.get("enabled", True) and self.newer(latest.get("version"))
         name = asset_for_this_computer(list((latest.get("assets") or {}).keys())) if newer else None
         checked = st.get("checked")
-        return {"enabled": bool(st.get("enabled", True)), "current": VERSION,
+        return {"enabled": bool(st.get("enabled", True)), "auto": bool(st.get("auto")), "current": VERSION,
+                "assets": dict(latest.get("assets") or {}) if newer else {},
                 "latest": latest.get("version"), "newer": bool(newer),
                 "url": latest.get("url") or RELEASES_URL,
                 "download": (latest.get("assets") or {}).get(name) if name else None, "download_name": name,

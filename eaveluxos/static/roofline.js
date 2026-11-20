@@ -15,10 +15,14 @@
 (function (root) {
   'use strict';
 
+  // 4.12: elevations, as an architect names them. OLD_NAMES: the names
+  // before, shown as the new ones when a side was saved with them.
   const DEFAULT_SIDES = [
-    { id: 'front', name: 'Front' }, { id: 'right', name: 'Right side' }, { id: 'back', name: 'Back' },
-    { id: 'left', name: 'Left side' }, { id: 'shed', name: 'Shed' },
+    { id: 'front', name: 'Front elevation', kind: 'front' }, { id: 'right', name: 'Right side elevation', kind: 'side' },
+    { id: 'back', name: 'Rear elevation', kind: 'rear' }, { id: 'left', name: 'Left side elevation', kind: 'side' },
+    { id: 'shed', name: 'Shed', kind: 'other' },
   ];
+  const OLD_NAMES = { front: 'Front', right: 'Right side', back: 'Back', left: 'Left side' };
   const LIMITS = { sections: 40, points: 100 };
 
   /* Ramer-Douglas-Peucker: drop points that lie within `tolerance` of a line. */
@@ -159,7 +163,7 @@
       && l.points.every(p => Array.isArray(p) && p.length === 2 && p.every(v => Number.isFinite(v) && v >= 0 && v <= 100));
   }
 
-  const api = { DEFAULT_SIDES, LIMITS, simplify, detectRoofline, roofSegments, insertWirePoint, deleteWirePoint, flatHouseSvg, validSection };
+  const api = { DEFAULT_SIDES, OLD_NAMES, LIMITS, simplify, detectRoofline, roofSegments, insertWirePoint, deleteWirePoint, flatHouseSvg, validSection };
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.Roofline = api;
 })(typeof window !== 'undefined' ? window : globalThis);

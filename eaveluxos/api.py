@@ -99,6 +99,9 @@ def trimlight_date(now_local) -> dict:
     }
 
 
+RECORDER = None      # 4.15: (device, path, ms, ok, error=None, code=None) for controller health
+
+
 class TrimlightAPI:
     def __init__(self, client_id: str, client_secret: str, base_url: str | None = None, timeout: int = 15):
         self.client_id = client_id
@@ -108,6 +111,27 @@ class TrimlightAPI:
         self.clock_offset_min = 0  # user-chosen difference for the controller's clock
 
     def _request(self, method: str, path: str, body=None):
+        """One request; when it names a controller, how it went is counted
+        for the Health page (4.15: health.py, set as RECORDER by the app)."""
+        dev = body.get("deviceId") if isinstance(body, dict) else None
+        t0 = time.monotonic()
+        try:
+            out = self._request_once(method, path, body)
+        except TrimlightError as e:
+            if dev and RECORDER:
+                try:
+                    RECORDER(dev, path, (time.monotonic() - t0) * 1000, False, str(e), e.code)
+                except Exception:
+                    pass
+            raise
+        if dev and RECORDER:
+            try:
+                RECORDER(dev, path, (time.monotonic() - t0) * 1000, True)
+            except Exception:
+                pass
+        return out
+
+    def _request_once(self, method: str, path: str, body=None):
         ts = int(time.time() * 1000)
         headers = {
             "authorization": make_token(self.client_id, self.client_secret, ts),

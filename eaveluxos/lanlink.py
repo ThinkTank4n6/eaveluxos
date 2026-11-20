@@ -719,6 +719,33 @@ def find(timeout: float = 2.0, send_to: str = "255.255.255.255") -> list[str]:
     return found
 
 
+def scan(own: str, timeout: float = 0.35, workers: int = 48, port: int | None = None) -> list[str]:
+    """4.15: addresses on this computer's own home network (the /24 around
+    `own`, a private address) that accept a connection on the controllers'
+    port. Only a connection is opened and closed; nothing is sent. For when
+    controllers don't answer the finding broadcast."""
+    import ipaddress
+    from concurrent.futures import ThreadPoolExecutor
+    try:
+        ip = ipaddress.ip_address(own)
+    except ValueError:
+        return []
+    if ip.version != 4 or not ip.is_private or ip.is_loopback:
+        return []
+    net = ipaddress.ip_network(f"{own}/24", strict=False)
+    port = port or TCP_PORT
+
+    def knock(h):
+        try:
+            with socket.create_connection((str(h), port), timeout=timeout):
+                return str(h)
+        except OSError:
+            return None
+    hosts = [h for h in net.hosts() if str(h) != own]
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        return [h for h in ex.map(knock, hosts) if h]
+
+
 # ------------------------------------------------------------------ stream
 class Streamer:
     """A music show from this computer: holds the connection, sends the

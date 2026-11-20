@@ -1,5 +1,194 @@
 # Changelog
 
+## 4.15.0: reliability
+
+- **Who wins tonight** (Schedule): any night, for each controller, what
+  shows when, what it beats and why, and what weather could take over, with
+  warnings for ties (same priority, listed first wins), rules that never
+  show, and the automations that night.
+- **Controller health** (Setup): online and firmware; requests today, how
+  many worked, typical answer time, 14 days of bars, the last problem, and
+  the home-network answer time. **Check now**.
+- **Smart recovery**: choices made by hand, slider levels, a security flash
+  and a music show come back after the app restarts (unless the schedule
+  moved on meanwhile); what was just sent isn't sent again, but checked at
+  once.
+- **Find and match my controllers** (Setup › Local mode): finds controllers
+  on the home network (and, with **Look harder**, knocks on port 8586 across
+  the app computer's own network), reads each and matches it to your
+  controllers by their ports. **Use all matches**.
+- **Updates that install** (Windows and the Linux .tar.gz): download, check
+  the SHA-256 against the release's list, keep the version you have,
+  restart as the new one, and go back by itself if it doesn't start. **Go
+  back to X**, and **Install new versions by themselves, while the lights
+  are off** (off unless chosen).
+- Review before release (code review of the new code):
+  1. A controller that lost power and came back with its lights in another
+     state waited for two read-backs, five minutes apart, before the app put
+     them back. It's set again as soon as it's back online, and checked every
+     minute while offline (`tests/repro_power_back.py`).
+  2. A finished update left its download and unpacked copy beside the
+     program; they're removed now (the previous version stays).
+  3. An unexpected error while preparing an update left "already being
+     installed" until a restart.
+  4. Setup › Local mode's buttons (Find, Save) did nothing until the
+     controller had been read, and Find and match's results vanished when the
+     panel redrew.
+
+## 4.14.0: EaveLuxOS on your phone's home screen
+
+- **Installable app** (a Progressive Web App): a maskable icon, full screen,
+  and an **Install** bar in a phone's browser (Chrome's install button where
+  it's offered; the steps for Safari). **Setup › App › On your phone** shows
+  how and whether this phone has it.
+- **Quick**, the screen the icon opens: big buttons for On, Off, Back to the
+  schedule, Security flash, patterns, scenes and automations (the household
+  chooses up to 12 with **Edit**; until then, favorites and scenes), and
+  brightness. **Quick buttons** on Home opens it in any browser.
+- **Shortcuts on the icon** (press and hold, Android): Lights on, Lights off,
+  Back to the schedule, Security flash.
+- **Kept on the phone** (https:// addresses and the app computer): the app's
+  own files, never anything from the app computer's data, so it opens at
+  once and says **Can't reach EaveLuxOS** away from home instead of a browser
+  error. Each version replaces the kept files.
+- Review before release (code review of the new code):
+  1. A shortcut's address opened as an ordinary link (an email, another web
+     page) acted at once for anyone signed in, for example turning the
+     lights off. Only the installed app's own shortcuts act at once; a link
+     asks first (`tests/repro_link_acts.py`).
+  2. The first visit after an update could run the kept, older files with
+     the new page. The app's files now come fresh from the app computer
+     first, and the kept copy only when it can't be reached.
+  3. **Try again** on the away-from-home screen did nothing: the page's
+     security policy blocks inline handlers.
+
+## 4.13.0: Music sync 2.0
+
+- **The music, analyzed** (Music › Music from this computer): bass, mids
+  and treble with an automatic level, beat detection and the tempo (BPM),
+  50 to 60 times a second, shown as three bars, a beat dot and the BPM.
+- **My zones**: each House-tab zone follows the bass, mids, treble or the
+  beat, in its own color, as a **Glow** or a **Meter** (filling from its
+  first bulb, or its last if the zone runs the other way), on one controller
+  or several. The app draws each moment and shows it live on the controller
+  over the home network (the Trimlight app's editing preview; nothing is
+  saved on the controller).
+- **Safeguards** for that: a **speed test** each controller must pass first
+  (2 to 8 frames a second, the most a show will use); only the newest frame,
+  only when it changed; a keep-alive every second, slowing down a step when
+  answers come late and ending the show, with the schedule back, when the
+  controller stops answering.
+- **Sound delay** (latency compensation): what you hear is held back to land
+  with the lights, for a browser tab's sound and for music files; a
+  suggested value from the show, and a **Sync test** (clicks and white
+  flashes) to set it.
+- **A music file on this computer** as a source: your own MP3, WAV or M4A
+  files, played in the page, one after another.
+- Review before release (code review of the new code):
+  1. One late keep-alive answer (a moment of busy Wi-Fi) slowed a zone show
+     for the rest of the show. It now takes two in a row, and the pace that
+     lagged is tried again after a quiet minute
+     (`tests/repro_zone_hiccup.py`).
+  2. One late answer could also fail a whole rate in the speed test.
+  3. Stopping a zone show without naming its page stopped any page's show.
+  4. After reconnecting during a show, frames went out before a keep-alive;
+     the controller ignores requests on a new connection until one comes.
+
+## 4.12.0: the House Mapping Studio
+
+- **Place bulbs** (House view): drag a bulb to where it really sits on the
+  photo. It's pinned there, and the bulbs between pins spread out evenly
+  again along the line. Tap one to select it, nudge it with the arrow keys,
+  and **Light bulb N on the house** to check it. The preview, scenes and the
+  whole-house view all use the pins.
+- **Line a zone up** (Zones › Edit): light it with its first bulb green and
+  its last red; **First**, **Last** and **Whole zone −1 / +1** move the ends
+  while the house follows; a picture shows the zone on each elevation photo.
+  **Runs the other way** makes Combine patterns by zone lay that zone's
+  pattern from its last bulb.
+- **Whole house: every elevation at once**: every elevation side by side,
+  animating one pattern, **tonight's schedule** (each controller its own;
+  drag the time, Now, or Play), or **a pattern for each zone** (with
+  **Make it a pattern** into Combine patterns by zone).
+- **Elevations**: Front, Right side, Rear and Left side elevations by name;
+  add more (several side elevations, a garage) with a kind. Each can have
+  **versions** (day and night photos, before and after), each with its own
+  photo, rooflines and pins, optionally started from another version's; the
+  ★ one is shown in the whole house and the flat diagram.
+  **Export this elevation** saves one with its photos to a file, and
+  **Import an elevation** brings it back.
+- **This side's lights** is now **This elevation's lights**.
+- Review before release (code review of the new code):
+  1. A version deleted on one device left its photo on disk when the photo
+     had been uploaded from another device since the page loaded, and the
+     next version with the same name showed that old photo. Deleting now
+     removes every version's photo, and new versions never take the name of
+     a leftover one (`tests/repro_version_photo_left.py`).
+  2. A version of an elevation that isn't there was accepted, and stayed
+     hidden where it couldn't be opened or deleted.
+  3. The House tab said photos are never exported; an exported elevation
+     does include them, and now says so (the Manual too).
+  4. Lighting a zone to check it: with the finder's color set to pure red
+     or green, the middle looked like an end; and a two-bulb zone had no
+     ends marked.
+  5. **Make it a pattern** could leave its choices for the next Combine
+     patterns by zone if Create didn't open.
+
+## 4.11.0: automations (When · If · Then)
+
+- **Alerts › Automations**: build your own rules. **When** a team scores, a
+  game starts or ends (a win, a loss or either), a weather warning starts, a
+  webhook event comes, a time or sunrise/sunset (with an offset) arrives, or
+  the schedule turns the lights on or off; **if** it's dark, between or
+  before or after a time, on certain days or dates, the lights are on or
+  off, a rule or pattern is showing, or (for games) the team is home, away,
+  winning or losing; **then** flash a pattern, a color or a zone and go
+  back, show a pattern for a while, turn off for a while, or play a team's
+  sound, on all controllers or one.
+- **Priority**, **Cooldown** and **Beats a manual choice** for each one. The
+  higher priority goes first when two start together; a lower one doesn't
+  cut into a higher one's flash.
+- **Try it now**, **Check it now** (each condition, ✓ or ✗) and **Lately**
+  (what ran or why it was skipped, also in Activity).
+- Webhook events by name: `POST /api/hook/event` with `{"name": "doorbell"}`.
+- **Schedule › Game-day lights › Make it an automation** turns a team's score
+  celebration into an automation to add conditions to. Celebrations you
+  don't convert work as before.
+- The scoreboard now notices a game starting and ending, and which team is
+  at home.
+- Review before release (code review of the new code):
+  1. During a weather warning, an automation that showed a pattern, turned
+     the lights off or flashed one controller dismissed the warning, as a
+     choice by hand does. The warning now stays on top and the automation
+     is skipped (`tests/repro_auto_dismisses_alert.py`). A music show isn't
+     interrupted either, unless **Beats a manual choice** is on.
+  2. **Lately** never loaded: the server didn't send the history it read.
+  3. A flash on one controller went back to the schedule afterward instead
+     of to the choice it covered (one by hand, for that controller or all).
+  4. An automation's own **Show** or **Turn off** counted as a choice by
+     hand, so later automations were skipped as if you had set the lights.
+  5. **Try it now** started the cooldown, so the real event right after was
+     skipped.
+  6. A webhook event before setup was a server error, and an automation that
+     failed could stop the scoreboard's check; both are handled now.
+
+## 4.10.1: an Intel Mac download
+
+- **`EaveLuxOS-macOS-Intel.dmg`**: the app for Intel Macs, built on GitHub's
+  Intel Mac next to the Apple silicon one (`EaveLuxOS-macOS.dmg`). An Intel
+  Mac no longer needs Python and Terminal. **Setup › App › Updates** offers
+  each Mac its own download.
+- The Manual covers the Mac message "could not be executed because you do
+  not have appropriate access privileges" for **Start EaveLuxOS.command**:
+  `chmod +x` (once), `xattr -c` if needed, and not running it from a USB
+  stick or disk image.
+- **Start EaveLuxOS.command** updates pip first and installs only the
+  ready-made encryption package, so an older Mac no longer stops on "Failed
+  building wheel for cryptography"; if none fits, it says so and starts
+  without it. The Manual has the two Terminal lines that fix it by hand.
+- Review before release: the release workflow's note about how many builds
+  must succeed now says five.
+
 ## 4.10.0: the House tab with two or more controllers
 
 - **House › Controller**: with two or more controllers, choose which one the

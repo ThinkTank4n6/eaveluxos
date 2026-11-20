@@ -86,7 +86,9 @@
       shaded[i] = { ...picks[i], colors: picks[i].colors.map(c => c === OFF ? OFF : dim(String(c).toUpperCase(), f)) };
     }
     const k = Object.fromEntries(used.map(i => [i, 1]));
-    const build = () => merge(regions.flatMap(r => r.owner < 0 ? [[base, r.len]] : tile(shaded[r.owner], r.len, k[r.owner])));
+    // 4.12: a zone that runs the other way starts its pattern from its last bulb
+    const run = (r) => { const t = tile(shaded[r.owner], r.len, k[r.owner]); return zones[r.owner].reverse ? t.reverse() : t; };
+    const build = () => merge(regions.flatMap(r => r.owner < 0 ? [[base, r.len]] : run(r)));
     const zoneBlocks = i => regions.filter(r => r.owner === i).reduce((t, r) => t + blocks(merge(tile(shaded[i], r.len, k[i])), perSlot), 0);
     const floor = i => regions.filter(r => r.owner === i).reduce((t, r) => t + Math.ceil(r.len / perSlot), 0);
     let runs = build();

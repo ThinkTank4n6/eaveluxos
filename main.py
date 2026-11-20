@@ -148,6 +148,7 @@ def cmd_run(open_browser: bool):
         settings["service"] = {**settings.get("service", {}), "web_port": port}
         app.store.save_settings(settings)
     url = f"{getattr(app, 'scheme', 'http')}://localhost:{port}/"
+    app.httpd = server        # 4.15: an update hands the port to the new version
     # Answer on the port right away, so a copy started a moment later sees
     # this one instead of moving to another port.
     threading.Thread(target=server.serve_forever, daemon=True, name="web").start()

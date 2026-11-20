@@ -11,8 +11,12 @@
   /* Bulbs `from`..`to` (1-based; `to` below `from` runs the other way),
      spread evenly along a traced line, skipping "wire only" stretches.
      points: [[x%, y%], ...]; wire: indexes of segments without bulbs.
-     Returns [{b, x, y}] in the photo's percent coordinates. */
-  function lineBulbs(points, wire, from, to) {
+     pins (4.12): [[bulb, x%, y%], ...], bulbs dragged to where they really
+     sit. A pinned bulb is exactly there; the bulbs between two pins (or a pin
+     and an end of the line) are spread evenly along the line between them,
+     shifted as their pins are. Returns [{b, x, y, pinned}] in the photo's
+     percent coordinates. */
+  function lineBulbs(points, wire, from, to, pins) {
     const a = Math.round(+from), z = Math.round(+to);
     if (!(a >= 1 && z >= 1) || !Array.isArray(points) || points.length < 2) return [];
     const skip = new Set(wire || []), segs = [];
@@ -24,21 +28,57 @@
     }
     const n = Math.abs(z - a) + 1, step = z >= a ? 1 : -1, out = [];
     if (!total) return out;
-    let s = 0;
-    for (let k = 0; k < n; k++) {
-      const d = (k + 0.5) / n * total;
+    const at = d => {
+      let s = 0;
       while (s < segs.length - 1 && segs[s].at + segs[s].len < d) s++;
       const g = segs[s], f = Math.min(1, Math.max(0, (d - g.at) / g.len));
-      out.push({ b: a + k * step, x: g.x1 + (g.x2 - g.x1) * f, y: g.y1 + (g.y2 - g.y1) * f });
+      return [g.x1 + (g.x2 - g.x1) * f, g.y1 + (g.y2 - g.y1) * f];
+    };
+    // Each pin: its place along the line (the nearest point on it) and how far off the line it was dropped.
+    const anchors = [{ k: -0.5, d: 0, ox: 0, oy: 0 }], seen = new Set();
+    for (const p of Array.isArray(pins) ? pins : []) {
+      if (!Array.isArray(p) || p.length !== 3 || !p.every(Number.isFinite)) continue;
+      const k = (p[0] - a) * step;
+      if (k < 0 || k >= n || k !== Math.round(k) || seen.has(k)) continue;
+      seen.add(k);
+      let best = null;
+      for (const g of segs) {
+        const vx = g.x2 - g.x1, vy = g.y2 - g.y1, f = Math.max(0, Math.min(1, ((p[1] - g.x1) * vx + (p[2] - g.y1) * vy) / (g.len * g.len)));
+        const qx = g.x1 + vx * f, qy = g.y1 + vy * f, dist = Math.hypot(p[1] - qx, p[2] - qy);
+        if (!best || dist < best.dist) best = { dist, d: g.at + f * g.len, ox: p[1] - qx, oy: p[2] - qy };
+      }
+      anchors.push({ k, d: best.d, ox: best.ox, oy: best.oy, x: p[1], y: p[2] });
+    }
+    anchors.push({ k: n - 0.5, d: total, ox: 0, oy: 0 });
+    anchors.sort((u, v) => u.k - v.k);
+    let j = 0;
+    for (let k = 0; k < n; k++) {
+      while (j < anchors.length - 2 && anchors[j + 1].k <= k) j++;
+      const A = anchors[j], B = anchors[j + 1];
+      if (A.k === k && A.x !== undefined) { out.push({ b: a + k * step, x: A.x, y: A.y, pinned: true }); continue; }
+      const t = (k - A.k) / (B.k - A.k), [x, y] = at(A.d + (B.d - A.d) * t);
+      out.push({ b: a + k * step, x: x + A.ox + (B.ox - A.ox) * t, y: y + A.oy + (B.oy - A.oy) * t, pinned: false });
     }
     return out;
   }
 
-  /* Every positioned bulb on one side's lines (lines with a bulb range). */
+  /* Every positioned bulb on one side's lines (lines with a bulb range);
+     each knows its line (`line`: the line's id) for dragging (4.12). */
   function sideBulbs(lines) {
     const out = [];
-    for (const ln of lines || []) if (ln.bulbs) out.push(...lineBulbs(ln.points, ln.wire, ln.bulbs.from, ln.bulbs.to));
+    for (const ln of lines || []) if (ln.bulbs) out.push(...lineBulbs(ln.points, ln.wire, ln.bulbs.from, ln.bulbs.to, ln.pins).map(p => ({ ...p, line: ln.id })));
     return out;
+  }
+
+  /* 4.12: pin bulb b of a line at (x, y), or unpin it (x null). Returns the
+     line's new pins, sorted by bulb, never more than MAX_PINS. */
+  const MAX_PINS = 200;
+  function setPin(line, b, x, y) {
+    const pins = (line.pins || []).filter(p => p[0] !== b);
+    if (x !== null && x !== undefined) pins.push([b, Math.round(Math.max(0, Math.min(100, x)) * 10) / 10, Math.round(Math.max(0, Math.min(100, y)) * 10) / 10]);
+    pins.sort((u, v) => u[0] - v[0]);
+    if (pins.length > MAX_PINS) throw new Error(`At most ${MAX_PINS} pinned bulbs on one line.`);
+    return pins;
   }
 
   /* The positioned bulb nearest (x%, y%), within `max` percent. */
@@ -148,7 +188,7 @@
   /* Bulbs a scene was made for: its runs add up to the whole address space. */
   const sceneTotal = e => (e && e.counts ? e.counts.reduce((n, c) => n + (+c || 0), 0) : 0);
 
-  const api = { lineBulbs, sideBulbs, nearest, colorsAt, dim, sceneCanvas, around, sceneOwners, parseBulbs, sceneTotal };
+  const api = { lineBulbs, sideBulbs, setPin, MAX_PINS, nearest, colorsAt, dim, sceneCanvas, around, sceneOwners, parseBulbs, sceneTotal };
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.HouseFX = api;
 })(typeof window !== 'undefined' ? window : globalThis);

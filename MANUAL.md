@@ -1,7 +1,7 @@
 # EaveLuxOS: User Manual
 ### The Intelligent Lighting Control Platform
 
-Version 4.10.0 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
+Version 4.15.0 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
 
 > **Downloaded the ready-made app? You can skip most of the setup.**
 > The downloads on the project's GitHub **Releases** page
@@ -14,6 +14,7 @@ Version 4.10.0 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT Licen
 > |---|---|---|
 > | Windows | `EaveLuxOS-Windows.zip` | Unzip it into a folder you'll keep and double-click `EaveLuxOS.exe`. If Windows says "Windows protected your PC", click **More info › Run anyway**. |
 > | Mac (M1 and newer) | `EaveLuxOS-macOS.dmg` | Drag **EaveLuxOS** into **Applications** and open it. If macOS blocks it, open **System Settings › Privacy & Security**, scroll down and click **Open Anyway**. |
+> | Mac (Intel) | `EaveLuxOS-macOS-Intel.dmg` | The same, for an Intel Mac (4.10.1). Apple menu › **About This Mac** shows "Processor: … Intel" on one. |
 > | Linux PC | `eaveluxos_…_amd64.deb` (or `EaveLuxOS-Linux-x86_64.tar.gz`) | `sudo apt install ./<file>`, then start **EaveLuxOS** from the app menu. For the `.tar.gz`, unpack it and run `./eaveluxos`. |
 > | Raspberry Pi (64-bit) | `eaveluxos_…_arm64.deb` | `sudo apt install ./<file>`, then run `eaveluxos run`. |
 >
@@ -61,7 +62,7 @@ manual refers to "Trimlight's guide", that's the document it means.
 11. [Create a pattern](#11-create-a-pattern)
 12. [House](#12-house)
 13. [Schedule](#13-schedule)
-14. [Alerts: weather rules](#14-alerts-weather-rules)
+14. [Alerts: automations and weather rules](#14-alerts-automations-and-weather-rules)
 15. [Alerts: security flash](#15-alerts-security-flash)
 16. [Music shows](#16-music-shows)
 17. [Backup timer (safety net)](#17-backup-timer-safety-net)
@@ -193,7 +194,8 @@ install it with your system's software installer (the package is `python3`).
 > security prompts for each system.
 > - **Windows:** `EaveLuxOS-Windows.zip`. Unzip it and double-click
 >   `EaveLuxOS.exe`.
-> - **Mac:** `EaveLuxOS-macOS.dmg`. Drag the app to Applications.
+> - **Mac:** `EaveLuxOS-macOS.dmg` (Apple silicon) or `EaveLuxOS-macOS-Intel.dmg`
+>   (Intel). Drag the app to Applications.
 > - **Linux PC:** `eaveluxos_…_amd64.deb`
 > - **Raspberry Pi (64-bit):** `eaveluxos_…_arm64.deb`
 >
@@ -212,6 +214,45 @@ install it with your system's software installer (the package is `python3`).
 | Windows | **Start EaveLuxOS.bat** | The first time, it may install a small time-zone package (needs internet). The app then runs in the background without a window. |
 | Mac | **Start EaveLuxOS.command** | The first time, macOS may block it. Right-click the file, choose **Open**, then **Open** again. Keep the Terminal window that appears open while the app runs. |
 | Linux | **start-eaveluxos.sh** | If asked, choose **Run in Terminal**. Keep the window open. |
+
+**Mac: "could not be executed because you do not have appropriate access
+privileges".** The Mac lost the file's permission to run, which happens when
+the folder was copied from another computer, a USB stick or a re-made zip.
+Once, in **Terminal** (Applications › Utilities):
+
+1. Type `chmod +x ` (with a space), drag **Start EaveLuxOS.command** into the
+   window and press **Return**.
+2. If it still won't run, type `xattr -c ` (with a space), drag the file in
+   again and press **Return**.
+3. Double-click it again; the first time, right-click › **Open** › **Open**.
+
+From then on a double-click works. If the folder is on a USB stick, a
+network drive or an opened disk image, copy it to **Documents** first: macOS
+may not run anything from there. To start it without the file, in Terminal
+type `cd ` (with a space), drag the **eaveluxos** folder in, press **Return**,
+then run `python3 main.py run --open`. **Setup › App › Start automatically**
+then starts it at each login. The Intel and Apple silicon apps
+(`EaveLuxOS-macOS-Intel.dmg`, `EaveLuxOS-macOS.dmg`) need none of this.
+
+**Mac: "Failed building wheel for cryptography" (or "failed to build
+installable wheels … cryptography").** The encryption package EaveLuxOS
+uses comes ready-made for most Macs, but an older **pip** (often on an Intel
+Mac) can't find it and tries to build it, which fails. In Terminal, type
+these two lines (typed, not pasted: pasting from an email or chat can put
+special spaces in them, and pip then answers "no such option"):
+
+```
+python3 -m pip install --upgrade pip
+python3 -m pip install --user --only-binary :all: cryptography
+```
+
+Since 4.10.1, **Start EaveLuxOS.command** does this by itself. If it still
+fails, that Mac's Python or macOS is too old for the ready-made package:
+install the current Python from python.org (and run **Install
+Certificates.command** in its folder), or use the Mac app instead. EaveLuxOS
+runs without the package; until it's installed, the Trimlight secret is
+saved unencrypted on that computer (the app warns about it) and the secure
+phone connection (Setup › Phones and tablets) waits.
 
 3. Your web browser opens to **http://localhost:8787** and shows the setup
    assistant. If the browser doesn't open, open it yourself and go to that
@@ -320,8 +361,47 @@ powercfg /change hibernate-timeout-ac 0
 2. On your phone, connect to your home Wi-Fi and open that address in Safari
    or Chrome.
 3. Enter your user name and password.
-4. **iPhone:** tap **Share › Add to Home Screen**. **Android:** tap the **⋮**
-   menu, then **Add to Home screen**. You now have a "Lights" app icon.
+4. **iPhone:** in Safari, tap **Share › Add to Home Screen**. **Android:** in
+   Chrome, tap **Install** on the bar EaveLuxOS shows, or the **⋮** menu, then
+   **Install app** (or **Add to Home screen**). You now have an EaveLuxOS
+   icon. **Setup › App › On your phone** shows the same steps and whether this
+   phone has it.
+
+### The app on your home screen (4.14)
+
+EaveLuxOS installs from the browser like an app, with no app store:
+
+- The icon opens **Quick**: big buttons for what you reach for most (see
+  below), with a brightness slider while the lights are on.
+  **Everything else (Home)** goes to the full app.
+- **Press and hold the icon** (Android; on iPhone, the app's own buttons)
+  for **Lights on**, **Lights off**, **Back to the schedule** and **Security
+  flash**, straight from the home screen. The same addresses opened as an
+  ordinary link (an email, another web page) ask before doing anything.
+- On an **https://** address (and on the app computer itself), the app's
+  own files are kept on the phone: it opens at once, and when you're away
+  from home Wi-Fi it says **Can't reach EaveLuxOS** with a **Try again**
+  button instead of a browser error. Nothing about your lights, settings or
+  accounts is kept on the phone; that always comes fresh from the app
+  computer. Each new version replaces the kept files by itself.
+- On a plain **http://** address the app works the same, but the browser
+  doesn't keep its files, and Android Chrome adds a home-screen shortcut
+  rather than an installed app. For the full app, use HTTPS with a
+  certificate the phone trusts (mkcert, below).
+
+**Quick buttons.** Until you choose them, Quick shows Lights on, Lights off,
+Back to the schedule, your Home favorites and up to three scenes. **Edit**
+(on Quick) chooses up to 12 buttons, in order, for everyone in the
+household: On, Off, Back to the schedule, Security flash, any pattern or
+scene, or an automation (it runs that automation's **Then** at once). The
+button for what's showing has an outline. **Quick buttons** on Home opens
+Quick in any browser.
+
+**Why not an app store app?** An installed EaveLuxOS is the same app you use
+in the browser, always the version on your app computer, with nothing to
+update on the phone. A store app would need Apple's and Google's developer
+accounts and reviews, and would still have to reach the app computer on
+your home network to do anything.
 
 A phone stays signed in until it goes **8 hours without being used**, and
 never longer than **7 days** (an Administrator can change the first number
@@ -720,6 +800,39 @@ port setup on Setup › Lights & controller (section 18), so get that right firs
 The House tab helps you find where each bulb is, label your house, and
 name sections of roofline.
 
+### Elevations and their versions (4.12)
+
+Each side of the house is an **elevation**: **Front elevation**, **Right
+side elevation**, **Rear elevation**, **Left side elevation** and **Shed**
+are always there. **Add an elevation** adds another (a second side
+elevation on an L-shaped house, a garage, a deck) and asks which kind it
+is. **Rename** changes its name and kind; an elevation you added can be
+deleted.
+
+**Versions.** One elevation can have more than one photo and layout, for
+example a daylight photo for tracing and a night photo with the lights on,
+or before and after adding a run of lights:
+
+1. Choose the elevation, then **Add a version** and name it (for example
+   *Night*). Leave **Start from this version's rooflines, bulbs and pins**
+   ticked when the photo is taken from the same spot; the traced lines,
+   their bulb numbers and the pins come along.
+2. Upload the version's photo. Each version keeps its own photo, rooflines
+   and pins.
+3. The **★** version is the one the whole-house view and the flat diagram
+   show. **Show this version in the whole house** makes the one you're
+   looking at the ★ one.
+
+**Delete this version** removes its photo, rooflines and pins (the
+landmarks stay, without their pins).
+
+**Export this elevation** saves a file (`….elevation.json`) with all its
+versions: their photos, rooflines, bulb numbers and pins. **Import an
+elevation** adds one from such a file as a new elevation, for example on
+another computer running EaveLuxOS, or to restore it. Unlike pattern files,
+this file **does contain your photos**, so share it only with people you'd
+show them to.
+
 ### Two or more controllers (4.10)
 
 Each controller numbers its own bulbs from 1. With two or more, the House tab
@@ -731,8 +844,8 @@ has a **Controller** choice at the top, next to the bulb count of each:
   previews light only that controller, along its own bulbs (for example
   106 on the Front, 96 on the Deck). The other controllers keep showing what
   they were. **Return to schedule** ends it for all.
-- Under the side buttons, **This side's lights** gives a side of the house to
-  one controller. Choosing that side then chooses its controller.
+- Under the elevation buttons, **This elevation's lights** gives an elevation to
+  one controller. Choosing that elevation then chooses its controller.
 - A zone or landmark saved while a controller is chosen is that
   controller's; the list says whose. One zone name can be used once for each
   controller.
@@ -790,11 +903,25 @@ Zones are named sections, such as "Garage roof = bulbs 84–138". Tick
 **Save**. You can then paint zones in Create (section 11).
 
 To fix a zone (for example if a bulb count was off), tap **Edit** next to it.
-Change the name or the first and last bulb; **Light these bulbs** shows the
-zone on the house so you can check it, and **Use the finder's range** copies
+Change the name or the first and last bulb; **Use the finder's range** copies
 the bulb finder's current selection. Tap **Save zone**. **Show** lights a zone
 and ✕ deletes it. Patterns you already painted with a zone keep their colors;
 paint them again to use the new bulbs.
+
+**Line a zone up with the house (4.12).** In **Edit**:
+
+1. Tap **Light these bulbs**. The zone's **first bulb is green** and its
+   **last is red**, so you can see on the house exactly where it starts and
+   ends.
+2. If they're off, use **First −1 / +1**, **Last −1 / +1**, or **Whole zone
+   −1 / +1** (moves both ends, for example after a bulb was added upstream).
+   While the zone is lit, the house follows each change.
+3. The picture under the buttons shows the zone on each elevation photo it
+   reaches (green start, red end), from the bulbs you placed.
+4. **Runs the other way** is for a zone whose pattern should start at its
+   last bulb, such as a run wired from the far end. **Combine patterns by
+   zone** then lays that zone's pattern from its last bulb back; the green
+   and red ends swap to show it.
 
 ### Bulb numbering
 
@@ -838,6 +965,27 @@ needs to know its bulbs:
 
 The bulbs are spread evenly along the line, skipping wire-only stretches.
 Adjusting the line keeps its bulb numbers; **Clear** removes them.
+
+### Place bulbs: each bulb where it really is (4.12)
+
+Bulbs are spread evenly along each line, which is close on a straight run
+but off where the spacing changes (a corner, a gap, a wider stretch). To
+fix it:
+
+1. In **House view**, tap **Place bulbs**. Every bulb is a dot.
+2. **Drag a dot** to where that bulb really sits on the photo. It's
+   **pinned** there (green), and the bulbs between it and the next pin (or
+   the end of the line) spread out evenly again. A few pins usually fix a
+   whole run.
+3. Tap a dot to select it. **Light bulb N on the house** lights that one
+   bulb, so you can check it against the real one. With a bulb selected,
+   the arrow keys nudge it (Shift moves it farther).
+4. **Unpin it** puts a bulb back to even spacing; **Unpin all on this
+   photo** does that for every bulb on the photo.
+
+Pins are used everywhere bulbs are placed: the preview, scenes and the
+whole-house view. Adjusting a line keeps its pins; changing its **Bulbs**
+numbers drops pins outside the new range.
 
 ### House view: preview a pattern on your house
 
@@ -883,6 +1031,29 @@ A scene covers exactly the bulbs your lights had when it was saved. If the
 number changes (ports or the House tab total), the scene and the Patterns tab
 say so: open it and save it again. Bulbs numbered past the last bulb are
 flagged under the photo and left out of House view.
+
+### The whole house at once (4.12)
+
+**Whole house: every elevation at once**, at the top of the House tab,
+shows each elevation (its ★ version) side by side, with its bulbs lit and
+moving:
+
+- **One pattern** shows the same pattern everywhere. A **Split by
+  controller** pattern shows each controller's own part on its elevations.
+- **Tonight's schedule** shows what the schedule plans from noon to noon,
+  each controller with its own pattern. Drag the time, tap **Now**, or
+  **Play** (ten minutes a second). The bars show when each controller is
+  on and with what. Weather, scores, alerts, automations and choices by
+  hand can't be known ahead, so they aren't shown.
+- **A pattern for each zone** lets you choose a pattern for each zone and
+  see them together, each zone moving its own. **Make it a pattern** opens
+  **Combine patterns by zone** with those choices. (A controller moves one
+  pattern with one motion, so the saved pattern moves as one.)
+- **Night** darkens the photos.
+
+An elevation shows the bulbs of the controller under **This elevation's
+lights**; without one, the first controller's. Elevations without placed
+bulbs aren't shown.
 
 **Show flat diagram** unfolds every side into one picture: roof edges in
 green, ridges in purple, wire-only stretches in gray, and your landmarks with
@@ -1259,7 +1430,112 @@ runs both controllers itself rather than handing the night to the
 controllers' own timers, as for a night curve. The backup timer copies each
 controller's own nights to it.
 
-## 14. Alerts: weather rules
+### Who wins tonight (4.15)
+
+**Schedule › Who wins tonight** lays out a night (noon to noon; pick any
+date) for each controller: each stretch of time, the pattern it shows, the
+rule, holiday or game day it comes from with its priority, what it beats and
+why (lower priority, or the same priority but listed later), and which
+weather rules could take over if their weather comes. Warnings point out
+what's likely to surprise you: two things with the same priority at the
+same time (the one listed first wins), a rule that never shows that night,
+and weather that could replace a pattern. Automations that run at a time
+that night, and ones that wait for an event (a score, a webhook), are listed
+too; they come on top when they run.
+
+## 14. Alerts: automations and weather rules
+
+### Automations (When · If · Then)
+
+An automation (4.11) says: **when** something happens, **if** everything you
+list is true, **then** the lights do what you say, and afterward go back to
+what they were showing. For example: *when the Flyers score, if it's dark,
+flash orange and black for 20 seconds.*
+
+1. On the **Alerts** tab, open **Automations** and tap **Add an automation**.
+2. Give it a name.
+3. **When** (what starts it), one of:
+   - **A team scores**, **A game starts** or **A game ends** (a win, a loss
+     or either). The team must be listed under **Schedule › Game-day
+     lights**; **Any team** works too. The scoreboard follows the team even
+     if its own score celebration is off.
+   - **A weather warning starts** (any, or one whose name contains words
+     you type, such as *tornado*). Needs **Severe weather alerts** on.
+   - **A webhook event**, by name (see below).
+   - **A time of day**, or **sunrise** or **sunset** with an offset
+     (*sunset-30m*). It runs once a day.
+   - **The schedule turns the lights on** (or **off**).
+4. **If** (optional; all of them must be true):
+   - **It's dark** (sunset to sunrise), **between** two times, **before** or
+     **after** a time.
+   - **On these days** of the week; **between two dates** (month-day, such
+     as 12-01 to 01-06; it can wrap past New Year's).
+   - **The lights are on** (or **off**); **a rule is running**; **a pattern
+     is showing**.
+   - For game events only: the team is **home** or **away**, **winning** or
+     **losing**.
+5. **Then** (up to four, done in order):
+   - **Flash, then go back**: a pattern, a color, or a color on one zone,
+     for 5 to 600 seconds. Afterward the lights go back to what they were
+     showing.
+   - **Show a pattern** for some minutes, or until the schedule changes.
+   - **Turn off** for some minutes.
+   - **Play a team's sound** (its score celebration sound, under Game-day
+     lights).
+
+   Each light action is for **all controllers** or one of them. A flash on
+   one controller goes back to that controller's own choice afterward.
+6. **Priority**, **Cooldown** and **Beats a manual choice**:
+   - When two automations start together, the higher priority goes first,
+     and a lower one that wants the same lights is skipped. While one is
+     flashing, a lower-priority one doesn't cut in.
+   - **Cooldown**: after it runs, it waits this many seconds before it can
+     run again (30 by default), so a flurry of goals is one flash.
+   - By default an automation leaves alone lights you set by hand (On, Off
+     or a pattern chosen on Home). Tick **Beats a manual choice** to let it
+     run anyway; a flash still goes back to your choice afterward.
+7. **Save**. The sentence under the form says what it will do.
+
+Each automation in the list has:
+
+- **Try it now**: does the **Then** part right away, whatever the **If**
+  says, so you can see it. It doesn't start the cooldown.
+- **Check it now**: shows each condition with ✓ or ✗ as of now.
+- The tick box turns it off without deleting it.
+- **Lately** lists what automations did or why they were skipped
+  ("skipped: not it's dark"). The same lines are in Activity.
+
+Safety rules that always apply:
+
+- A severe **weather warning** stays on top: while one is showing, an
+  automation that changes the lights is skipped (one that only plays a
+  sound still runs).
+- A **music show** isn't interrupted unless **Beats a manual choice** is on.
+- Automations use the same paths as the app's buttons, with the same
+  limits; nothing is written to the Trimlight cloud's patterns or timers.
+
+**Webhook events.** A camera, doorbell or Home Assistant can start an
+automation by name:
+
+```
+POST /api/hook/event
+{"name": "doorbell"}
+```
+
+with the webhook address and token from **Alerts › Webhooks** (section 21).
+Names are 1 to 40 letters, numbers, spaces, - or _, and upper and lower case
+are the same. The answer lists what each automation did.
+
+**Make it an automation.** Under **Schedule › Game-day lights**, each team
+with a score celebration has **Make it an automation**. It creates the same
+celebration as an automation (when the team scores, if the lights are on
+(unless the celebration was set to flash in daylight too),
+flash its pattern for the same seconds, and play its sound if it has one),
+and turns the old celebration off so it doesn't flash twice. Then add
+conditions, such as **It's dark**, or change it. Score celebrations you
+don't convert keep working as before.
+
+### Weather rules
 
 Weather rules change the pattern based on current conditions, using the US
 National Weather Service. They work in the United States only, and no
@@ -1565,7 +1841,100 @@ Mood follow ranks below everything you or the house decided:
   seconds of quiet, ends only mood follow's own pattern, never yours.
 - A flash still wins over everything, as always.
 
+### Music sync 2.0: zones that follow the music (4.13)
+
+**Music from this computer** can now drive your **zones** itself instead of
+the controller's music patterns: each zone follows the **bass**, the
+**mids**, the **treble** or **the beat**, in its own color. Under **The
+lights follow**, choose **My zones (bass, mids, treble, beat)**.
+
+**How it works.** The app listens as before, and works out from the sound
+(a frequency analysis, 50 to 60 times a second):
+
+- **Bass** (30-250 Hz), **mids** (250-4,000 Hz) and **treble** (4-14 kHz),
+  each with an automatic level, so quiet and loud songs both use the full
+  range. The three bars show them.
+- **Beats**: sudden rises in the low end (kicks and bass notes). The dot
+  flashes with each one.
+- **Tempo (BPM)**, from how regularly the beats come, once it has heard a
+  few seconds of them. "(unsure)" means the music doesn't have a steady
+  beat.
+
+Then it draws each moment as a pattern and shows it on the controller live,
+the way the Trimlight app previews a pattern while you edit it. Nothing is
+saved on the controller.
+
+**Set it up once.**
+
+1. Save zones on the **House** tab (section 12). Each controller uses its
+   own zones and its own number of bulbs.
+2. The controller needs its address on your home network (**Setup › Local
+   mode**).
+3. On the **Music** tab, choose **My zones**, tick the controller, and tap
+   **Speed test**. For about ten seconds the lights shimmer between two dim
+   warm whites while the app sends frames faster and faster (2, 4, 6 and 8 a
+   second) and checks the controller keeps up. The result, for example
+   "4 frames a second", is the most a show will ever use on it. A show
+   can't start on a controller until it has passed.
+4. For each zone, choose what it **follows** (Bass, Mids, Treble, The beat,
+   or Nothing), how it **shows** (**Glow**: the whole zone brightens with
+   it; **Meter**: it fills along the zone, from its first bulb, or its last
+   if the zone runs the other way), and its color. **Everything else** is
+   the color for bulbs outside these zones (black is dark). Choices save as
+   you make them.
+
+A controller takes at most 30 color blocks at a time. A glow uses one
+block, a meter two; if your choices could need more, the page says so.
+
+**Safety.** Only the newest frame is sent, never faster than the speed test
+allowed and only when something visible changed. The app checks every
+second that the controller answers. If its answers come late twice in a
+row, the show slows down a step (and can speed up again later); if it stops
+answering for six seconds, the show ends and the schedule's pattern comes
+back. Stop, the end of **How long**, or closing the page do the same.
+
+### Sound delay and music files (4.13)
+
+The lights trail the music a little: the time it takes to reach the
+controller. **Sound delay** holds back what you hear by the same amount, so
+sound and lights land together. It works with:
+
+- **Music playing in a browser tab**: the tab goes quiet and this page plays
+  its sound, held back (Microsoft Edge or Chrome).
+- **A music file on this computer**: choose **Listen to › A music file on
+  this computer**, then pick one or more of your own MP3, WAV or M4A files.
+  They play here, one after another, held back by the delay. **Pause /
+  play** and **Next file** are under the meters. Nothing is uploaded.
+
+A microphone, line-in or Stereo Mix is heard in the room as it plays, so
+its sound can't be held back.
+
+To set it: the page suggests a value during a show ("Suggested from this
+show"). With zones, tap **Sync test**: a click every second, and every zone
+flashes white with it. Move **Sound delay** until the flashes land on the
+clicks. The delay is remembered in this browser.
+
+**With the controller's music patterns** (the original way), the analysis,
+the meters and Sound delay work the same; set Sound delay by ear.
+
 ## 17. Backup timer (safety net)
+
+### After a restart or a power cut (4.15)
+
+- **The app restarts** (an update, the computer restarted): what you chose
+  by hand (On, Off, a pattern, for every controller or one), the slider
+  levels, a running security flash and a music show started from the
+  button or a webhook all come back, unless the schedule moved on meanwhile
+  (the same rule as always: a choice made by hand lasts until the next
+  scheduled change). Activity says what came back. Previews of unsaved
+  patterns and shows from this computer's Music page don't come back.
+- **Right after a restart** the app doesn't send the lights again when it
+  sent them less than 30 minutes earlier (no restarting motion, no extra
+  commands). It reads the controllers at once instead, and sends again at
+  the first difference.
+- **A controller loses power:** while Trimlight's cloud says it's offline,
+  the app looks every minute instead of every five. As soon as it's back
+  online, its lights are set again, whatever it came back showing.
 
 (Called the **safety net** before version 4.0.)
 
@@ -1689,6 +2058,16 @@ speed.
 
 ## 18. Setup › Lights & controller
 
+### Controller health (4.15)
+
+**Setup › Controller health** shows, for each controller: online or offline
+and its firmware (from Trimlight's cloud); how many requests this app sent
+it today and how many worked, its typical answer time, and how many worked
+this week; a bar for each of the last 14 days (failed ones in red); the last
+problem and when; and its answer time on your home network. **Check now**
+asks the cloud again, reads each controller and greets it on your home
+network. Kept in the data folder (`health.json`).
+
 Since 4.9.2, **Color correction**, **Local mode** and **Pattern backups** are
 sections of their own in Setup's row of buttons, next to **Lights &
 controller**, rather than folded panels at the bottom of it. They work as
@@ -1795,6 +2174,15 @@ end to end.
   ports, chip type or color order.
 
 ### Local mode (home network)
+
+**Find and match my controllers (4.15).** Under **Setup › Local mode**,
+**Find and match** asks the network for controllers, reads each one that
+answers (its ports and patterns), and matches it to your controllers by the
+ports Trimlight's cloud has for them: "This is **Front** (its ports match)".
+**Use for Front** (or **Use all matches**) saves the addresses. If nothing
+answers, or one is missing, **Look harder** knocks on the controllers' port
+(8586) at each address of the app computer's own home network (nothing else
+is sent, and never outside your network), then reads what it found.
 
 (Version 4.3, Administrators.) The app reads and changes the controller
 straight over your home network, the way the Trimlight Edge app does when it
@@ -2296,8 +2684,31 @@ the next version comes out.
 **Setup › App › Updates** shows the version you have, when it last checked and
 the release notes, and has **Check now**. Administrators can turn the daily
 check off there. Only the question "which version is newest?" goes to GitHub;
-nothing about your home is sent, and nothing is downloaded or installed by
-itself. You still update yourself, as below.
+nothing about your home is sent.
+
+**Install it from the app (4.15; Windows, and the Linux .tar.gz).** Under
+**Setup › App › Updates**, an Administrator can tap **Install X now**:
+
+1. The app downloads the release's file for this computer and the release's
+   `SHA256SUMS.txt`, from GitHub only, and checks the file's SHA-256 against
+   the list. A damaged or incomplete download is never used. (Both come from
+   the same GitHub release, so this checks the download, not who made it.)
+2. It keeps the version you have now beside the program (`EaveLuxOS.exe.previous`),
+   puts the new one in its place, and restarts as the new version. The
+   lights pause for a moment.
+3. If the new version doesn't start, or doesn't keep answering for 20
+   seconds, the app puts the previous version back and starts it again by
+   itself. **Updates** then says what happened.
+
+**Go back to X** puts the kept version back the same way. **Install new
+versions by themselves, while the lights are off** (off unless you turn it
+on) installs a new version during the day, when the schedule has the lights
+off and no show or flash is running; a version that had to be rolled back
+isn't tried again by itself. From a phone, these ask for your password
+again.
+
+A Mac app, the Linux package (.deb), a system service, and a copy run from
+the source code update as before, below; **Updates** says which applies.
 
 **Update to a new version**
 
