@@ -171,11 +171,15 @@ class Stream(WithController):
         z.start("127.0.0.1", "tab", 8, "s1")
         self.addCleanup(z.stop)
         self.assertEqual(z.status()["fps"], 4, "starts at 4 even when the test allowed more")
+        # 4.16.1: until it has slowed down (at most 12 s): GitHub's Mac sent only
+        # 13 frames in 4 s on a busy day, too few to see two late answers in a row
         t0, k = time.monotonic(), 0
-        while time.monotonic() - t0 < 4:
+        while time.monotonic() - t0 < 12:
             k += 1
             z.feed(["#FF0000"], [1 + k % 200], "tab")
             time.sleep(0.02)
+            if time.monotonic() - t0 > 4 and z.status()["slowed"] >= 1 and z.status()["fps"] <= 3:
+                break
         st = z.status()
         self.assertLessEqual(st["fps"], 3, st)
         self.assertGreaterEqual(st["slowed"], 1)

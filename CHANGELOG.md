@@ -1,5 +1,19 @@
 # Changelog
 
+## 4.16.2: two more timing tests for GitHub's Mac
+
+No change to the app itself. GitHub's Mac was slower still on 4.16.1's run,
+and two music tests that count frames came up short:
+
+- **Slows down when the controller lags** now keeps feeding until the show
+  has slowed (up to 12 seconds) instead of stopping at 4; the Mac had sent
+  only 13 frames by then, too few to see two late answers in a row.
+- **Levels keep going out** after a single feed now asks for at least 2
+  frames (the Mac sent 3; the line was "more than 3").
+
+Both were also run with the computer's processors kept busy, along with the
+other music, sound and controller tests, and passed.
+
 ## 4.16.1: the tests pass on Windows and macOS too
 
 No change to the app itself; 4.16.0 works the same. GitHub's Tests run on
