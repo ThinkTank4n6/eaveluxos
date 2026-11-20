@@ -3462,7 +3462,8 @@ def make_server(app: App, host: str, port: int):
                         # 4.10: the House tab's finder and scenes on one controller;
                         # the others keep showing what they were.
                         try:
-                            ctrl.manual_one(str(b["device"]), True, obj=eff, expires_min=minutes)
+                            # 4.16: remembers the choice it covers, for end_preview
+                            ctrl.flash_one(str(b["device"]), eff, minutes * 60)
                         except ValueError as e:
                             raise ApiError(str(e)) from None
                     else:
@@ -3485,6 +3486,9 @@ def make_server(app: App, host: str, port: int):
                             ctrl.manual_one(dev, False if state == "off" else None)
                     except ValueError as e:
                         raise ApiError(str(e)) from None
+                elif a == "end_preview":
+                    # 4.16: calibration done, a finder closed: back to what showed before
+                    ctrl.end_preview(str(b["device"]) if b.get("device") else None)
                 elif a == "resume":
                     # force: the Schedule tab's "Run the schedule" (resend in full).
                     ctrl.resume(force=b.get("force") is True or str(b.get("force")).lower() == "true")

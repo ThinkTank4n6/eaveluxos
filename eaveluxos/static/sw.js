@@ -14,7 +14,7 @@
 const VERSION = '__VERSION__';
 const CACHE = 'eaveluxos-' + VERSION;
 const FILES = ['./', 'index.html', 'app.css', 'app.js', 'theme.js', 'markdown.js', 'roofline.js', 'painter.js', 'whites.js',
-  'housefx.js', 'mood.js', 'bands.js', 'beat.js', 'musiczones.js', 'qr.js', 'colors.js', 'nav.js', 'search.js', 'merge.js',
+  'housefx.js', 'calib.js', 'mood.js', 'bands.js', 'beat.js', 'musiczones.js', 'qr.js', 'colors.js', 'nav.js', 'search.js', 'merge.js',
   'zonemix.js', 'offline.html', 'manifest.webmanifest', 'icon.svg', 'logo-mark.svg', 'icon-180.png', 'icon-192.png',
   'icon-512.png', 'icon-maskable-192.png', 'icon-maskable-512.png'];
 

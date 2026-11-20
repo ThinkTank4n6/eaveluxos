@@ -1,5 +1,30 @@
 # Changelog
 
+## 4.16.0: calibrate the house with a camera
+
+- **Calibrate with the camera** (House): a phone, propped up at night,
+  watches while the controller shows about 16 black-and-white frames (for
+  106 bulbs); each bulb's number is spelled out in binary across them, so
+  the camera reads every bulb's number and place at once. Each frame is a
+  short pattern the controller repeats along its lights, so it fits 30
+  color blocks however many bulbs there are, and each is also shown the
+  other way round, so the brightness of a bulb or the night doesn't matter.
+- The result is saved as a new version of the elevation (**Calibrated**):
+  the camera's photo, a line for each run of bulbs, and every bulb found
+  pinned where it was seen (missed ones spread evenly between). Worked out
+  in the browser; nothing is sent anywhere.
+- Mirrored runs show up in both places; other controllers' lights in view,
+  even moving patterns, are ignored. Needs the https:// address on a phone
+  (browsers allow the camera only on secure pages).
+- Review before release (code review of the new code):
+  1. A preview on one controller (calibration frames, the bulb finder)
+     ended with that controller back on the schedule, losing a choice made
+     by hand before it. Previews now remember what they cover, and ending
+     one (or its running out) puts it back; the same for previews on every
+     controller (`tests/repro_preview_end.py`).
+  2. A house with more than 40 runs of bulbs lost the extra runs quietly;
+     the result now says how many didn't fit.
+
 ## 4.15.0: reliability
 
 - **Who wins tonight** (Schedule): any night, for each controller, what

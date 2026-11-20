@@ -477,3 +477,7 @@ pre.code{padding:10px;white-space:pre-wrap;margin:0}
 .hbars div { display: flex; flex-direction: column-reverse; height: 100%; }
 .hb { display: block; width: 100%; border-radius: 2px; } .hb.ok { background: var(--lamp, #FFC062); } .hb.bad { background: #E5484D; }
 @media (max-width: 520px) { .hstats { grid-template-columns: 1fr 1fr; } }
+
+/* 4.16: camera calibration */
+.calview { border-radius: 12px; overflow: hidden; background: #05070f; }
+.calview video, .calview canvas { display: block; width: 100%; height: auto; max-height: 55vh; object-fit: contain; }

@@ -49,6 +49,7 @@
     { t: 'Controller health', w: 'Setup', v: 'health', k: 'health online offline firmware response failures errors 12006 ping' },
     { t: 'Find and match controllers', w: 'Setup', v: 'local', h: 'Local mode', k: 'find discover scan network address controller match ip' },
     { t: 'Install updates', w: 'Setup', v: 'app', h: 'Updates', k: 'update install rollback roll back version automatic sha256' },
+    { t: 'Calibrate with the camera', w: 'House', v: 'map', k: 'camera calibrate phone photo find bulbs automatic positions scan video' },
     // Alerts
     { t: 'Automations', w: 'Alerts', v: 'alerts', f: 'autos', k: 'automation if then when rule builder condition trigger event score sunset priority override doorbell' },
     { t: 'Weather', w: 'Alerts', v: 'alerts', f: 'weather', k: 'rain snow temperature wind weather rules' },

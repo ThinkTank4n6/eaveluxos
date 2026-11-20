@@ -694,9 +694,14 @@ class Controller:
 
         # 3. manual
         if override and override.get("expires") and time.time() > override["expires"]:
-            notes.append("Mood follow ended (no word from the listening page); back on the schedule."
-                         if override.get("mood") else "Preview ended; back on the schedule.")
-            override, adjust = None, {}
+            r = override.get("restore")
+            if r and not (r.get("expires") and time.time() > r["expires"]):
+                notes.append("Preview ended; back to what showed before.")      # 4.16
+                override = r
+            else:
+                notes.append("Mood follow ended (no word from the listening page); back on the schedule."
+                             if override.get("mood") else "Preview ended; back on the schedule.")
+                override, adjust = None, {}
         if override:
             o = override
             eff = (o.get("obj") or self.cfg.effects.get(o.get("effect"))) if o["on"] else None
@@ -1263,8 +1268,12 @@ class Controller:
             if on and obj is None:
                 self.last_on = effect_key
             key = effect_key if obj is None else f"_try:{obj.label}:{hash(json.dumps(obj.payload, sort_keys=True))}"
+            prev = self.override
+            if prev and prev.get("obj") is not None and prev.get("expires"):
+                prev = prev.get("restore")              # 4.16: what the first preview covered
             self.override = {"on": on, "effect": key, "obj": obj, "since": self.cfg.loc.now(),
-                             "expires": time.time() + expires_min * 60 if expires_min else None}
+                             "expires": time.time() + expires_min * 60 if expires_min else None,
+                             **({"restore": prev} if obj is not None and expires_min and prev else {})}
             self.adjust = {}
             self._kick()
         self.tick(maintenance=False)
@@ -1334,12 +1343,38 @@ class Controller:
                 prev = {"on": bool(o["on"]), "effect": o.get("effect") if o["on"] else None,
                         "obj": o.get("obj") if o["on"] else None, "since": now,
                         "wkey": w.key if w else "off", "expires": o.get("expires"), "auto": o.get("auto")}
+            if prev and prev.get("obj") is not None and prev.get("expires"):
+                # 4.16: a preview after a preview (the finder moving, calibration
+                # frames) covers what the first one covered, not the first one
+                prev = prev.get("restore")
             prev = dict(prev) if prev else None
         self.manual_one(dev, True, obj=obj, expires_min=seconds / 60)     # sends; not under the lock
         with self.lock:
             e = self.dev_override.get(dev)
             if e is not None and prev is not None and e.get("obj") is obj:
                 e["restore"] = prev
+
+    def end_preview(self, dev: str | None = None):
+        """4.16: end a preview now (calibration done, the finder closed): back
+        to the choice it covered, or to the schedule if there was none."""
+        with self.lock:
+            if dev:
+                e = self.dev_override.get(dev)
+                if e is None or e.get("obj") is None:
+                    return
+                r = e.get("restore")
+                if r:
+                    self.dev_override[dev] = {**r, "n": next(self._dov_seq)}
+                else:
+                    self.dev_override.pop(dev, None)
+            else:
+                o = self.override
+                if o is None or o.get("obj") is None:
+                    return
+                self.override = o.get("restore")
+            self._kick()
+        self.note(f"Preview ended{' on ' + self._dev_name(dev) if dev else ''}; back to what showed before.")
+        self.tick(maintenance=False)
 
     def mark_automation(self, dev: str | None):
         """4.11: the choice just made was an automation's, not one made by

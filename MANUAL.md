@@ -1,7 +1,7 @@
 # EaveLuxOS: User Manual
 ### The Intelligent Lighting Control Platform
 
-Version 4.15.0 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
+Version 4.16.0 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
 
 > **Downloaded the ready-made app? You can skip most of the setup.**
 > The downloads on the project's GitHub **Releases** page
@@ -965,6 +965,44 @@ needs to know its bulbs:
 
 The bulbs are spread evenly along the line, skipping wire-only stretches.
 Adjusting the line keeps its bulb numbers; **Clear** removes them.
+
+### Calibrate with the camera (4.16)
+
+Instead of tracing lines and numbering them by hand, let a phone's camera
+find every bulb:
+
+1. **At night**, stand where the whole elevation is in view, and prop the
+   phone up (a tripod, a car roof, a fence post). It must not move for about
+   a minute.
+2. Open EaveLuxOS on the phone at its **https://** address (the camera only
+   works on a secure page: section 8, HTTPS with mkcert). On the app computer
+   itself, `http://localhost` with a webcam works too.
+3. With two or more controllers, choose the **Controller** at the top of the
+   House tab: each numbers its own bulbs.
+4. Choose the elevation, tap **Calibrate with the camera**, then **Start**.
+   The lights show about 16 black-and-white frames, a second or two each
+   (for 106 bulbs; a few more for more bulbs). Each frame lights half of the
+   bulbs in a different arrangement, so together they spell out every
+   bulb's number; the camera reads them. Nothing goes anywhere: it's worked
+   out in the phone's browser.
+5. The result shows each bulb found on the photo, with a line through each
+   run. **Save as a new version** makes it a version of the elevation
+   (**Calibrated**), with the camera's own photo, a line for each run, and
+   every bulb found pinned where it was seen; bulbs it missed are spread
+   evenly between. **Show it in the whole house** makes it the ★ version.
+6. The lights go back to what they showed before (a choice made by hand
+   stays).
+
+Tips: darker is better; keep car headlights and flashlights out of view
+during the minute it runs; if many bulbs are missed, check the whole
+elevation is in the picture, or set **Wait for each frame** to **4 seconds**
+(for a slow connection to Trimlight's cloud). Two ports with the same bulb
+numbers (a mirrored run) show up in both places, as two lines. Lights of
+another controller in view, even moving ones, are ignored.
+
+This needs a controller that repeats a short pattern along its lights, as
+Trimlight controllers do with patterns shorter than the lights; if one
+doesn't, the result says so.
 
 ### Place bulbs: each bulb where it really is (4.12)
 

@@ -4390,7 +4390,7 @@ VIEWS.map = async () => {
             <div class="row small" aria-label="Versions of this elevation"><span class="muted">Versions</span>${vers.map(v => `<button class="small ${v.id === F.side ? 'current' : 'ghost'}" data-ver="${esc(v.id)}" ${v.id === useKey && vers.length > 1 ? 'title="Shown in the whole house"' : ''}>${esc(Elev.vname(md, v.id))}${v.id === useKey && vers.length > 1 ? ' \u2605' : ''}</button>`).join('')}
               <button class="small ghost" data-addver ${md.sides.length >= 80 ? 'disabled' : ''}>Add a version</button>
               ${vers.length > 1 && F.side !== useKey ? '<button class="small" data-usever>Show this version in the whole house</button>' : ''}</div>
-            <div class="row small"><button class="small ghost" data-renelev>Rename</button><button class="small ghost" data-exportelev title="A file with this elevation's photos, rooflines, bulbs and pins">Export this elevation</button>
+            <div class="row small">${role() === 'viewer' ? '' : '<button class="small" data-calib>Calibrate with camera</button>'}<button class="small ghost" data-renelev>Rename</button><button class="small ghost" data-exportelev title="A file with this elevation's photos, rooflines, bulbs and pins">Export this elevation</button>
               <label class="btn small ghost">Import an elevation<input type="file" id="elevfile" accept=".json,application/json" hidden></label>
               ${F.side !== sideNow.id ? '<button class="small ghost danger" data-delver>Delete this version</button>' : ''}
               ${!isDefault ? '<button class="small ghost danger" data-delelev>Delete this elevation</button>' : ''}</div>
@@ -4516,6 +4516,7 @@ VIEWS.map = async () => {
     if (d.editzone) return zoneDialog(+d.editzone, F, render);
     if (d.savezone !== undefined) { const nm = $('#zname').value.trim(); if (!nm) return toast('Type a zone name first.', true);
       return busy(b, () => saveMap(mp => mp.zones.push({ name: nm, start: F.bulb, end: F.end, ...(houseDev() ? { device: houseDev() } : {}) }), `Saved zone \u201c${nm}\u201d${houseDev() ? ' for ' + devName(houseDev()) : ''}`)).then(render).catch(() => {}); }
+    if (d.calib !== undefined) { if (R.tracing) return toast('Save or cancel the roofline section first.', true); return calibDialog(F, render); }
     if (d.ver) { if (R.tracing) return toast('Save or cancel the roofline section first.', true);
       F.side = d.ver; F.placing = false; R.hint = ''; S.lastVer = { ...(S.lastVer || {}), [Elev.of(md, d.ver).id]: d.ver }; return render(); }
     if (d.addside !== undefined || d.renelev !== undefined || d.addver !== undefined || d.usever !== undefined
@@ -4698,6 +4699,154 @@ function wholeDraw(box, els) {
     if (moving) requestAnimationFrame(frame); else setTimeout(() => requestAnimationFrame(frame), 250);
   };
   requestAnimationFrame(frame);
+}
+
+/* ---------------------------------------------------------------- HOUSE MAP: camera calibration (4.16)
+   The phone watches the house while the controller shows a few coded
+   frames (calib.js); every bulb it sees is placed and pinned, as a new
+   version of this elevation with the camera's own photo. */
+const CAL = { wait: 'auto' };
+async function calibDialog(F, render) {
+  const md = mapData(), el = Elev.of(md, F.side) || md.sides[0];
+  const devs = houseDevs(), dev = houseDev() || (el.device && devs.some(x => x.id === el.device) ? el.device : '') || (devs.length === 1 ? devs[0].id : '');
+  const can = !!(window.isSecureContext && navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+  const many = devs.length > 1;
+  const T = addressSpace(dev), perSlot = (S.status && S.status.slot_limit) || PER_SLOT, frames = Calib.frames(T, perSlot);
+  const f = dialog(`<h2>Calibrate the ${esc(el.name.toLowerCase())} with the camera</h2>
+    ${!can ? `<p class="callout warn small">The camera works only on a secure page: open EaveLuxOS at its <b>https://</b> address on this phone (Manual, section 8: HTTPS with mkcert), or on the app computer itself (http://localhost) with a webcam.</p>`
+      : many && !dev ? '<p class="callout warn small">Choose a <b>Controller</b> at the top of the House tab first: each controller numbers its own bulbs.</p>' : ''}
+    <ol class="small" style="margin:0 0 8px;padding-left:1.2em"><li>At night, stand where you can see the whole ${esc(el.name.toLowerCase())}, and prop the phone up (a tripod, a car roof, a fence post): it must not move for about a minute.</li>
+      <li>Tap <b>Start</b>. ${many ? `<b>${esc(devName(dev))}</b> shows` : 'The lights show'} ${frames.length} black-and-white frames (${T} bulbs), a second or two each; the camera reads every bulb\u2019s number from them.</li>
+      <li>Check the result, then <b>Save</b>: it becomes a new version of this elevation, with this photo and every bulb found pinned.</li></ol>
+    <div class="calview"><video data-cv playsinline muted autoplay></video><canvas data-cc hidden></canvas></div>
+    <div class="row small"><label class="row small">Wait for each frame <select data-cw style="width:auto">${[['auto', 'until the lights change'], ['2', '2 seconds'], ['4', '4 seconds']].map(([v, l]) => `<option value="${v}" ${CAL.wait === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label></div>
+    <p class="small" data-cs role="status">${can && (dev || !many) ? 'Point the camera at the house.' : ''}</p>
+    <div class="row"><button type="button" class="primary" data-cstart ${can && (dev || !many) ? '' : 'disabled'}>Start</button>
+      <button type="button" class="primary" data-csave hidden>Save as a new version</button><button type="button" class="ghost" data-cagain hidden>Try again</button></div>
+    <label class="check small" data-cuse hidden><input type="checkbox" data-cusebox checked> Show it in the whole house (\u2605)</label>`, null);
+  const dlg = $('#dlg'), video = $('[data-cv]', f), status = $('[data-cs]', f), canvas = $('[data-cc]', f);
+  let stream = null, lock = null, running = false, result = null, stop = false;
+  const say = t => { status.textContent = t; };
+  const cleanup = () => { stop = true; if (stream) stream.getTracks().forEach(t => t.stop()); if (lock) lock.release().catch(() => {}); };
+  dlg.addEventListener('close', () => { cleanup(); if (running || result) calibRestore(dev); }, { once: true });
+  if (can && (dev || !many)) {
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false });
+      video.srcObject = stream; await video.play().catch(() => {});
+    } catch (e) { say(e.name === 'NotAllowedError' ? 'The camera wasn\u2019t allowed. Allow it for this page in the browser, then try again.' : `The camera couldn\u2019t start: ${e.message}`); $('[data-cstart]', f).disabled = true; }
+  }
+  f.addEventListener('change', e => { if (e.target.dataset.cw !== undefined) CAL.wait = e.target.value; });
+  f.addEventListener('click', async e => {
+    const b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.cstart !== undefined || b.dataset.cagain !== undefined) {
+      if (running) return;
+      running = true; result = null;
+      ['cstart', 'csave', 'cagain'].forEach(k => { $(`[data-${k}]`, f).hidden = k !== 'cstart'; });
+      $('[data-cstart]', f).disabled = true; $('[data-cuse]', f).hidden = true;
+      video.hidden = false; canvas.hidden = true;
+      try { lock = navigator.wakeLock ? await navigator.wakeLock.request('screen') : null; } catch { lock = null; }
+      try {
+        result = await calibCapture(video, frames, dev, T, say, () => stop);
+        if (stop) return;
+        calibShow(canvas, video, result);
+        const found = new Set(result.bulbs.map(x => x.bulb)).size;
+        say(found ? `Found ${found} of ${T} bulbs${result.sections.sections.length ? `, in ${result.sections.sections.length} line${result.sections.sections.length === 1 ? '' : 's'}` : ''}${result.sections.cut ? ` (${result.sections.cut} more line${result.sections.cut === 1 ? '' : 's'} didn\u2019t fit: an elevation holds 40)` : ''}. ${found < T * 0.5 ? (result.repeats ? 'Many weren\u2019t seen: check the whole elevation is in view and the phone didn\u2019t move, or wait longer for each frame.' : 'The controller may not repeat a short pattern along its lights; this way of finding bulbs needs that.') : 'Bulbs not seen are spread out between the ones found.'}`
+          : 'No bulbs were found. Check the lights are in view and it\u2019s dark, and that the phone stays still; or wait longer for each frame.');
+        $('[data-csave]', f).hidden = !result.sections.sections.length; $('[data-cagain]', f).hidden = false; $('[data-cuse]', f).hidden = !result.sections.sections.length;
+      } catch (err) { say(err.message); $('[data-cagain]', f).hidden = false; }
+      finally { running = false; $('[data-cstart]', f).hidden = true; calibRestore(dev); }
+    }
+    if (b.dataset.csave !== undefined && result) {
+      busy(b, async () => {
+        const md2 = mapData(), el2 = Elev.of(md2, F.side) || el;
+        const key = Elev.newId(md2, `${el2.id}-calibrated`);
+        const blob = await new Promise(r => result.photo.toBlob(r, 'image/jpeg', 0.9));
+        await uploadPhoto(key, new File([blob], key + '.jpg', { type: 'image/jpeg' }));
+        S.photos.add(key); S.photoV = Date.now();
+        const vn = (() => { const names = Elev.versions(md2, el2.id).map(v => Elev.vname(md2, v.id).toLowerCase()); for (let i = 1; ; i++) { const n = i === 1 ? 'Calibrated' : `Calibrated ${i}`; if (!names.includes(n.toLowerCase())) return n; } })();
+        const use = $('[data-cusebox]', f).checked;
+        await saveMap(mp => {
+          mp.sides.push({ id: key, name: vn, of: el2.id });
+          mp.rooflines[key] = result.sections.sections;
+          const e2 = mp.sides.find(x => x.id === el2.id);
+          if (use) e2.use = key;
+          if (dev && many && e2.device !== dev) e2.device = dev;            // these are that controller's bulb numbers
+        }, `Saved \u201c${vn}\u201d`);
+        F.side = key; S.lastVer = { ...(S.lastVer || {}), [el2.id]: key };
+        result = null; dlg.close(); render();
+      }).catch(() => {});
+    }
+  });
+}
+/* Show each frame, wait for the lights to change, and capture it (three
+   pictures averaged). Returns the decoded bulbs, the lines, and the photo. */
+async function calibCapture(video, frames, dev, T, say, stopped) {
+  if (!video.videoWidth) await new Promise(r => { video.onloadedmetadata = r; setTimeout(r, 4000); });
+  const vw = video.videoWidth, vh = video.videoHeight;
+  if (!vw) throw new Error('The camera isn\u2019t sending a picture.');
+  const k = Math.min(1, 960 / vw), w = Math.round(vw * k), h = Math.round(vh * k);
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const ctx = c.getContext('2d', { willReadFrequently: true });
+  const grab = () => { ctx.drawImage(video, 0, 0, w, h); return Calib.gray(ctx.getImageData(0, 0, w, h).data); };
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const avg = async () => { const a = grab(); await sleep(70); const b = grab(); await sleep(70); const d = grab();
+    const o = new Uint8Array(a.length); for (let i = 0; i < a.length; i++) o[i] = (a[i] + b[i] + d[i]) / 3; return o; };
+  const changed = (a, b) => { let n = 0; for (let i = 0; i < a.length; i++) if (Math.abs(a[i] - b[i]) > 24) n++; return n; };
+  const shots = { bits: [] };
+  let photo = null, prev = grab();
+  for (let i = 0; i < frames.length; i++) {
+    if (stopped()) throw new Error('Stopped.');
+    const fr = frames[i];
+    say(`Frame ${i + 1} of ${frames.length}\u2026 keep the phone still.`);
+    await api('action', { body: { action: 'try', effect: fr.effect, minutes: 10, ...(dev ? { device: dev } : {}) } });
+    if (CAL.wait !== 'auto') await sleep(+CAL.wait * 1000);
+    else {
+      // Until the picture has changed and then held still (the lights took the frame), at most 6 s
+      const end = performance.now() + 6000, small = Math.max(4, w * h * 0.0002);
+      await sleep(i ? 400 : 1500);
+      let last = grab(), moved = !i || changed(prev, last) > small, calm = 0;
+      while (performance.now() < end && calm < 2) {
+        await sleep(180);
+        const g = grab(), d = changed(last, g);
+        if (changed(prev, g) > small) moved = true;
+        calm = moved && d <= small ? calm + 1 : 0;
+        last = g;
+      }
+    }
+    const shot = await avg();
+    prev = shot;
+    if (fr.kind === 'dark') shots.dark = shot;
+    else if (fr.kind === 'full') {
+      shots.full = shot;
+      const pc = document.createElement('canvas'); pc.width = vw; pc.height = vh;   // the photo, in color at the camera's size
+      pc.getContext('2d').drawImage(video, 0, 0, vw, vh); photo = pc;
+    } else (shots.bits[fr.bit] = shots.bits[fr.bit] || [])[fr.kind === 'bit' ? 0 : 1] = shot;
+  }
+  say('Reading the bulbs\u2026');
+  await sleep(20);
+  const r = Calib.decode(shots, w, h, T);
+  return { ...r, sections: Calib.toSections(r.bulbs, h / w), photo, w, h };
+}
+/* The photo with every bulb found: a dot and, every few, its number. */
+function calibShow(canvas, video, r) {
+  canvas.width = r.photo.width; canvas.height = r.photo.height;
+  const ctx = canvas.getContext('2d'), W = canvas.width, H = canvas.height;
+  ctx.drawImage(r.photo, 0, 0); ctx.fillStyle = 'rgba(5,7,18,.45)'; ctx.fillRect(0, 0, W, H);
+  ctx.font = `${Math.round(W / 70)}px system-ui, sans-serif`;
+  for (const s of r.sections.sections) {
+    ctx.strokeStyle = '#62D682'; ctx.lineWidth = Math.max(1, W / 600); ctx.beginPath();
+    s.points.forEach(([x, y], i) => (i ? ctx.lineTo : ctx.moveTo).call(ctx, x / 100 * W, y / 100 * H)); ctx.stroke();
+  }
+  r.bulbs.forEach((b, i) => {
+    const x = b.x / 100 * W, y = b.y / 100 * H;
+    ctx.fillStyle = '#FFC062'; ctx.beginPath(); ctx.arc(x, y, Math.max(2, W / 300), 0, 7); ctx.fill();
+    if (b.bulb % 10 === 0 || b.bulb === 1) { ctx.fillStyle = '#FFE2B0'; ctx.fillText(String(b.bulb), x + 4, y - 4); }
+  });
+  video.hidden = true; canvas.hidden = false;
+}
+function calibRestore(dev) {
+  // Review #1 (4.16): back to what showed before (a choice made by hand stays), not simply the schedule
+  api('action', { body: { action: 'end_preview', ...(dev ? { device: dev } : {}) } }).catch(() => {});
 }
 
 /* ---------------------------------------------------------------- HOUSE MAP: elevations (4.12)
