@@ -150,6 +150,53 @@ class Review(unittest.TestCase):
         from tests import reprorun
         reprorun.run(self, "repro_update_borrows_files.py", 60)
 
+    def test_2_a_restart_doesnt_resend_a_pattern_sent_over_the_home_network(self):
+        from tests import reprorun
+        reprorun.run(self, "repro_restart_resends.py", 120)
+
+
+class RestartKeepsTheWay(ServerBase):
+    def test_odd_saved_values_are_left_out(self):
+        from eaveluxos.controller import Controller
+        c = self.app.ctrl
+        c.next_try = 0
+        c.tick()
+        c._save_state()
+        st = json.loads(Path(c.state_path).read_text(encoding="utf-8"))
+        st["lan_sent"] = {"A": ["pattern", "nonsense"], "B": "switch", "C": []}
+        st["lan_state"] = {"A": 1, "B": 7}
+        Path(c.state_path).write_text(json.dumps(st), encoding="utf-8")
+        n = Controller(c.cfg, c.api, data_dir=self.app.store.dir)
+        self.assertEqual(n.lan_sent, {"A": {"pattern"}})
+        self.assertEqual(n.lan_state, {"A": 1})
+
+    def test_an_old_saved_state_keeps_nothing(self):
+        import time
+        from eaveluxos.controller import Controller
+        c = self.app.ctrl
+        c.lan_sent, c.lan_state = {"A": {"pattern"}}, {"A": 1}
+        c._save_state()
+        st = json.loads(Path(c.state_path).read_text(encoding="utf-8"))
+        st["saved_at"] = time.time() - 7200
+        Path(c.state_path).write_text(json.dumps(st), encoding="utf-8")
+        n = Controller(c.cfg, c.api, data_dir=self.app.store.dir)
+        self.assertEqual((n.lan_sent, n.lan_state), ({}, {}), "it sends again, so it learns the way again")
+
+
+
+class FindAndMatchOne(ServerBase):
+    """4.16.4 (Chris, Nov 20): Find and match offered "Use for Trimlight" for
+    the address already saved, because it was saved the original way (one
+    address for all)."""
+
+    def test_the_address_already_saved_says_so(self):
+        from eaveluxos import lanlink
+        with mock.patch.object(lanlink, "find", lambda *a, **k: ["127.0.0.1"]):
+            r = self.app.local_discover()
+        f = r["found"][0]
+        self.assertEqual(len(self.app._account()), 1)
+        self.assertEqual(f["saved_for"], self.app._account()[0]["id"])
+
 
 if __name__ == "__main__":
     unittest.main()

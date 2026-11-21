@@ -3421,7 +3421,7 @@ async function localPanel(box, fresh = false) {
         const matches = r.found.filter(f => f.match && f.saved_for !== f.match);
         out.innerHTML = (r.found.length ? `<div class="list">${r.found.map(f => `<div class="item"><div class="grow"><b class="num">${esc(f.address)}</b>
             <span class="small muted">${f.how === 'answered' ? 'answered the search' : 'its controller port is open'}</span>
-            <div class="small">${f.error ? `<span class="warn">${esc(f.error)}</span>` : `Ports ${f.ports.filter(p => p.start || p.end).map(p => `${p.port}: ${p.start}\u2013${p.end}`).join(' \u00b7 ')}. ${f.count} pattern${f.count === 1 ? '' : 's'}${f.patterns.length ? ': ' + esc(f.patterns.join(', ')) : ''}.`}</div>
+            <div class="small">${f.error ? `<span class="warn">${esc(f.error)}</span>` : `Ports ${f.ports.filter(p => p.start || p.end).map(p => `${p.port}: ${p.start}\u2013${p.end}`).join(' \u00b7 ')}. ${f.count} pattern${f.count === 1 ? '' : 's'}${f.patterns.length ? ': ' + esc(f.patterns.join(', ')) + (f.count > f.patterns.length ? ` and ${f.count - f.patterns.length} more` : '') : ''}.`}</div>
             <div class="small">${f.saved_for ? `Saved as <b>${esc(name(f.saved_for))}</b>\u2019s address.${f.match && f.match !== f.saved_for ? ` <span class="warn">Its ports match ${esc(name(f.match))} instead.</span>` : ''}`
               : f.match ? `This is <b>${esc(name(f.match))}</b> (its ports match).` : esc(f.note || 'Not matched to a controller on your account.')}</div></div>
             ${f.match && f.saved_for !== f.match ? `<button class="small" data-lcmatch="${esc(f.address)}" data-dev="${esc(f.match)}">Use for ${esc(name(f.match))}</button>` : ''}</div>`).join('')}</div>`

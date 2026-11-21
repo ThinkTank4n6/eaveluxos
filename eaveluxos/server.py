@@ -1395,7 +1395,12 @@ class App:
                                   if (p.get("start"), p.get("end")) != (0, 0)}
             except Exception:
                 cloud[d["id"]] = None
-        saved = {v: k for k, v in ((self.store.settings.get("lan") or {}).get("devices") or {}).items() if v}
+        lan = self.store.settings.get("lan") or {}
+        saved = {v: k for k, v in (lan.get("devices") or {}).items() if v}
+        # 4.16.4: one controller, its address saved the original way (one
+        # address for all): that's saved too, not offered again as "Use for"
+        if len(acct) == 1 and lan.get("address") and lan["address"] not in saved and acct[0]["id"] not in saved.values():
+            saved[lan["address"]] = acct[0]["id"]
         out = []
         for a in found[:16]:
             row = {"address": a, "how": how[a], "saved_for": saved.get(a), "match": None}

@@ -1,5 +1,23 @@
 # Changelog
 
+## 4.16.4: no false "changed outside this app" at every start; Find and match
+
+- **Fixed: every start of the app resent the pattern** and logged
+  "Trimlight's pattern was changed outside this app (power blip or the
+  Trimlight app)" when it hadn't been (seen in Chris's log, Nov 20). The
+  pattern had gone over the home network, which Trimlight's cloud doesn't
+  hear about; after a restart the app (since 4.15) forgot that, compared the
+  pattern with the cloud's, and sent it again. It now keeps which way each
+  command went with the rest of what was sent
+  (tests/repro_restart_resends.py).
+- **Find and match** (Setup › Local mode) with one controller whose
+  address was saved the original way (one address for all) offered "Use for
+  Trimlight" for the address already in use; it now says it's saved. A
+  controller with more patterns than are listed says "and 13 more".
+- Manual: where the HTTPS certificate goes on Windows
+  (`%LOCALAPPDATA%\EaveLuxOS\tls`), and which mkcert file stays on the
+  computer.
+
 ## 4.16.3: installing an update from the app on Windows works
 
 - **Fixed: Install from Setup › App left EaveLuxOS without its page**

@@ -204,6 +204,10 @@ class Controller:
                 if fl and fl.get("eff") is None else None,             # the security flash (its pattern is in the settings)
                 "applied_key": self.applied_key, "applied_parts": self.applied_parts, "known_on": self.known_on,
                 "sent_effect": self.sent_effect, "last_on": self.last_on,
+                # Review #2 (4.16.3): which way each went, so the check after a
+                # restart looks where it was sent (the cloud doesn't hear about
+                # the home network)
+                "lan_sent": {d: sorted(w) for d, w in self.lan_sent.items()}, "lan_state": dict(self.lan_state),
             }
         try:
             text = json.dumps(data, sort_keys=True, default=str)
@@ -282,6 +286,10 @@ class Controller:
                 self.applied_parts = d.get("applied_parts") or {}
                 self.known_on = bool(d.get("known_on"))
                 self.sent_effect = d.get("sent_effect") or {}
+                self.lan_sent = {str(k): {w for w in v if w in ("switch", "pattern")}
+                                 for k, v in (d.get("lan_sent") or {}).items() if isinstance(v, list)}
+                self.lan_sent = {k: v for k, v in self.lan_sent.items() if v}
+                self.lan_state = {str(k): v for k, v in (d.get("lan_state") or {}).items() if v in (0, 1)}
                 self.mismatches = 1
                 self.pattern_mismatches = 1
                 self.last_verify = 0.0
