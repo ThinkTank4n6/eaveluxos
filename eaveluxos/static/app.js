@@ -2071,7 +2071,7 @@ function moodPanel(box) {
       ${MOOD.on ? '<button class="small danger" data-moodstop>Stop</button>' : `<button class="small primary" data-moodgo ${!ready || ro || !moodAvailable() || LINK.on ? 'disabled' : ''}>Start listening</button>`}</div>
     <p class="note">The app computer's microphone listens to the music and switches between three of your patterns as it gets calmer or livelier, every 10 seconds or so. It follows the <b>mood</b>, not the beat: Trimlight's cloud is far too slow for the beat (that's what the controller's own music mode is for).</p>
     <div class="cols" style="gap:10px">${MOOD_LEVELS_UI.map(([lv, l]) => `<label class="field">${l}${sel(lv)}</label>`).join('')}</div>
-    ${!moodAvailable() ? `<p class="callout small">A browser only lets a page use the microphone on the computer itself. Open EaveLuxOS on the app computer (<b>http://localhost:${location.port || 8787}</b>) and start it there, with the music playing near that computer.</p>` : ''}
+    ${!moodAvailable() ? `<p class="callout small">A browser only lets a page use the microphone on the computer itself. Open EaveLuxOS on the app computer (<b>${location.protocol}//localhost:${location.port || 8787}</b>) and start it there, with the music playing near that computer.</p>` : ''}
     ${MOOD.on ? `<div class="meter"><i id="moodmeter"></i></div><p class="small">${MOOD.level ? `Hearing <b>${MOOD.level}</b> music${MOOD.pattern ? (MOOD.waiting ? ' (' : ': ') + esc(MOOD.pattern) + (MOOD.waiting ? ')' : '') : ''}.` : 'Listening… the first change comes in about 10 seconds.'} Keep this page open (a background tab is fine). After 30 seconds of quiet, or when this page closes, the lights go back to the schedule. A weather alert or a pattern you choose by hand comes first.</p>` : ''}
     ${MOOD.err ? `<p class="callout warn small">${esc(MOOD.err)}</p>` : ''}`;
   box.onchange = e => {
@@ -2998,7 +2998,7 @@ async function linkPanel(box, fresh = true) {
           ${LINK.audio ? '<button class="small ghost" data-lkpause>Pause / play</button><button class="small ghost" data-lknext>Next file</button>' : ''}</div></div>` : ''}
     ${LINK.on && !zones ? `<div class="bars" id="linkbars" aria-hidden="true">${Array.from({ length: 16 }, () => '<i></i>').join('')}</div>
       <p class="small">Sending to <b>${esc(st.host || st.address)}</b>. Keep this page open (a background tab is fine). Stop here, or choose a pattern, and the schedule comes back; if this page closes or goes quiet for 20 seconds, the show ends by itself.</p>` : ''}
-    ${!moodAvailable() ? `<p class="callout small">A browser only lets a page listen on the computer itself. Open EaveLuxOS on the app computer (<b>http://localhost:${location.port || 8787}</b>) and start it there.</p>` : ''}
+    ${!moodAvailable() ? `<p class="callout small">A browser only lets a page listen on the computer itself. Open EaveLuxOS on the app computer (<b>${location.protocol}//localhost:${location.port || 8787}</b>) and start it there.</p>` : ''}
     ${MOOD.on ? '<p class="callout small">Mood follow is listening. Stop it first: both can\u2019t run the lights at once.</p>' : ''}
     ${st.show && !LINK.on ? '<p class="callout small">A music show is already on. Stop it above first.</p>' : ''}
     ${LINK.err || st.error ? `<p class="callout warn small">${esc(LINK.err || st.error)}</p>` : ''}

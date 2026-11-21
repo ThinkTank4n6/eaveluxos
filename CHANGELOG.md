@@ -1,5 +1,25 @@
 # Changelog
 
+## 4.16.5: http:// goes on to https://
+
+- **Fixed: "localhost didn't send any data"** after turning on HTTPS
+  (Chris, Nov 20, after the in-app update to 4.16.4, which itself worked).
+  Starting EaveLuxOS while it was already running opened
+  `http://localhost:8787`, and a plain http:// request to the HTTPS port got
+  no answer at all. The app now opens its https:// address when HTTPS is
+  on, and any plain http:// request (an old bookmark, a typed address) is
+  sent on to the same address on https:// (a temporary redirect, so turning
+  HTTPS off later doesn't leave browsers stuck). Only the address and path
+  are carried over; an odd host name goes to localhost
+  (tests/repro_http_to_https.py).
+- **Quit is in the log** ("Quit from this computer's page: the schedule
+  stops until EaveLuxOS starts again"). Before, a quit left the log quiet,
+  which looked like a crash (Nov 20, 10:25 PM: the lights then stayed on
+  past their 11:00 PM off time until the app was started again at 11:14,
+  when it turned them off at once).
+- Music and Mood follow name this computer's address with the page's own
+  http:// or https://.
+
 ## 4.16.4: no false "changed outside this app" at every start; Find and match; Who wins tonight
 
 - **Fixed: every start of the app resent the pattern** and logged

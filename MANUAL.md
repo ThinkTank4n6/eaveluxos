@@ -1,7 +1,7 @@
 # EaveLuxOS: User Manual
 ### The Intelligent Lighting Control Platform
 
-Version 4.16.4 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
+Version 4.16.5 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
 
 > **Downloaded the ready-made app? You can skip most of the setup.**
 > The downloads on the project's GitHub **Releases** page
@@ -426,7 +426,9 @@ from a version before 2.3.2, each phone signs in once more.
 > `%LOCALAPPDATA%\EaveLuxOS\tls`; elsewhere `data/tls`) and restart the app.
 > Include this computer's address (the one the app shows for your phone) and
 > `localhost`. Keep `rootCA-key.pem` (in the folder `mkcert -CAROOT` names)
-> on this computer only; only `rootCA.pem` goes to the phones. The
+> on this computer only; only `rootCA.pem` goes to the phones.
+> With HTTPS on, an old `http://` address or bookmark forwards to `https://`
+> by itself (4.16.5). The
 > address then starts with `https://`. Phones trust it after you install
 > mkcert's root certificate on them, as mkcert's instructions describe.
 

@@ -3717,6 +3717,9 @@ def make_server(app: App, host: str, port: int):
                 # here made it a local name in all of _post, which broke
                 # Settings > Start automatically.)
                 at_login = autostart.status(app.base)["enabled"]
+                # 4.16.5: say so in the log (a quiet log otherwise looked like a crash)
+                log.info("Quit from this computer's page: the schedule stops until EaveLuxOS starts again%s.",
+                         " (it starts by itself at the next sign-in)" if at_login else "")
 
                 def quit_now():
                     # Run as a login service, a plain exit is restarted at once;
@@ -3845,7 +3848,10 @@ def make_server(app: App, host: str, port: int):
         except (ssl.SSLError, OSError) as e:
             srv.server_close()
             raise OSError(f"The HTTPS certificate in {cert.parent} couldn't be loaded ({e}). Fix or remove it.") from None
-        srv.socket = ctx.wrap_socket(srv.socket, server_side=True, do_handshake_on_connect=False)
+        # 4.16.5: each connection is looked at before the handshake: a plain
+        # http:// request (an old bookmark, a typed address) is sent on to
+        # https:// instead of "didn't send any data"
+        srv.tls_ctx = ctx
         app.scheme = "https"
     return srv
 
@@ -3868,6 +3874,66 @@ class _Server(ThreadingHTTPServer):
             return  # a browser refusing a certificate, or a dropped connection
         super().handle_error(request, client_address)
 
+    tls_ctx = None             # set by make_server when HTTPS is on
+
     def finish_request(self, request, client_address):
         request.settimeout(30)  # covers the TLS handshake as well as slow clients
-        super().finish_request(request, client_address)
+        if self.tls_ctx is None:
+            return super().finish_request(request, client_address)
+        try:
+            first = request.recv(1, socket.MSG_PEEK)
+        except OSError:
+            return
+        if not first:
+            return
+        if first[0] != 0x16:                 # not a TLS handshake: plain HTTP
+            return _to_https(request, self.server_address[1])
+        tls = self.tls_ctx.wrap_socket(request, server_side=True)   # the handshake, in this request's thread
+        try:
+            super().finish_request(tls, client_address)
+        finally:
+            try:
+                tls.close()
+            except OSError:
+                pass
+
+
+_HOST_OK = re.compile(r"^(\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9.-]{1,253})(:\d{1,5})?$")
+
+
+def _to_https(sock, port: int):
+    """4.16.5: answer a plain http:// request on the HTTPS port with a
+    temporary redirect to the same address on https:// (temporary, so
+    turning HTTPS off later doesn't leave browsers stuck on it)."""
+    data = b""
+    try:
+        sock.settimeout(5)
+        while b"\r\n\r\n" not in data and len(data) < 8192:
+            chunk = sock.recv(2048)
+            if not chunk:
+                break
+            data += chunk
+    except OSError:
+        pass
+    head = data.split(b"\r\n\r\n", 1)[0].decode("latin-1", "replace").split("\r\n")
+    parts = head[0].split(" ") if head and head[0] else []
+    path = parts[1] if len(parts) >= 3 and parts[1].startswith("/") and not parts[1].startswith("//") else "/"
+    if any(c in path for c in "\r\n\\") or len(path) > 2048:
+        path = "/"
+    host = "localhost"
+    for line in head[1:]:
+        k, _, v = line.partition(":")
+        if k.strip().lower() == "host" and _HOST_OK.match(v.strip()):
+            host = v.strip()
+            break
+    name = host.rsplit(":", 1)[0] if not host.endswith("]") and host.count(":") == 1 else host
+    if host.startswith("[") and "]:" in host:
+        name = host.rsplit(":", 1)[0]
+    where = f"https://{name}:{port}{path}"
+    body = b"This address uses https://. Opening " + where.encode() + b"\n"
+    try:
+        sock.sendall(b"HTTP/1.1 307 Temporary Redirect\r\nLocation: " + where.encode()
+                     + b"\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: " + str(len(body)).encode()
+                     + b"\r\nConnection: close\r\n\r\n" + body)
+    except OSError:
+        pass

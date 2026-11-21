@@ -185,9 +185,10 @@ class QuickApiTests(unittest.TestCase):
         timer.assert_not_called()
 
     def test_quit_stops_the_service_then_exits(self):
-        with mock.patch("eaveluxos.server.threading.Timer") as timer:
+        with mock.patch("eaveluxos.server.threading.Timer") as timer, self.assertLogs("eaveluxos", "INFO") as logs:
             st, r = self.call("/api/quit", {})
         self.assertEqual(st, 200)
+        self.assertTrue(any("Quit from this computer" in m for m in logs.output), "4.16.5: a quit is in the log")
         self.assertIn("starts_at_login", r)
         quit_now = timer.call_args[0][1]
         order = []

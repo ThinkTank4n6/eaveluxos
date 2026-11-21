@@ -90,6 +90,18 @@ def holder_is_app(port: int, wait: float = 15.0) -> bool:
         time.sleep(1)
 
 
+def local_url(port: int) -> str:
+    """4.16.5: this computer's address for the app, https:// when HTTPS is
+    on (a certificate in the data folder's tls folder). Opening http:// to
+    an HTTPS app showed "didn't send any data"."""
+    try:
+        tls = data_dir() / "tls"
+        https = (tls / "cert.pem").is_file() and (tls / "key.pem").is_file()
+    except OSError:
+        https = False
+    return f"{'https' if https else 'http'}://localhost:{port}/"
+
+
 def configured_port() -> tuple[str, int]:
     from eaveluxos.store import has_install, previous_data_dir, read_service_settings
     try:
@@ -115,7 +127,7 @@ def cmd_run(open_browser: bool):
     # Check for a running copy BEFORE starting anything: a second scheduler
     # would send its own commands to the lights.
     host, port = configured_port()
-    url = f"http://localhost:{port}/"
+    url = local_url(port)
     if already_running(port):
         print(f"EaveLuxOS is already running. Opening {url}")
         if open_browser:
@@ -131,7 +143,7 @@ def cmd_run(open_browser: bool):
         if candidate != port and already_running(candidate):
             print(f"EaveLuxOS is already running on port {candidate}.")
             if open_browser:
-                webbrowser.open(f"http://localhost:{candidate}/")
+                webbrowser.open(local_url(candidate))
             return 0
         try:
             server = make_server(app, host, candidate)
@@ -150,7 +162,7 @@ def cmd_run(open_browser: bool):
                      "Choose another with: python3 main.py port NUMBER")
     if server.server_address[1] != port:
         port = server.server_address[1]
-        url = f"http://localhost:{port}/"
+        url = local_url(port)
         log.warning("Port %s is used by another program, so EaveLuxOS moved to port %s "
                     "(saved for next time; change it under Settings).", tried[0], port)
         settings = dict(app.store.settings)
