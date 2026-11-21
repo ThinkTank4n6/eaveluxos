@@ -35,6 +35,7 @@ class WhoWins(TwoBase):
                       {"name": "Party", "on": "19:00", "off": "22:00", "effect": "christmas"},
                       {"name": "Deck late", "on": "21:00", "off": "23:30", "effect": "christmas", "priority": 150, "controllers": [DECK]}]
         s["weather_rules"] = [{"name": "Snowing", "when": ["snow"], "effect": "snowfall", "priority": 150}]
+        s.setdefault("weather", {})["enabled"] = True      # 4.16.4: counted only while weather is on
         self.app.save_settings(s)
         self.app.ctrl.devices = [{"deviceId": DECK, "name": "Deck"}, {"deviceId": FRONT, "name": "Front"}]
         r = self.app.conflicts("2026-11-20")

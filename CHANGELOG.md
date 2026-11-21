@@ -1,6 +1,6 @@
 # Changelog
 
-## 4.16.4: no false "changed outside this app" at every start; Find and match
+## 4.16.4: no false "changed outside this app" at every start; Find and match; Who wins tonight
 
 - **Fixed: every start of the app resent the pattern** and logged
   "Trimlight's pattern was changed outside this app (power blip or the
@@ -14,6 +14,8 @@
   address was saved the original way (one address for all) offered "Use for
   Trimlight" for the address already in use; it now says it's saved. A
   controller with more patterns than are listed says "and 13 more".
+- **Who wins tonight** (Schedule) no longer warns that weather rules could
+  take over while weather is turned off (Alerts › Weather).
 - Manual: where the HTTPS certificate goes on Windows
   (`%LOCALAPPDATA%\EaveLuxOS\tls`), and which mkcert file stays on the
   computer.

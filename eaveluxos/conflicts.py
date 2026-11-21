@@ -65,7 +65,8 @@ def night(cfg, devices: list, d: date, names: dict | None = None) -> dict:
                                      f"{win.rule.priority} and overlap; “{win.rule.name}” shows because it’s listed first. "
                                      f"Give the one you want a higher priority."})
             weather = []
-            if win is not None:
+            # 4.16.4: weather rules only count while weather is turned on (Alerts › Weather)
+            if win is not None and (getattr(cfg, "weather", None) or {}).get("enabled"):
                 for wr in sorted(cfg.weather_rules, key=lambda r: (-r.priority, r.order)):
                     if wr.priority > win.rule.priority:
                         weather.append({"name": wr.name, "priority": wr.priority, "when": sorted(wr.tags),

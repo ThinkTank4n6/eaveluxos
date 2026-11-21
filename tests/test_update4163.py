@@ -198,5 +198,26 @@ class FindAndMatchOne(ServerBase):
         self.assertEqual(f["saved_for"], self.app._account()[0]["id"])
 
 
+class WhoWinsWeatherOff(ServerBase):
+    """4.16.4 (Chris, Nov 20): Who wins tonight warned that weather rules
+    could take over while weather was turned off."""
+
+    def night(self, weather_on):
+        import copy
+        s = copy.deepcopy(self.app.store.settings)
+        s["rules"] = [{"name": "Every night", "on": "17:00", "off": "23:00", "effect": "warm_white"}]
+        s["weather_rules"] = [{"name": "Snowing", "when": ["snow"], "effect": "snowfall", "priority": 150}]
+        s.setdefault("weather", {})["enabled"] = weather_on
+        self.app.save_settings(s)
+        return self.app.conflicts("2026-11-20")
+
+    def test_no_weather_warning_while_weather_is_off(self):
+        on = self.night(True)
+        self.assertTrue(any(x["weather"] for sp in on["devices"].values() for x in sp))
+        self.assertTrue(any(w["level"] == "weather" for w in on["warnings"]))
+        off = self.night(False)
+        self.assertFalse(any(x["weather"] for sp in off["devices"].values() for x in sp))
+        self.assertFalse(any(w["level"] == "weather" for w in off["warnings"]))
+
 if __name__ == "__main__":
     unittest.main()
