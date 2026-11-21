@@ -103,6 +103,15 @@ def configured_port() -> tuple[str, int]:
 
 
 def cmd_run(open_browser: bool):
+    # 4.16.3: an update started by 4.15.0-4.16.2 runs this copy on the older
+    # copy's unpacked files, which vanish when that copy closes: start again
+    # on its own (autostart.borrowed_files)
+    if FROZEN:
+        from eaveluxos import autostart
+        from eaveluxos.version import VERSION
+        if autostart.borrowed_files(getattr(sys, "_MEIPASS", None), VERSION):
+            autostart.restart_on_own_files(HERE)
+            return 0
     # Check for a running copy BEFORE starting anything: a second scheduler
     # would send its own commands to the lights.
     host, port = configured_port()

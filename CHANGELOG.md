@@ -1,5 +1,31 @@
 # Changelog
 
+## 4.16.3: installing an update from the app on Windows works
+
+- **Fixed: Install from Setup › App left EaveLuxOS without its page**
+  (Windows; the Linux .tar.gz could do the same). The download is one file
+  that unpacks itself into a temporary folder each time it starts, and
+  tells the copy it runs where that is through the environment. The updater
+  started the new version with that environment, so the new version used
+  the old copy's folder instead of unpacking its own; when the old copy
+  closed, it deleted the folder ("Failed to remove temp directory"), and the
+  new version was left answering `{"error": "not found"}`. Starting
+  EaveLuxOS again then only opened the broken copy. The new version is now
+  started as a program of its own (tests/repro_update_borrows_files.py).
+  The same went for moving the app to another port (Setup › App), since
+  4.8.
+- **The updater now checks the page, not just the answer:** a new version
+  counts as started only when its page and script load too; otherwise the
+  previous version goes back, as for one that doesn't start.
+- **Updates started by 4.15.0 to 4.16.2:** each build now carries a note of
+  its own version (bundle-version.txt). A copy that finds itself running
+  on another version's unpacked files starts itself again, once, on its
+  own, and stays until the older copy has handed over. Installing 4.16.3
+  by hand is still the safest way from those versions.
+- **Fixed: an install closed by hand partway through** stayed "in progress" forever and its download (about 100 MB) was never tidied up; after a few minutes it now counts as interrupted, Setup › App says so, and the download goes.
+- The manual says how to recover if an earlier update left the app with no
+  page.
+
 ## 4.16.2: two more timing tests for GitHub's Mac
 
 No change to the app itself. GitHub's Mac was slower still on 4.16.1's run,

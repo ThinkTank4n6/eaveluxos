@@ -10,9 +10,62 @@ import platform
 from xml.sax.saxutils import escape
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 NAME = "eaveluxos"
+
+
+def child_env(environ=None) -> dict:
+    """The environment for starting this app again as its own program (an
+    update, a move to another port).
+
+    4.16.3: the Windows and Linux downloads are one file that unpacks itself
+    into a temporary folder each time it starts, and tells the copy it runs
+    where that folder is through the environment. A copy started from inside
+    a running one inherited that and used the running copy's folder instead
+    of unpacking its own; when the running copy closed, it deleted the folder,
+    and the new copy was left without its web pages ({"error": "not found"}).
+    PYINSTALLER_RESET_ENVIRONMENT tells the new copy it's a program of its own."""
+    env = {k: v for k, v in (os.environ if environ is None else environ).items()
+           if not k.upper().startswith(("_PYI_", "_MEIPASS"))}
+    env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
+    return env
+
+
+RELAUNCHED = "EAVELUXOS_RELAUNCHED"
+HANDOVER_WAIT = 150.0      # longer than an older copy's update check (90 + 20 s)
+
+
+def borrowed_files(meipass, version: str, environ=None) -> bool:
+    """4.16.3: True when this copy runs on the unpacked files of another one.
+    Updates installed by 4.15.0-4.16.2 start the new version that way (see
+    child_env); the files then vanish when the older copy closes. A build
+    carries bundle-version.txt; files without it, or of another version,
+    aren't this copy's. Asked once only (never a loop)."""
+    environ = os.environ if environ is None else environ
+    if not meipass or environ.get(RELAUNCHED):
+        return False
+    try:
+        return (Path(meipass) / "bundle-version.txt").read_text(encoding="utf-8").strip() != version
+    except OSError:
+        return True
+
+
+def restart_on_own_files(app_dir: Path, popen=subprocess.Popen, sleep=time.sleep) -> None:
+    """Start this program again with its own unpacked files, then stay a
+    while: the older copy that started this one counts it as the new version
+    only while it keeps running, and closes once the new version answers."""
+    env = child_env()
+    env[RELAUNCHED] = "1"
+    kw = {"cwd": str(app_dir), "stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL,
+          "stderr": subprocess.DEVNULL, "env": env}
+    if os.name == "nt":
+        kw["creationflags"] = 0x00000008 | 0x00000200  # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+    else:
+        kw["start_new_session"] = True
+    popen(launch_command(app_dir), **kw)
+    sleep(HANDOVER_WAIT)
 
 
 def launch_command(app_dir: Path) -> list[str]:

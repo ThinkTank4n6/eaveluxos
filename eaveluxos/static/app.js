@@ -3956,7 +3956,8 @@ VIEWS.health = async (fresh) => {
 function updInstallHtml(u) {
   const i = u.install || {}, last = i.last || {};
   const lastLine = last.stage === 'rolled_back' ? `<p class="callout warn small">EaveLuxOS ${esc(last.to || '')} didn\u2019t start properly (${esc(last.why || '')}), so the app went back to ${esc(last.frm || 'the version before')} by itself.</p>`
-    : last.stage === 'done' && last.to === u.current && last.frm ? `<p class="small muted">Updated from ${esc(last.frm)} to ${esc(u.current)}.</p>` : '';
+    : last.stage === 'done' && last.to === u.current && last.frm ? `<p class="small muted">Updated from ${esc(last.frm)} to ${esc(u.current)}.</p>`
+    : last.stage === 'interrupted' ? `<p class="small muted">The last install (to ${esc(last.to || '?')}) didn’t finish; this is ${esc(u.current)}.</p>` : '';
   if (!i.ok) return lastLine + (u.newer ? `<p class="note">${esc(i.why || '')}</p>` : '');
   return `${lastLine}
     ${u.newer && u.download_name ? `<div><button class="small primary" data-updinstall>Install ${esc(u.latest)} now</button></div>` : ''}

@@ -36,7 +36,12 @@ def version() -> str:
 
 
 def pyinstaller(name: str, *extra: str):
+    # 4.16.3: which version the bundled files belong to (main.own_files_check)
+    marker = ROOT / "build" / "bundle-version.txt"
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text(version(), encoding="utf-8")
     args = [sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--name", name,
+            "--add-data", f"{marker}{SEP}.",
             "--add-data", f"{ROOT / 'eaveluxos' / 'static'}{SEP}eaveluxos/static",
             "--add-data", f"{ROOT / 'MANUAL.md'}{SEP}.", "--add-data", f"{ROOT / 'LICENSE'}{SEP}.",
             "--collect-submodules", "eaveluxos", "--collect-submodules", "cryptography", "--collect-data", "tzdata",

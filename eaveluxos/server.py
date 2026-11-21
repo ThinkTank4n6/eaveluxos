@@ -804,7 +804,8 @@ class App:
         if supervised:
             log.info("Restarting on port %s (the system service restarts the app).", new)
             os._exit(0)
-        kw = {"cwd": str(self.base), "stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
+        kw = {"cwd": str(self.base), "stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL,
+              "env": autostart.child_env()}     # 4.16.3: its own unpacked files, not this copy's
         if os.name == "nt":
             kw["creationflags"] = 0x00000008 | 0x00000200  # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
         else:
@@ -1926,7 +1927,8 @@ class App:
 
     def _update_spawn(self):
         import subprocess
-        kw = {"cwd": str(self.base), "stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
+        kw = {"cwd": str(self.base), "stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL,
+              "env": autostart.child_env()}     # 4.16.3: its own unpacked files, not this copy's
         if os.name == "nt":
             kw["creationflags"] = 0x00000008 | 0x00000200  # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
         else:
@@ -1939,12 +1941,23 @@ class App:
         ctx = ssl.create_default_context()
         ctx.check_hostname, ctx.verify_mode = False, ssl.CERT_NONE
         for scheme in ("https", "http"):
+            base = f"{scheme}://127.0.0.1:{port}"
+            c = ctx if scheme == "https" else None
             try:
-                with urllib.request.urlopen(f"{scheme}://127.0.0.1:{port}/api/session", timeout=2,
-                                            context=ctx if scheme == "https" else None) as r:
-                    return json.loads(r.read()).get("version")
+                with urllib.request.urlopen(base + "/api/session", timeout=2, context=c) as r:
+                    v = json.loads(r.read()).get("version")
             except Exception:
-                pass
+                continue
+            # 4.16.3: answering isn't enough; its page and script must load too
+            # (a copy that lost its unpacked files answered, with no page)
+            try:
+                for path in ("/", "/app.js"):
+                    with urllib.request.urlopen(base + path, timeout=3, context=c) as r:
+                        if r.status != 200 or len(r.read(4096)) < 100:
+                            return None
+            except Exception:
+                return None
+            return v
         return None
 
     def update_summary(self) -> dict:

@@ -222,7 +222,12 @@ class Updater:
     def cleanup(self):
         """Review #2: after an update finished (either way), the download and
         the unpacked copy (about a hundred megabytes) go."""
-        if not self.plan["ok"] or self.state().get("stage") not in ("done", "rolled_back"):
+        st = self.state()
+        if st.get("stage") == "trying" and time.time() - (st.get("at") or 0) > START_WAIT + STEADY + 60:
+            # 4.16.3: an attempt that never finished (the copies were closed by
+            # hand partway through) is over by now: say so, and tidy up
+            st = self._write(stage="interrupted")
+        if not self.plan["ok"] or st.get("stage") not in ("done", "rolled_back", "interrupted"):
             return
         work = Path(self.plan["dir"]) / ".eaveluxos-update"
         if work.is_dir():

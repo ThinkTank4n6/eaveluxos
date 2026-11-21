@@ -1,7 +1,7 @@
 # EaveLuxOS: User Manual
 ### The Intelligent Lighting Control Platform
 
-Version 4.16.2 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
+Version 4.16.3 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
 
 > **Downloaded the ready-made app? You can skip most of the setup.**
 > The downloads on the project's GitHub **Releases** page
@@ -2734,9 +2734,16 @@ nothing about your home is sent.
 2. It keeps the version you have now beside the program (`EaveLuxOS.exe.previous`),
    puts the new one in its place, and restarts as the new version. The
    lights pause for a moment.
-3. If the new version doesn't start, or doesn't keep answering for 20
-   seconds, the app puts the previous version back and starts it again by
-   itself. **Updates** then says what happened.
+3. If the new version doesn't start, doesn't show its page, or doesn't keep
+   answering for 20 seconds, the app puts the previous version back and
+   starts it again by itself. **Updates** then says what happened.
+
+**4.15.0 to 4.16.2 on Windows:** installing from the app could leave
+EaveLuxOS answering `{"error": "not found"}` with no page (fixed in 4.16.3).
+If that happened: in a Command Prompt, run `taskkill /IM EaveLuxOS.exe /F /T`,
+then start EaveLuxOS.exe again (or unzip the new version over the folder).
+The safest way from those versions to 4.16.3 is by hand, once (below);
+installs from the app work from 4.16.3 on.
 
 **Go back to X** puts the kept version back the same way. **Install new
 versions by themselves, while the lights are off** (off unless you turn it
