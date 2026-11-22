@@ -405,11 +405,12 @@ function statusPill(st) {
   if (st.setup_only) setPill('', 'Setup needed');
   else if (st.setup && st.setup.problem) setPill('bad', 'Check settings');
   else if (st.target.reason === 'music') setPill('ok', 'Music show');
+  else if (st.target.reason === 'paused') setPill('', 'Schedule paused');
   else if (st.error) setPill('bad', "Can't reach lights");
   else setPill('ok', st.target.on ? 'Lights on' : 'Lights off');
   // The header On/Off: the one matching what the lights are doing is greyed
   // out. During a music show what the lights show isn't known: both work.
-  const t = st.target || {}, music = t.reason === 'music';
+  const t = st.target || {}, music = t.reason === 'music' || t.reason === 'paused';   // 4.16.6: paused: both work too
   const on = $('#quick [data-q=on]'), off = $('#quick [data-q=off]');
   if (on) on.disabled = !!st.setup_only || (t.on && !music);
   if (off) off.disabled = !!st.setup_only || (!t.on && !music);
@@ -1701,6 +1702,7 @@ function stateLine(st) {
   let head = t.on ? 'The lights are on' : 'The lights are off', sub;
   if (t.reason === 'flash') { head = st.flash.label || 'Security flash'; sub = `${t.effect} until ${st.flash.until}, then back to normal.`; }
   else if (t.reason === 'alert') { head = 'Severe weather alert'; sub = `${t.source}: ${t.effect}${st.alert && st.alert.until ? ' until ' + st.alert.until : ''}, then back to normal. Dismissing it, or turning the lights on or off by hand, puts them back now.`; }
+  else if (t.reason === 'paused') { head = 'Schedule paused'; sub = 'EaveLuxOS leaves the lights as they are (no scheduled changes, weather rules or automations) until you resume the schedule. On, Off and patterns by hand still work.'; }
   else if (t.reason === 'music') { head = 'Music show'; sub = `${st.music.scheduled ? t.source + ': t' : 'T'}he controller\u2019s music mode runs the lights${st.music.until ? ' until ' + st.music.until : ' until the show is stopped'}. Stop it on the Music tab.`; }
   else if (t.parts) {
     // 4.8: the controllers show different things; one line for each
@@ -2233,10 +2235,10 @@ function schedNowPanel(box, st) {
   const following = t.reason !== 'manual' && t.reason !== 'flash' && !(t.reason === 'music' && !st.music.scheduled) && !st.levels?.adjusted;
   box.hidden = false;
   const aw = awayActive();
-  box.innerHTML = `${aw ? `<p class="callout ok small" style="margin:0 0 8px">Away mode: times move by up to ${aw.minutes} minutes each night until ${esc(new Date(aw.until + 'T12:00').toLocaleDateString([], { month: 'short', day: 'numeric' }))}.</p>` : ''}<div class="panel-head"><h2>Right now</h2><button class="primary" data-runsched ${role() === 'viewer' ? 'disabled' : ''}>Run the schedule</button></div>
+  box.innerHTML = `${aw ? `<p class="callout ok small" style="margin:0 0 8px">Away mode: times move by up to ${aw.minutes} minutes each night until ${esc(new Date(aw.until + 'T12:00').toLocaleDateString([], { month: 'short', day: 'numeric' }))}.</p>` : ''}<div class="panel-head"><h2>Right now</h2><button class="ghost" data-pausesched ${role() === 'viewer' ? 'disabled' : ''}>${S.settings && S.settings.paused ? 'Resume the schedule' : 'Pause the schedule'}</button><button class="primary" data-runsched ${role() === 'viewer' ? 'disabled' : ''}>Run the schedule</button></div>
     <p><b>${esc(following ? 'Following the schedule' : head)}</b>. ${esc(sub)}</p>
     ${st.error ? `<p class="callout warn small">Can't reach the lights right now: ${esc(st.error)}</p>` : ''}
-    <p class="note">${following ? 'Changed the lights in the Trimlight Edge app? ' : ''}<b>Run the schedule</b> ends anything set by hand (a pattern, Off, a music show from the Music button, a security flash) and sends what the schedule says right now to the controller again. Show nights from the Music tab are part of the schedule and keep running.</p>`;
+    <p class="note">${following ? 'Changed the lights in the Trimlight Edge app? ' : ''}<b>Run the schedule</b> ends anything set by hand (a pattern, Off, a music show from the Music button, a security flash, a pause) and sends what the schedule says right now to the controller again. Show nights from the Music tab are part of the schedule and keep running. <b>Pause the schedule</b> stops all scheduled changes until you resume it; the lights stay as they are.</p>`;
 }
 
 VIEWS.schedule = async () => {
@@ -2284,8 +2286,14 @@ VIEWS.schedule = async () => {
   whenOpen('whowins', () => winPanel($('#winbox')));
   m.onclick = async e => {
     const b = e.target.closest('button'); if (!b) return; const d = b.dataset;
+    if (d.pausesched !== undefined) {
+      // 4.16.6: stop (or restart) everything automatic until resumed
+      const n = clone(S.settings), was = !!n.paused;
+      if (was) delete n.paused; else n.paused = { since: new Date().toISOString() };
+      return busy(b, async () => { await saveSettings(n, was ? 'Schedule resumed' : 'Schedule paused'); S.status = await api('status'); statusPill(S.status); schedNowPanel($('#schednow'), S.status); }).catch(() => {});
+    }
     if (d.runsched !== undefined) {
-      return busy(b, async () => { S.status = await api('action', { body: { action: 'resume', force: true } }); schedNowPanel($('#schednow'), S.status); })
+      return busy(b, async () => { if (S.settings.paused) { const n = clone(S.settings); delete n.paused; await saveSettings(n, 'Schedule resumed'); } S.status = await api('action', { body: { action: 'resume', force: true } }); schedNowPanel($('#schednow'), S.status); })
         .then(() => toast('Running the schedule')).catch(() => {});
     }
     if (d.addrule !== undefined) { if (!Object.keys(effs).length) return toast('Create a pattern first.', true); ruleDialog(); }
@@ -3279,8 +3287,14 @@ async function backupPanel(box, d) {
   if (box.dataset.tok !== tok) return;
   const have = new Set((live ? live.patterns : []).map(e => String(e.name || '').trim().toLowerCase()));
   d = { ...d, error: live ? null : liveErr };
+  // 4.16.6: take one now, from here (it was only in Local mode)
+  const nowBtn = `<div class="row" style="margin-top:6px"><button class="small" data-bknow>Back up now</button><span class="small muted">Reads the controller over your home network and keeps a copy of all its patterns on this computer. Close the Trimlight app first.</span></div>`;
+  const bkNow = b => busy(b, () => api('local/backup', { body: { device: d.id } })).then(r => {
+    toast(`Backed up ${r.patterns} pattern${r.patterns === 1 ? '' : 's'}`); S.bkFile = r.file; backupPanel(box, d);
+  }).catch(() => {});
   if (!list.length) {
-    box.innerHTML = '<h2>Pattern backups</h2><p class="muted small">No backups of this controller yet. One is taken before every change the backup timer makes (Setup › Lights & controller).</p>';
+    box.innerHTML = '<h2>Pattern backups</h2><p class="muted small">No backups of this controller yet. One is also taken before every change the backup timer makes (Setup › Lights & controller).</p>' + nowBtn;
+    box.onclick = e => { const b = e.target.closest('[data-bknow]'); if (b) bkNow(b); };
     return;
   }
   const pick = S.bkFile && list.some(b => b.file === S.bkFile) ? S.bkFile : list[0].file;
@@ -3288,7 +3302,7 @@ async function backupPanel(box, d) {
     <p class="note">Put patterns back on the controller, for example after a factory reset or deleting one by mistake. It only adds: patterns already on the controller are left alone. It works over your home network, one pattern at a time, reading the controller back after each and stopping at the first difference. A pattern gets its old number when that\u2019s free, so timers made in the Trimlight app find it again.</p>
     ${liveErr ? `<p class="callout warn small">Couldn\u2019t read the controller just now (${esc(liveErr)}), so patterns can\u2019t be put back yet. The backups are listed below. Open Local mode and tap Read again, then come back.</p>` : ''}
     <label class="field">Backup<select id="bkfile">${list.map(b => `<option value="${esc(b.file)}" ${b.file === pick ? 'selected' : ''}>${esc(b.label)} (${b.patterns} patterns)</option>`).join('')}</select></label>
-    <div id="bklist"><p class="muted small">Loading…</p></div>`;
+    <div id="bklist"><p class="muted small">Loading…</p></div>${nowBtn}`;
   const load = async file => {
     S.bkFile = file;
     let r; try { r = await api('backups/patterns?file=' + encodeURIComponent(file)); }
@@ -3303,6 +3317,7 @@ async function backupPanel(box, d) {
   };
   $('#bkfile', box).onchange = e => load(e.target.value);
   box.onclick = async e => {
+    const nb = e.target.closest('[data-bknow]'); if (nb) return bkNow(nb);
     const b = e.target.closest('[data-bkgo]'); if (!b) return;
     e.stopPropagation();
     const ids = [...box.querySelectorAll('[data-bk]:checked')].map(x => +x.dataset.bk);
@@ -4186,7 +4201,10 @@ boot().catch(e => {
   // 4.14: opened from the home screen away from home (or the app computer is off): say so plainly
   const away = e instanceof TypeError || !navigator.onLine;
   $('#main').innerHTML = away ? `<div class="gate"><div class="panel stack"><h2>Can\u2019t reach EaveLuxOS</h2>
-      <p>This ${COARSE ? 'phone' : 'device'} can\u2019t reach the app computer right now. EaveLuxOS works on your home network: join your home Wi-Fi (or your home VPN), and check the app computer is on with EaveLuxOS running.</p>
+      ${!COARSE && /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname)
+        // 4.16.6: on the app computer itself the Wi-Fi advice doesn't apply: the program isn't running
+        ? `<p>EaveLuxOS isn\u2019t running on this computer. This window (or bookmark) only shows the app; the EaveLuxOS program runs the lights. Start it again (open <b>EaveLuxOS</b> from its folder, or sign in again if it starts by itself), then choose <b>Try again</b>.</p>`
+        : `<p>This ${COARSE ? 'phone' : 'device'} can\u2019t reach the app computer right now. EaveLuxOS works on your home network: join your home Wi-Fi (or your home VPN), and check the app computer is on with EaveLuxOS running.</p>`}
       <div><button class="primary" data-retry>Try again</button></div></div></div>`
     : `<div class="gate"><p class="callout warn">Can't reach the app: ${esc(e.message)}</p></div>`;
   const r = $('#main [data-retry]'); if (r) r.onclick = () => location.reload();      // no inline handlers (the page's security policy)

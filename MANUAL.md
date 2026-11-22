@@ -1,7 +1,7 @@
 # EaveLuxOS: User Manual
 ### The Intelligent Lighting Control Platform
 
-Version 4.16.5 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
+Version 4.16.6 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
 
 > **Downloaded the ready-made app? You can skip most of the setup.**
 > The downloads on the project's GitHub **Releases** page
@@ -1115,6 +1115,15 @@ mode, each folded to one line until you open it). Weather, severe weather
 alerts and the security flash are on the **Alerts** tab; the backup timer is
 in **Setup › Lights & controller**.
 
+### Pause the schedule (4.16.6)
+
+**Pause the schedule** (in the **Right now** box) stops everything this app
+does by itself (scheduled on and off, weather rules, holidays, game days,
+automations) until you tap **Resume the schedule**. The lights stay exactly
+as they are, whatever set them. On, Off and patterns chosen by hand still
+work, and so does the security flash. **Run the schedule** resumes too. The
+top of the page says **Schedule paused** meanwhile.
+
 ### Run the schedule
 
 The **Right now** box at the top of the Schedule tab says what the lights are
@@ -1979,6 +1988,12 @@ the meters and Sound delay work the same; set Sound delay by ear.
 - **A controller loses power:** while Trimlight's cloud says it's offline,
   the app looks every minute instead of every five. As soon as it's back
   online, its lights are set again, whatever it came back showing.
+- **A short power cut** (over before the next check, 4.16.6): a controller
+  that restarts reports its state to Trimlight's cloud again. When that
+  report changes twice in a row while the app isn't sending anything, the
+  lights are set again, usually within 6 to 10 minutes. Seen on Nov 21,
+  2026: unplugged for 77 seconds, the controller came back in its own
+  **Timer** mode and later showed its own pattern.
 
 (Called the **safety net** before version 4.0.)
 
@@ -2345,6 +2360,10 @@ mode saves one before each change too. The first
 one, from before EaveLuxOS ever changed the controller, is kept forever. After
 a factory reset, or after deleting a pattern by mistake, you can put patterns
 back from these backups (Administrators only):
+
+To take one yourself, tap **Back up now** under the list (4.16.6; also in
+Local mode). Close the Trimlight app on phones and tablets first: the
+controller answers one connection at a time.
 
 1. Open **Setup › Pattern backups**. With two or more controllers, choose the
    **Controller** at the top. Then choose a **Backup** (newest first).

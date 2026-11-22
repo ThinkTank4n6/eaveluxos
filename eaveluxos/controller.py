@@ -156,6 +156,11 @@ class Controller:
         # would never be sent.
         self.apply_gen = 0
         self.sent_effect: dict = {}           # deviceId -> what was last sent (for the pattern check)
+        # 4.16.6: what Trimlight's cloud last reported for the parts sent over
+        # the home network (its view of those stays put while this app runs
+        # them; a change means the controller restarted or someone else set it)
+        self.cloud_seen: dict = {}
+        self.cloud_moving: dict = {}          # a changed report waiting for the next read-back to confirm it
         self.pattern_mismatches = 0
         self.pattern_restored = None          # target key restored for a pattern change, until a reading matches
         # How each controller reports back a pattern this app sent, when that
@@ -477,6 +482,8 @@ class Controller:
         (got.add if local else got.discard)(what)
         if not got:
             self.lan_sent.pop(dev, None)
+        self.cloud_seen.pop(dev, None)        # 4.16.6: the next read-back is the new baseline
+        self.cloud_moving.pop(dev, None)
 
     def _apply(self, on: bool, effect, levels: dict | None = None, timer_off: bool = False, delegated: bool = False,
                skip=frozenset()):
@@ -719,6 +726,12 @@ class Controller:
                 lv = json.dumps(adjust, sort_keys=True)
                 return done(Target(f"manual|{o['on']}|{o.get('effect')}|{o['since'].isoformat()}|{lv}",
                                    o["on"], eff, dict(adjust) if o["on"] else {}, "manual"))
+        # 4.16.6: the schedule paused (until it's resumed): this app leaves the
+        # lights as they are. A choice by hand (above) and a flash still work.
+        pz = getattr(self.cfg, "paused", None)
+        if pz:
+            return done(Target(f"paused|{pz.get('since')}", bool(self.known_on), None, {}, "paused",
+                               "Schedule paused", hands_off=True))
         if ws is not None and (dov or len({(x.key if x else "off") for x in ws.values()}) > 1):
             return done(self._each_own(ws, dov, now, adjust))
         if not w:
@@ -892,7 +905,9 @@ class Controller:
                     self.known_on = False
                     self.fail_count = 0
                     self.last_error = None
-                self.note(f"Music show: this app is leaving the lights to the controller's music mode [{t.source}]")
+                self.note("Schedule paused: this app leaves the lights as they are until the schedule is resumed."
+                          if t.reason == "paused" else
+                          f"Music show: this app is leaving the lights to the controller's music mode [{t.source}]")
                 return
             if t.hands_off:
                 return                       # no checks or timer copies during a show either
@@ -1050,12 +1065,38 @@ class Controller:
             if ("switch" in self.lan_sent.get(d["id"], ()) and self.lan is not None
                     and d["switch_raw"] != self.lan_state.get(d["id"])):
                 sw = self.lan.switch(d["id"])
-                if sw in (0, 1):
-                    d["switch_raw"], d["switch"] = sw, ("off", "on")[sw]     # Home shows it too (4.4.1)
+                if sw in (0, 1, 2):           # 4.16.6: 2 is its own Timer mode (Nov 21 capture)
+                    d["switch_raw"], d["switch"] = sw, ("off", "on", "timer")[sw]     # Home shows it too (4.4.1)
         restored = None
         # Review #1 (4.15): a controller back online after a power cut is set
         # again at once, whatever it shows (it may have come back off, or in
         # the controller's own default), instead of waiting for two read-backs.
+        # Review #1 (4.16.6): a short power cut between two read-backs (Chris,
+        # Nov 21: out 77 seconds) was never seen as offline, and with the
+        # switch and pattern sent over the home network the cloud's report
+        # was ignored. A controller that restarts reports its state to the
+        # cloud again, so a change in that report for the parts this app sent
+        # over the home network means something outside changed them.
+        moved = []
+        for d in snap:
+            parts = self.lan_sent.get(d["id"], ())
+            if not parts or not d["online"]:
+                continue
+            seen = json.dumps([d["switch_raw"] if "switch" in parts else None,
+                               d.get("effect_raw") if "pattern" in parts else None], sort_keys=True, default=str)
+            base = self.cloud_seen.get(d["id"])
+            if base is None or base == seen:
+                self.cloud_seen[d["id"]] = seen
+                self.cloud_moving.pop(d["id"], None)
+            elif self.cloud_moving.get(d["id"]) == seen:
+                # the same new report twice in a row (a single odd report
+                # isn't enough, as for the switch below): act on it
+                moved.append(d)
+                self.cloud_seen[d["id"]] = seen
+                self.cloud_moving.pop(d["id"], None)
+            else:
+                self.cloud_moving[d["id"]] = seen
+                self.last_verify = now - VERIFY_EVERY + 60          # look again in a minute
         back = [d["name"] for d in snap if d["online"] and d["id"] in self.offline]
         self.offline = {d["id"] for d in snap if not d["online"]}
         if back:
@@ -1068,21 +1109,26 @@ class Controller:
             self.status_cache = {"at": now, "data": snap}
             if t.key != self.applied_key:
                 return
-            want = 2 if t.delegated else 1 if t.on else (2 if t.key == "off|timer" else 0)
-
-            def want_for(d):            # a split pattern can leave a controller off (3.17)
-                if want == 1 and t.effect is not None and t.effect.kind == "split" and t.effect.for_device(d["id"]) is None:
-                    return 0
-                return want
-            wrong = [d for d in snap if d["online"] and d["switch_raw"] != want_for(d)]
-            self.mismatches = self.mismatches + 1 if wrong else 0
-            if self.mismatches >= 2:
-                self.mismatches = 0
-                self.pattern_mismatches = 0
+            if moved and not back and not t.delegated and not getattr(t, "music", None):
+                self.mismatches = self.pattern_mismatches = 0
                 self._invalidate()
-                restored = ", ".join(str(d["name"]) for d in wrong)
-            elif not wrong and not any("pattern" in self.lan_sent.get(d["id"], ()) for d in snap):
-                restored = self._check_pattern(t, snap)   # (the cloud's view of the pattern lags local commands)
+                restored = ", ".join(str(d["name"]) for d in moved)
+            else:
+                want = 2 if t.delegated else 1 if t.on else (2 if t.key == "off|timer" else 0)
+
+                def want_for(d):            # a split pattern can leave a controller off (3.17)
+                    if want == 1 and t.effect is not None and t.effect.kind == "split" and t.effect.for_device(d["id"]) is None:
+                        return 0
+                    return want
+                wrong = [d for d in snap if d["online"] and d["switch_raw"] != want_for(d)]
+                self.mismatches = self.mismatches + 1 if wrong else 0
+                if self.mismatches >= 2:
+                    self.mismatches = 0
+                    self.pattern_mismatches = 0
+                    self._invalidate()
+                    restored = ", ".join(str(d["name"]) for d in wrong)
+                elif not wrong and not any("pattern" in self.lan_sent.get(d["id"], ()) for d in snap):
+                    restored = self._check_pattern(t, snap)   # (the cloud's view of the pattern lags local commands)
         self._save_reported()
         if restored:
             self.note(f"{restored} was changed outside this app (power blip or the Trimlight app). Restoring it.",
@@ -1612,7 +1658,10 @@ class Controller:
             def skip(why):
                 self.note(f"{label} skipped: {why}.")
                 return False
-            if t.hands_off:
+            if t.hands_off and t.reason == "paused":
+                if rank < FLASH_RANK["security"]:          # 4.16.6: automations wait; the security flash still runs
+                    return skip("the schedule is paused")
+            elif t.hands_off:
                 # Any pattern sent now knocks the controller out of music mode,
                 # which this app can't switch back on (3.16.1). Only something
                 # urgent ends the show; the rest wait it out.

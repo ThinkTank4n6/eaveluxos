@@ -67,6 +67,9 @@ FIND_PORT = 8589          # the controller listens here for the finding broadcas
 FIND_FROM = 8588          # the app sends it from here (and hears answers here)
 CMD_REQUEST, CMD_FIND, CMD_LEVELS, CMD_PING = 0x04, 0x06, 0x0A, 0x0B
 SUB_TIME, SUB_MUSIC, SUB_POWER = 0x15, 0x0C, 0x02
+# SUB_POWER takes 0 (off), 1 (on, Manual) or 2 (Timer: the controller's own daily
+# timers run the lights). 2 seen in the Nov 21, 2026 capture: Settings › Timer.
+POWER_OFF, POWER_MANUAL, POWER_TIMER = 0, 1, 2
 SUB_SHOW, SUB_DELETE, SUB_PORT = 0x04, 0x05, 0x0A      # show / delete saved pattern N; port pixels
 SUB_PATTERN_NEW, SUB_PATTERN_SAVE, SUB_PREVIEW = 0x0F, 0x0E, 0x0D
 SUB_LIVE = 0x03                 # a built-in effect, shown live (seen Nov 17, 2026, 4.6)

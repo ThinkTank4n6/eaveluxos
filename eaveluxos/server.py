@@ -221,7 +221,7 @@ HOUSEHOLD_KEYS = ("location", "safety", "weather", "setup_done", "color", "commu
 # This home's own, never in an export and never taken from someone's file:
 # away mode reveals when nobody's home, and usage is this home's equipment and
 # electric rate (3.15.1).
-PRIVATE_KEYS = ("away", "usage", "ai", "lan")   # ai (3.18.2): which paid model to call is this home's choice
+PRIVATE_KEYS = ("away", "usage", "ai", "lan", "paused")   # ai (3.18.2): which paid model to call is this home's choice
 ROLE_NAMES = {"admin": "Administrator", "editor": "Editor", "viewer": "Viewer"}
 # A browser on the app computer itself (when it doesn't require a password).
 LOCAL_USER = {"id": None, "username": "this computer", "role": "admin", "disabled": False, "local": True}

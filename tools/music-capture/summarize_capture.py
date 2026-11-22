@@ -365,8 +365,9 @@ def describe(kind, cmd, body, from_controller: bool):
                 if sum(c.isalpha() for c in t) >= 3 and t not in names:
                     names.append(t)
             return ("everything the controller holds", f"{len(d)} bytes; names: {', '.join(names[:12]) or 'none'}")
-        if sub == 0x02 and len(d) == 1 and d[0] in (0, 1):
-            return ("lights " + ("on" if d[0] else "off"), "")
+        if sub == 0x02 and len(d) == 1 and d[0] in (0, 1, 2):
+            # 2: Timer mode, the controller's own daily timers (Nov 21, 2026 capture)
+            return (("lights off", "lights on", "Timer mode")[d[0]], "")
         if sub == 0x04 and len(d) == 1:
             return (f"show saved pattern #{d[0]}", "")
         if sub == 0x05 and len(d) == 1:

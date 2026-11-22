@@ -1,5 +1,35 @@
 # Changelog
 
+## 4.16.6: a short power cut is noticed; pause the schedule; Timer mode
+
+- **Fixed: a short power cut was never noticed** (Chris's test, Nov 21:
+  Christmas chosen by hand, the controller unplugged from 4:46:00 to
+  4:47:17). It came back in its own Timer mode, dark, and at 4:53 showed its
+  own Fall; EaveLuxOS never put Christmas back. The outage fell between two
+  read-backs (every 5 minutes), so the controller was never seen offline,
+  and with the switch and the pattern sent over the home network the app
+  ignored Trimlight's cloud report. A restarting controller reports its
+  state to the cloud again, though: the app now notes that report, and when
+  it changes twice in a row (checked again a minute after the first) while
+  the app hasn't sent anything, it sets the lights again
+  (tests/repro_short_power_cut.py). One odd report isn't enough, and the
+  cloud catching up costs one extra send at most.
+- **The controller's own Timer mode** (Trimlight app › Settings › Timer)
+  decoded from the Nov 21 capture: the on/off command takes 0 (Off), 1
+  (Manual) or 2 (Timer). A controller found in Timer mode over the home
+  network now counts as "not what was sent" (before, only on and off were
+  understood). The capture tool calls it "Timer mode".
+- **Pause the schedule** (Schedule › Right now): stops everything automatic
+  (schedule, weather rules, holidays, game days, automations) until resumed;
+  the lights stay as they are. By hand and the security flash still work;
+  Run the schedule resumes too. Kept out of shared settings.
+- **Back up now** in Setup › Pattern backups (it was only in Local mode),
+  also when there are no backups yet.
+- **On the app computer itself**, the "Can't reach EaveLuxOS" page now says
+  the program isn't running and how to start it, instead of the Wi-Fi
+  advice meant for phones (Chris, Nov 21: the Chrome-installed app after a
+  Quit).
+
 ## 4.16.5: http:// goes on to https://
 
 - **Fixed: "localhost didn't send any data"** after turning on HTTPS

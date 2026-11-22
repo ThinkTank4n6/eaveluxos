@@ -840,6 +840,7 @@ class Config:
     automations: list = field(default_factory=list)   # 4.11: When/If/Then (automations.py)
     watch: dict = field(default_factory=dict)          # 4.11: teams automations follow, celebrations off or not
     gamma: float | None = None
+    paused: dict | None = None                         # 4.16.6: {"since": iso}: this app leaves the lights alone
 
 
 class _MusicShow:
@@ -1101,6 +1102,9 @@ def build_config(raw: dict, secrets: dict, need_secrets: bool = True, gamedates:
         v = us.get(k)
         if v is not None and (isinstance(v, bool) or not isinstance(v, (int, float)) or not 0 <= v <= hi):
             raise ConfigError(f"{what} must be a number from 0 to {hi}.")
+    pz = raw.get("paused")
+    if pz is not None and not (isinstance(pz, dict) and isinstance(pz.get("since"), str) and len(pz["since"]) <= 40):
+        raise ConfigError("The schedule pause must be {\"since\": \"date and time\"}.")
     aw = raw.get("away") or {}
     away = None
     if not isinstance(aw, dict):
@@ -1161,7 +1165,7 @@ def build_config(raw: dict, secrets: dict, need_secrets: bool = True, gamedates:
         music=build_music(raw, loc),
         weather_alerts=wx_alerts, zones=zones, total_bulbs=total_bulbs,
         celebrate=_celebrations(raw.get("gameday"), effects), gamma=gamma,
-        automations=autos, watch=_aw(raw.get("gameday"), autos),
+        automations=autos, watch=_aw(raw.get("gameday"), autos), paused=pz,
     )
 
 

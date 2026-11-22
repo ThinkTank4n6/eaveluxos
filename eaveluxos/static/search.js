@@ -43,6 +43,7 @@
     { t: 'Game-day lights', w: 'Schedule', v: 'schedule', f: 'game', k: 'sports team football baseball nfl nba nhl mlb eagles score win touchdown' },
     { t: 'Celebrate scores', w: 'Schedule', v: 'schedule', f: 'game', k: 'score goal touchdown flash celebration party live' },
     { t: 'Away mode', w: 'Schedule', v: 'schedule', f: 'away', k: 'vacation away random times travel' },
+    { t: 'Pause the schedule', w: 'Schedule', v: 'schedule', k: 'pause stop hold suspend resume schedule leave lights alone' },
     { t: 'Quick buttons', w: 'Home', v: 'quick', k: 'quick buttons tiles phone scenes favorites one tap big' },
     { t: 'Install on your phone', w: 'Setup', v: 'app', h: 'On your phone', k: 'install phone home screen app pwa iphone android icon shortcut offline' },
     { t: 'Who wins tonight', w: 'Schedule', v: 'schedule', f: 'whowins', k: 'conflict priority overlap wins beats tie override which rule' },
