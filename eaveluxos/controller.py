@@ -385,10 +385,45 @@ class Controller:
                                 "level": logging.getLevelName(level).lower()})
 
     # ------------------------------------------------------------ devices
+    def _devices_cache(self):
+        return os.path.join(os.path.dirname(self.state_path), "controllers.json") if self.state_path else None
+
     def _ensure_devices(self):
         if self.devices:
             return
-        found = self.api.list_devices()
+        cache = self._devices_cache()
+        try:
+            found = self.api.list_devices()
+        except TrimlightError as e:
+            # 4.17: no internet (or Trimlight's cloud down) when the app starts:
+            # with Local mode on, the controllers listed last time are enough to
+            # run the lights over the home network.
+            found = None
+            if self.lan is not None and cache and os.path.isfile(cache):
+                try:
+                    with open(cache, encoding="utf-8") as f:
+                        found = [d for d in json.load(f) if isinstance(d, dict) and isinstance(d.get("deviceId"), str)]
+                except (OSError, ValueError):
+                    found = None
+            if not found:
+                raise
+            if not getattr(self, "_cache_noted", False):
+                self._cache_noted = True
+                self.note(f"Trimlight's cloud can't be reached ({e}). Running the lights over your home network with "
+                          "the controllers it listed last time.", logging.WARNING)
+            self.devices_from_cache = True
+        else:
+            self.devices_from_cache = False
+            self._cache_noted = False
+            if cache:
+                try:
+                    keep = [{k: d.get(k) for k in ("deviceId", "name", "fwVersionName") if k in d} for d in found]
+                    tmp = cache + f".{os.getpid()}.tmp"
+                    with open(tmp, "w", encoding="utf-8") as f:
+                        json.dump(keep, f)
+                    os.replace(tmp, cache)
+                except OSError:
+                    pass
         self.account = list(found)
         if self.cfg.devices:
             wanted = set(self.cfg.devices)
@@ -1054,6 +1089,10 @@ class Controller:
             self.read_error = str(e)
             return
         self.read_error = None
+        if getattr(self, "devices_from_cache", False):
+            self.devices_from_cache = False
+            self._cache_noted = False
+            self.note("Trimlight's cloud answers again.")
         self.last_clock_sync = today
         # 4.4: a controller set over the home network is checked there too;
         # Trimlight's cloud may not have caught up with it yet.
@@ -1922,4 +1961,7 @@ class Controller:
             "strip": strip, "days": days, "error": err, "tonight": tonight,
             "effects": [{"key": e.key, "label": e.label, "swatches": e.swatches()} for e in self.cfg.effects.values()],
             "devices": devices, "events": list(self.events)[:40],
+            # 4.17: no internet: running over the home network
+            "cloud_down": bool(getattr(self, "devices_from_cache", False)
+                               or (self.read_error and self.lan is not None and "Network error" in self.read_error)),
         }

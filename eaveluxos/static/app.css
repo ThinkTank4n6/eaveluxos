@@ -481,3 +481,9 @@ pre.code{padding:10px;white-space:pre-wrap;margin:0}
 /* 4.16: camera calibration */
 .calview { border-radius: 12px; overflow: hidden; background: #05070f; }
 .calview video, .calview canvas { display: block; width: 100%; height: auto; max-height: 55vh; object-fit: contain; }
+
+/* 4.17: away-from-home checklist */
+.checklist { list-style: none; padding: 0; margin: 4px 0; display: grid; gap: 4px; }
+.checklist li b { display: inline-block; width: 1.3em; }
+.checklist li.ok b { color: var(--ok, #3fb950); }
+.checklist li.warn b { color: var(--warn, #d29922); }

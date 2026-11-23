@@ -752,7 +752,8 @@ VIEWS.home = async () => {
             ${st.setup?.problem ? `<p class="callout warn" style="margin-bottom:12px">${esc(st.setup.problem)}</p>` : ''}
             <h1>${esc(head)}</h1><p>${esc(sub)}</p>
             <p style="margin-top:8px"><a class="btn small ghost" href="#quick">Quick buttons</a></p>
-            ${st.error ? `<p class="callout warn" style="margin-top:10px">Can't reach the lights right now: ${esc(st.error)}</p>` : ''}</div>
+            ${st.error ? `<p class="callout warn" style="margin-top:10px">Can't reach the lights right now: ${esc(st.error)}</p>` : ''}
+            ${st.cloud_down && !st.error ? `<p class="callout small" style="margin-top:10px">Trimlight\u2019s cloud can\u2019t be reached (no internet?). The lights run over your home network meanwhile; weather and scores wait until it\u2019s back.</p>` : ''}</div>
           ${tonightPanel(st)}
           <div><div class="strip" aria-label="Today, midnight to midnight">${sky.join('')}</div>
             <div class="ticks"><span style="left:0">12 AM</span><span style="left:25%">6 AM</span><span style="left:50%">Noon</span><span style="left:75%">6 PM</span><span style="left:100%">12 AM</span></div>
@@ -3371,13 +3372,16 @@ async function localPanel(box, fresh = false) {
   // now (4.4.1: it used to show only after a good read).
   const cmd = lanAny() ? `<label class="check" style="margin-top:8px"><input type="checkbox" id="lccmd" ${l.commands ? 'checked' : ''}>
           <span><b>Send on/off and saved patterns over the home network</b> <span class="pill">Try it</span><br><span class="small muted">The schedule turns the lights on and off, and shows patterns saved on the controller, straight over your home network instead of through Trimlight’s cloud${many ? ', each controller at its own address (one without an address uses the cloud)' : ''}. If that doesn’t work, it uses the cloud as before. This app’s own patterns and the built-in effects go this way too (shown live, as the Trimlight app does while you edit), and so do the brightness and speed sliders.</span></span></label>` : '';
+  // 4.17: while EaveLuxOS is stopped, the controller's own two daily timers can run the lights
+  const cmdT = lanAny() ? `<label class="check" style="margin-top:8px"><input type="checkbox" id="lctimer" ${l.timer_on_quit ? 'checked' : ''}>
+          <span><b>When EaveLuxOS is quit, hand the lights to the controller\u2019s own timers</b><br><span class="small muted">Sends <b>Timer</b> (as Settings \u203a Timer does in the Trimlight Edge app) so the controller\u2019s own two daily timers run the lights until EaveLuxOS starts again. Set those timers in the Trimlight Edge app (clock icon). Only on <b>Quit</b> or a clean stop: not when the computer loses power or is shut down suddenly.</span></span></label>` : '';
   const pick = many && withAddr.length ? `<div class="row" style="margin-top:8px"><label class="field">Controller to read<select id="lcdev">${withAddr.map(d => `<option value="${esc(d.id)}" ${d.id === S.lcDev ? 'selected' : ''}>${esc(d.name || d.id)} (${esc(lanFor(d.id))})</option>`).join('')}</select></label></div>` : '';
   const q = many && S.lcDev ? 'device=' + encodeURIComponent(S.lcDev) : '';
   const dev = many ? S.lcDev : undefined;
   const keepFound = () => { const lf = $('#lcfound', box); if (lf && S.lcFound && !lf.innerHTML) lf.innerHTML = S.lcFound; };
-  if (!addr) { box.innerHTML = head + cmd + (many ? '' : '<p class="callout small">Enter the address (the Trimlight Edge app shows it when you open the controller on your home Wi-Fi), or tap <b>Find it</b>.</p>'); keepFound(); }
+  if (!addr) { box.innerHTML = head + cmd + cmdT + (many ? '' : '<p class="callout small">Enter the address (the Trimlight Edge app shows it when you open the controller on your home Wi-Fi), or tap <b>Find it</b>.</p>'); keepFound(); }
   else {
-    box.innerHTML = head + cmd + pick + '<div id="lcbody"><p class="muted small">Reading the controller…</p></div>';
+    box.innerHTML = head + cmd + cmdT + pick + '<div id="lcbody"><p class="muted small">Reading the controller…</p></div>';
     keepFound();
     // Review #4 (4.15): the buttons work while the controller is read (they were set up only after it)
     setTimeout(async () => { try {
@@ -3405,6 +3409,11 @@ async function localPanel(box, fresh = false) {
   };
   box.onchange = e => {
     if (e.target.id === 'lcdev') { S.lcDev = e.target.value; return localPanel(box); }
+    if (e.target.id === 'lctimer') {
+      const on = e.target.checked;
+      return api('local/timer_on_quit', { body: { on } }).then(async () => { S.settings = await api('settings'); toast(on ? 'On Quit, the controller\u2019s own timers take over' : 'On Quit, the lights stay as they are'); })
+        .catch(() => { e.target.checked = !on; });
+    }
     if (e.target.id !== 'lccmd') return;
     const on = e.target.checked;
     api('local/commands', { body: { on } }).then(async () => { S.settings = await api('settings'); toast(on ? 'On/off and saved patterns go over the home network' : 'Everything goes through Trimlight’s cloud'); })
@@ -3735,11 +3744,15 @@ VIEWS.settings = async (sec) => {
             </ol>
             ${local ? '<div class="row"><button class="small" data-lancheck>Check this computer</button></div><div id="lanresult" class="stack" aria-live="polite"></div>' : ''}
           </details></div>
+        <div class="panel stack" id="remotebox"></div>
+        ${admin ? fold('tokens', 'API tokens', '<div class="panel stack" id="tokbox"></div>') : ''}
+        ${admin ? fold('audit', 'Audit log', '<div class="panel stack" id="audbox"></div>') : ''}
 `],
     app: [`
         <div class="panel stack"><h2>Share and back up</h2>
           <p class="note">Export your patterns and schedule to a file you can keep or share with other Trimlight owners. It never includes your Trimlight credentials, passwords, location or away mode.</p>
           <div class="row"><button data-export>Export patterns and schedule</button>${role() !== 'viewer' ? '<label class="btn" tabindex="0">Import a file<input type="file" id="impf" accept=".json,application/json" hidden></label>' : ''}</div></div>
+        ${admin ? '<div class="panel stack" id="vaultbox"></div>' : ''}
         <div class="panel stack" id="updbox"><h2>Updates</h2><p class="muted small">Loading…</p></div>
         ${fold('usage', 'Lights usage', '<div class="panel stack" id="usagebox"></div>')}
         <div class="panel stack" id="pwabox"></div>
@@ -3812,6 +3825,11 @@ VIEWS.settings = async (sec) => {
     };
   };
   if (admin && $('#aibox')) whenOpen('ai', () => aiPanel($('#aibox')));
+  // 4.17: local-first and security (security.js)
+  if ($('#remotebox')) remotePanel($('#remotebox'), a);
+  if (admin && $('#tokbox')) whenOpen('tokens', () => tokenPanel($('#tokbox')));
+  if (admin && $('#audbox')) whenOpen('audit', () => auditPanel($('#audbox')));
+  if (admin && $('#vaultbox')) vaultPanel($('#vaultbox'));
   if ($('#usagebox')) whenOpen('usage', () => usagePanel($('#usagebox')));
   if ($('#pwabox')) pwaPanel($('#pwabox'));
   if ($('#updbox')) api('update').then(drawUpdates).catch(e => { const box = $('#updbox'); if (box) box.innerHTML = `<h2>Updates</h2><p class="muted small">${esc(e.message)}</p>`; });

@@ -1,7 +1,7 @@
 # EaveLuxOS: User Manual
 ### The Intelligent Lighting Control Platform
 
-Version 4.16.6 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
+Version 4.17.0 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
 
 > **Downloaded the ready-made app? You can skip most of the setup.**
 > The downloads on the project's GitHub **Releases** page
@@ -2521,6 +2521,65 @@ automatically, AI pattern ideas, version history and Setup and about.
   Linux and macOS, quitting stops the login service properly so it isn't
   restarted right away. In Docker, stop the container with
   `docker compose stop` instead.
+
+### Local-first and security (4.17)
+
+**API tokens** (Accounts & access, Administrators). Give each program that
+controls the lights (Home Assistant, a script) its own token instead of a
+person's password:
+
+1. Open **API tokens › Make a token**, say who uses it, what it can do
+   (**Viewer**, **Editor** or **Administrator**) and how long it lasts.
+2. Copy the token (it starts with `elx_`) at once: it's shown only once.
+   Only a fingerprint of it is kept.
+3. The program sends it with each request as the header
+   `Authorization: Bearer elx_...`.
+
+A token never manages accounts or tokens, never changes the Trimlight
+connection, never installs updates or quits the app, and never sees the
+account's secrets, whatever its role. **Revoke** stops it at once. Each
+token shows when and from where it was last used. Making one from a phone
+asks for your password again. Webhooks keep their own link (section 21).
+
+**Audit log** (Accounts & access, Administrators): who changed what and
+from where, for a year. It lists people by account, API tokens, webhooks and
+automations. Only changes are listed, not looking around; brightness and
+speed sliders aren't listed each time they move. Refused attempts are
+marked **refused**. **Search** finds words in it; **Download (CSV)** saves
+it for a spreadsheet.
+
+**Encrypted backup** (App, Administrators): everything needed to set
+EaveLuxOS up again on another computer, locked with a passphrase of at least
+10 characters. That's the settings, the Trimlight account details, the
+accounts (with their passwords, still hashed) and, if you tick it, the house
+photos (up to 60 MB). Keep the passphrase safe: a backup can't be opened
+without it, by you or anyone else. To use it, open **Put a backup back**,
+choose the file and type the passphrase. The settings are replaced (the
+current ones stay in Version history); the app's own port stays. With the
+accounts, everyone signs in again. A wrong passphrase, or a file that was
+changed, is refused.
+
+**Away from home**: EaveLuxOS is for your home network. To use it away from
+home, connect your phone to your home network first with a **VPN**: your
+router's own (WireGuard on a Firewalla, UniFi or ASUS router) or
+**Tailscale** on this computer and the phone. Then the usual address works.
+Don't forward a port on your router to EaveLuxOS. The **Away from home** box
+checks that everyone has a password and HTTPS is on.
+
+**No internet**: with Local mode's **Send on/off and saved patterns over the
+home network** on, the schedule keeps running when the internet (or
+Trimlight's cloud) is down, even if EaveLuxOS starts during the outage: it
+uses the controllers it listed last time. Home says so meanwhile. Weather,
+scores and patterns not saved on the controller wait until the cloud is
+back.
+
+**When EaveLuxOS is quit, hand the lights to the controller's own timers**
+(Setup › Local mode): on **Quit** (or Ctrl+C), each controller goes to its
+own **Timer** mode (the Timer choice in the Trimlight Edge app's settings), so
+its two daily timers run the lights until EaveLuxOS starts again. Set those
+timers in the Trimlight Edge app (clock icon). This can't happen when the
+computer loses power or shuts down suddenly. When EaveLuxOS starts again it
+takes over as usual.
 
 ## 21. Alerts: webhooks and Home Assistant
 

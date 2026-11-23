@@ -451,6 +451,11 @@ class Engine:
     def _note(self, a, what) -> str:
         line = f"Automation “{a['name']}” {what}."
         self.history.appendleft({"at": self.now(), "id": a["id"], "text": line})
+        try:                                 # 4.17: in the audit log too
+            self.app.store.audit(f"automation: {a['name']}", "Automation " + what.split(" (")[0], what, role="automation",
+                                 ok="(" not in what)
+        except Exception:
+            pass
         c = self.app.ctrl
         if c is not None:
             c.note(line)

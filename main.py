@@ -200,6 +200,10 @@ def cmd_run(open_browser: bool):
     finally:
         if app.ctrl:
             app.ctrl.stop_event.set()
+        try:
+            app.hand_over()                  # 4.17: the controller's own timers take over, when asked
+        except Exception:
+            pass
         server.shutdown()
     return 0
 

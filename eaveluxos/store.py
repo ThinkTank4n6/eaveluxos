@@ -342,7 +342,14 @@ CREATE TABLE IF NOT EXISTS secrets  (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS sessions (hash TEXT PRIMARY KEY, label TEXT, created REAL NOT NULL, expires REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS users    (id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL,
                                      role TEXT NOT NULL, disabled INTEGER NOT NULL DEFAULT 0, created REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS audit    (id INTEGER PRIMARY KEY AUTOINCREMENT, at REAL NOT NULL, who TEXT NOT NULL,
+                                     role TEXT, via TEXT, what TEXT NOT NULL, detail TEXT, ok INTEGER NOT NULL DEFAULT 1);
+CREATE TABLE IF NOT EXISTS tokens   (hash TEXT PRIMARY KEY, id TEXT NOT NULL UNIQUE, name TEXT NOT NULL, role TEXT NOT NULL,
+                                     created REAL NOT NULL, expires REAL, last_used REAL, last_from TEXT, hint TEXT);
 """
+AUDIT_KEEP_DAYS = 365
+AUDIT_KEEP_ROWS = 20000
+TOKEN_PREFIX = "elx_"
 _RULE_KINDS = ("rules", "weather_rules")
 
 
@@ -936,6 +943,106 @@ class Store:
 
     def valid_session(self, token: str | None) -> bool:
         return self.session_user(token) is not None
+
+    # ---------------------------------------------------------------- encrypted backups (4.17)
+    def export_users(self) -> list[dict]:
+        """The accounts with their password hashes (scrypt), for an encrypted backup only."""
+        with self.lock:
+            return [{"id": r[0], "username": r[1], "password_hash": r[2], "role": r[3], "disabled": bool(r[4]), "created": r[5]}
+                    for r in self.con.execute("SELECT id, username, password_hash, role, disabled, created FROM users")]
+
+    def replace_users(self, rows: list[dict]):
+        """All accounts from a backup, replacing these; everyone signs in again."""
+        clean = []
+        for u in rows:
+            if not (isinstance(u, dict) and isinstance(u.get("id"), str) and isinstance(u.get("username"), str)
+                    and isinstance(u.get("password_hash"), str) and u.get("role") in ("viewer", "editor", "admin")):
+                raise ValueError("An account in the backup is malformed.")
+            clean.append((u["id"][:64], u["username"].strip().lower()[:64], u["password_hash"][:400], u["role"],
+                          1 if u.get("disabled") else 0, float(u.get("created") or time.time())))
+        if clean and not any(r[3] == "admin" and not r[4] for r in clean):
+            raise ValueError("The backup has no Administrator account that's turned on.")
+        with self.lock:
+            con = self.con
+            con.execute("BEGIN IMMEDIATE")
+            try:
+                con.execute("DELETE FROM sessions")
+                con.execute("DELETE FROM users")
+                con.executemany("INSERT INTO users (id, username, password_hash, role, disabled, created) VALUES (?,?,?,?,?,?)",
+                                clean)
+                con.execute("COMMIT")
+            except BaseException:
+                con.execute("ROLLBACK")
+                raise
+
+    # ---------------------------------------------------------------- audit log (4.17)
+    def audit(self, who: str, what: str, detail: str = "", role: str | None = None, via: str | None = None,
+              ok: bool = True, at: float | None = None):
+        """One line of who changed what. Kept a year (at most AUDIT_KEEP_ROWS)."""
+        now = time.time() if at is None else at
+        with self.lock:
+            self.con.execute("INSERT INTO audit (at, who, role, via, what, detail, ok) VALUES (?,?,?,?,?,?,?)",
+                             (now, str(who)[:80], role, (via or "")[:80], str(what)[:120], str(detail or "")[:500], 1 if ok else 0))
+            n = self.con.execute("SELECT COUNT(*) FROM audit").fetchone()[0]
+            if n > AUDIT_KEEP_ROWS or (n % 200 == 0):
+                self.con.execute("DELETE FROM audit WHERE at < ?", (now - AUDIT_KEEP_DAYS * 86400,))
+                self.con.execute("DELETE FROM audit WHERE id <= (SELECT id FROM audit ORDER BY id DESC LIMIT 1 OFFSET ?)",
+                                 (AUDIT_KEEP_ROWS,))
+
+    def audit_rows(self, limit: int = 200, before: int | None = None, who: str | None = None, q: str | None = None) -> list[dict]:
+        sql, args = "SELECT id, at, who, role, via, what, detail, ok FROM audit WHERE 1=1", []
+        if before:
+            sql += " AND id < ?"; args.append(int(before))
+        if who:
+            sql += " AND who = ?"; args.append(str(who))
+        if q:
+            sql += " AND (what LIKE ? ESCAPE '\\' OR detail LIKE ? ESCAPE '\\')"
+            like = "%" + str(q).replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+            args += [like, like]
+        sql += " ORDER BY id DESC LIMIT ?"; args.append(max(1, min(int(limit), 2000)))
+        with self.lock:
+            rows = self.con.execute(sql, args).fetchall()
+        return [{"id": r[0], "at": r[1], "who": r[2], "role": r[3], "via": r[4], "what": r[5], "detail": r[6], "ok": bool(r[7])}
+                for r in rows]
+
+    # ---------------------------------------------------------------- API tokens (4.17)
+    def new_token(self, name: str, role: str, days: int | None = None) -> dict:
+        """A token for an integration; the token itself is returned once and
+        only its hash is kept."""
+        tok = TOKEN_PREFIX + pysecrets.token_urlsafe(32)
+        tid = pysecrets.token_hex(6)
+        now = time.time()
+        with self.lock:
+            self.con.execute("INSERT INTO tokens (hash, id, name, role, created, expires, hint) VALUES (?,?,?,?,?,?,?)",
+                             (hashlib.sha256(tok.encode()).hexdigest(), tid, str(name)[:60], role, now,
+                              now + days * 86400 if days else None, tok[-4:]))
+        return {"token": tok, **next(t for t in self.tokens() if t["id"] == tid)}
+
+    def tokens(self) -> list[dict]:
+        with self.lock:
+            rows = self.con.execute("SELECT id, name, role, created, expires, last_used, last_from, hint FROM tokens "
+                                    "ORDER BY created").fetchall()
+        now = time.time()
+        return [{"id": r[0], "name": r[1], "role": r[2], "created": r[3], "expires": r[4], "last_used": r[5],
+                 "last_from": r[6], "hint": r[7], "expired": bool(r[4] and r[4] <= now)} for r in rows]
+
+    def revoke_token(self, tid: str) -> bool:
+        with self.lock:
+            return self.con.execute("DELETE FROM tokens WHERE id=?", (str(tid),)).rowcount > 0
+
+    def token_user(self, token: str | None, ip: str | None = None) -> dict | None:
+        """The integration behind a bearer token, as a user, or None."""
+        if not token or not token.startswith(TOKEN_PREFIX) or len(token) > 200:
+            return None
+        h = hashlib.sha256(token.encode()).hexdigest()
+        now = time.time()
+        with self.lock:
+            row = self.con.execute("SELECT id, name, role, expires, last_used FROM tokens WHERE hash=?", (h,)).fetchone()
+            if not row or (row[3] and row[3] <= now):
+                return None
+            if not row[4] or now - row[4] > 60:
+                self.con.execute("UPDATE tokens SET last_used=?, last_from=? WHERE hash=?", (now, (ip or "")[:60], h))
+        return {"id": None, "token_id": row[0], "username": f"token: {row[1]}", "role": row[2], "disabled": False, "token": True}
 
     def end_session(self, token: str):
         with self.lock:

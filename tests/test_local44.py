@@ -99,7 +99,7 @@ class Commands(ServerBase):
         self.assertIn('id="lccmd"', js)
         self.assertIn("api('local/commands'", js)
         # 4.4.1: shown with the address, not only after a good read
-        self.assertIn("head + cmd + pick + '<div id=\"lcbody\">", js)
+        self.assertIn("head + cmd + cmdT + pick + '<div id=\"lcbody\">", js)   # 4.17: + the hand-over to the controller's timers
         body = js[js.index("$('#lcbody', box).innerHTML = `<p class=\"small\">Ports"):js.index("box.onchange = e =>")]
         self.assertNotIn('id="lccmd"', body)
 

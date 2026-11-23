@@ -671,6 +671,11 @@ class Link:
     def power(self, on: bool):
         self._send(frame(CMD_REQUEST, request(SUB_POWER, b"\x01" if on else b"\x00")))
 
+    def timer_mode(self):
+        """Hand the lights to the controller's own daily timers (the Trimlight
+        app's Settings › Timer; 4.17, from the Nov 21, 2026 capture)."""
+        self._send(frame(CMD_REQUEST, request(SUB_POWER, bytes([POWER_TIMER]))))
+
     def preview(self, e: dict):
         """Show a pattern live without saving it (4.6; see preview_message)."""
         sub, data = preview_message(e)

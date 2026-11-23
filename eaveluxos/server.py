@@ -18,6 +18,7 @@ import base64
 import copy
 import hashlib
 import hmac
+import csv
 import io
 import ipaddress
 import json
@@ -70,6 +71,7 @@ def doc_path(name: str) -> Path | None:
 from .version import VERSION  # noqa: E402  (kept importable from here)
 COOKIE = "tls_session"
 MAX_BODY = 2_000_000
+RESTORE_MAX = 100 * 1024 * 1024        # 4.17: an encrypted backup with photos (at most 60 MB of them)
 PHOTO_UPLOAD_MAX = 30_000_000   # an original phone photo, sent as is (/api/photo/upload)
 PHOTO_SIDE = 1600
 # Formats decoded at full size (PNG, WebP, ...): a tiny file can describe a
@@ -194,7 +196,8 @@ class ApiError(Exception):
 SENSITIVE = {"/api/credentials", "/api/webhook", "/api/port", "/api/autostart", "/api/awake", "/api/local_login",
              "/api/users", "/api/users/delete", "/api/session_policy",
              "/api/ai/settings",      # a paid key: swapping or removing it needs the password (3.18.2)
-             "/api/update/install", "/api/update/rollback", "/api/update/auto"}   # 4.15: replacing the program
+             "/api/update/install", "/api/update/rollback", "/api/update/auto",   # 4.15: replacing the program
+             "/api/tokens", "/api/tokens/revoke", "/api/backup/encrypted", "/api/backup/restore"}   # 4.17
 REAUTH_SECONDS = 300
 
 # Roles (3.4). Administrators can do everything. Editors design patterns,
@@ -213,7 +216,8 @@ VIEWER_POSTS = {"/api/share"}
 MOOD_LEVELS = ("calm", "lively", "party")
 MOOD_MINUTES = 3     # a mood pattern ends by itself this long after the last word from the listening page
 AI_PER_MINUTE, AI_PER_DAY = 6, 100   # AI pattern ideas cost money on the owner's key (3.18.2)
-ADMIN_GETS = {"/api/users", "/api/safety/backup", "/api/backups", "/api/backups/patterns", "/api/alerts", "/api/local"}
+ADMIN_GETS = {"/api/users", "/api/safety/backup", "/api/backups", "/api/backups/patterns", "/api/alerts", "/api/local",
+              "/api/audit", "/api/tokens"}                       # 4.17
 # Household settings only an Administrator may change. "community" is the
 # address the app computer fetches the pattern library from: anyone who could
 # set it could make this computer request any address on the home network.
@@ -225,6 +229,52 @@ PRIVATE_KEYS = ("away", "usage", "ai", "lan", "paused")   # ai (3.18.2): which p
 ROLE_NAMES = {"admin": "Administrator", "editor": "Editor", "viewer": "Viewer"}
 # A browser on the app computer itself (when it doesn't require a password).
 LOCAL_USER = {"id": None, "username": "this computer", "role": "admin", "disabled": False, "local": True}
+
+# 4.17: the audit log. Not logged: what only looks or streams (many times a second).
+AUDIT_SKIP = {"/api/mood", "/api/musiclink", "/api/musiczones", "/api/rulecheck", "/api/automation/check", "/api/geocode",
+              "/api/textpattern", "/api/share/open", "/api/lan_check", "/api/local/identify", "/api/health/check",
+              "/api/update/check", "/api/sound/test", "/api/sound/clip", "/api/warnings/dismiss", "/api/local",
+              "/api/conflicts", "/api/upcoming", "/api/house/tonight", "/api/catalog", "/api/status", "/api/session",
+              "/api/devices", "/api/history", "/api/photos", "/api/backups", "/api/backups/patterns", "/api/export",
+              "/api/runtime", "/api/timezones", "/api/tzinfo", "/api/health", "/api/triggers", "/api/hook/status",
+              "/api/audit"}
+# Sent many times while a slider moves or a pattern is edited: not each one
+AUDIT_QUIET_ACTIONS = {"levels", "end_preview", "try"}
+AUDIT_NAMES = {"/api/settings": "Changed settings", "/api/import": "Imported settings", "/api/history/restore": "Restored an earlier version",
+               "/api/users": "Added or changed an account", "/api/users/delete": "Deleted an account", "/api/password": "Changed a password",
+               "/api/credentials": "Changed the Trimlight account details", "/api/webhook": "Changed the webhook link",
+               "/api/quit": "Quit EaveLuxOS", "/api/update/install": "Installed an update", "/api/update/rollback": "Went back a version",
+               "/api/tokens": "Created an API token", "/api/tokens/revoke": "Revoked an API token",
+               "/api/backup/encrypted": "Downloaded an encrypted backup", "/api/backup/restore": "Restored an encrypted backup",
+               "/api/local/delete": "Deleted patterns on a controller", "/api/backups/restore": "Put patterns back on a controller",
+               "/api/local/ports": "Changed a controller's ports", "/api/sessions/end_all": "Signed out everywhere"}
+# 4.17: never with an API token, whatever its role: accounts, tokens and the app itself
+TOKEN_NEVER = {"/api/users", "/api/users/delete", "/api/password", "/api/tokens", "/api/tokens/revoke", "/api/quit",
+               "/api/update/install", "/api/update/rollback", "/api/backup/encrypted", "/api/backup/restore",
+               "/api/sessions/end_all", "/api/session_policy", "/api/import", "/api/history/restore"}
+_AUDIT_KEYS = ("action", "effect", "on", "device", "name", "username", "role", "id", "mode", "file", "team", "side",
+               "address", "key", "ids", "minutes", "seconds", "version")
+
+
+_SENT = object()      # a GET answered by itself (a file download)
+
+
+def _audit_detail(path, b, before) -> str:
+    """A short, safe summary of a change: never a password, secret or token."""
+    if path == "/api/settings" and isinstance(before, dict) and isinstance(b, dict):
+        keys = sorted(k for k in set(b) | set(before) if not k.startswith("_") and _canon(b.get(k)) != _canon(before.get(k)))
+        return ("Changed: " + ", ".join(keys)) if keys else "No change"
+    if not isinstance(b, dict):
+        return ""
+    parts = []
+    for k in _AUDIT_KEYS:
+        v = b.get(k)
+        if v is None or v == "":
+            continue
+        if isinstance(v, (list, dict)):
+            v = json.dumps(v, default=str)
+        parts.append(f"{k}: {str(v)[:80]}")
+    return ", ".join(parts)[:400]
 _UNSET = object()
 
 
@@ -502,8 +552,9 @@ class App:
         lan = data.get("lan")
         if lan is not None:
             devs = lan.get("devices", {}) if isinstance(lan, dict) else None
-            if not (isinstance(lan, dict) and set(lan) <= {"address", "commands", "devices"}
+            if not (isinstance(lan, dict) and set(lan) <= {"address", "commands", "devices", "timer_on_quit"}
                     and isinstance(lan.get("address", ""), str) and isinstance(lan.get("commands", False), bool)
+                    and isinstance(lan.get("timer_on_quit", False), bool)
                     and isinstance(devs, dict) and all(isinstance(k, str) and isinstance(v, str) for k, v in devs.items())):
                 raise ApiError("The controller's local address is malformed.")
             for a in [lan.get("address")] + list(devs.values()):
@@ -1475,6 +1526,106 @@ class App:
             self.store.save_settings(s)
         log.info("Everyday commands %s.", "go over the home network when they can" if on else "go through Trimlight's cloud")
         return {"ok": True, "commands": on}
+
+    BACKUP_SECRETS = ("client_id", "client_secret", "webhook_token", "password_hash", "local_login", "ai_key",
+                      "session_idle_hours")
+
+    def encrypted_backup(self, passphrase, photos: bool = False) -> dict:
+        """Administrators (4.17): settings, secrets and accounts (and the house
+        photos if asked), sealed with a passphrase (vault.py)."""
+        from . import vault
+        sec = {k: v for k, v in self.store.secrets.items()}
+        body = {"app": "EaveLuxOS", "version": VERSION, "created": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                "settings": copy.deepcopy(self.store.settings), "secrets": sec, "users": self.store.export_users(), "photos": {}}
+        body["settings"].pop("_rev", None)
+        if photos:
+            d = self.store.dir / "photos"
+            total = 0
+            for f in sorted(d.glob("*.jpg")) if d.is_dir() else []:
+                raw = f.read_bytes()
+                total += len(raw)
+                if total > 60 * 1024 * 1024:
+                    raise ApiError("The house photos are too big for one backup. Make it without photos.")
+                body["photos"][f.name] = base64.b64encode(raw).decode()
+        try:
+            out = vault.seal(body, passphrase)
+        except vault.VaultError as e:
+            raise ApiError(str(e)) from None
+        log.info("Encrypted backup made (%d setting sections, %d accounts, %d photos).",
+                 len(body["settings"]), len(body["users"]), len(body["photos"]))
+        return out
+
+    def restore_encrypted(self, blob, passphrase, accounts: bool = True) -> dict:
+        """Administrators (4.17): put an encrypted backup back. Everything is
+        replaced except where this app runs (its port and address)."""
+        from . import vault
+        try:
+            body = vault.open_(blob, passphrase)
+        except vault.VaultError as e:
+            raise ApiError(str(e)) from None
+        if not (isinstance(body, dict) and isinstance(body.get("settings"), dict)):
+            raise ApiError("That backup has no settings in it.")
+        cur = self.store.settings
+        new = copy.deepcopy(body["settings"])
+        for k in ("service", "_rev"):            # where this computer runs the app stays as it is
+            if k in cur:
+                new[k] = copy.deepcopy(cur[k])
+            else:
+                new.pop(k, None)
+        self.save_settings(new)                   # checked like any other save
+        sec = body.get("secrets") or {}
+        if isinstance(sec, dict):
+            self.store.save_secrets(**{k: v for k, v in sec.items() if k in self.BACKUP_SECRETS})
+        n_users = 0
+        if accounts and isinstance(body.get("users"), list) and body["users"]:
+            try:
+                self.store.replace_users(body["users"])
+            except ValueError as e:
+                raise ApiError(str(e)) from None
+            n_users = len(body["users"])
+        n_photos = 0
+        ph = body.get("photos") or {}
+        if isinstance(ph, dict) and ph:
+            d = self.store.dir / "photos"
+            d.mkdir(exist_ok=True)
+            for name, b64 in ph.items():
+                if not (isinstance(name, str) and re.fullmatch(r"[A-Za-z0-9_.-]{1,80}\.jpg", name) and isinstance(b64, str)):
+                    continue
+                (d / name).write_bytes(base64.b64decode(b64))
+                n_photos += 1
+        self.rebuild(creds_changed=True)
+        log.info("Encrypted backup from %s put back (%d accounts, %d photos).", body.get("created"), n_users, n_photos)
+        return {"ok": True, "created": body.get("created"), "version": body.get("version"), "accounts": n_users,
+                "photos": n_photos, "signed_out": bool(n_users)}
+
+    def timer_on_quit(self, on) -> dict:
+        """Administrators (4.17): when EaveLuxOS is quit, hand each controller
+        to its own daily timers (Timer mode) over the home network."""
+        if not isinstance(on, bool):
+            raise ApiError("on must be true or false.")
+        s = copy.deepcopy(self.store.settings)
+        s["lan"] = {**(s.get("lan") or {}), "timer_on_quit": on}
+        self.store.save_settings(s)
+        return {"ok": True, "timer_on_quit": on}
+
+    def hand_over(self) -> list:
+        """4.17: on Quit (and a clean stop), when asked: each controller set
+        over the home network goes to its own Timer mode, so its own two daily
+        timers run the lights while EaveLuxOS is stopped. Returns the names."""
+        lan = self.store.settings.get("lan") or {}
+        c = self.ctrl
+        if not lan.get("timer_on_quit") or c is None or c.lan is None:
+            return []
+        done = []
+        for d in list(c.devices or []):
+            try:
+                if c.lan.timer_mode(d.get("deviceId")):
+                    done.append(d.get("name") or d.get("deviceId"))
+            except Exception:                    # never keep the app from stopping
+                log.exception("Couldn't hand the lights to the controller's timers")
+        if done:
+            log.info("Handed the lights to the controller's own timers: %s.", ", ".join(map(str, done)))
+        return done
 
     def musiclink_test(self, addr=None, read=False) -> dict:
         """Administrators: connect, greet and ping; with read, also set the
@@ -2875,11 +3026,18 @@ def make_server(app: App, host: str, port: int):
             password on this computer too" is on), a signed-in account, a
             setup session, or None. Looked up once per request."""
             if self._u is _UNSET:
-                if self._local() and not app.store.local_login_required():
+                if self._bearer() is not None:
+                    # 4.17: an integration's API token (Authorization: Bearer elx_...)
+                    self._u = app.store.token_user(self._bearer(), self.client_address[0])
+                elif self._local() and not app.store.local_login_required():
                     self._u = dict(LOCAL_USER)
                 else:
                     self._u = app.store.session_user(self._token())
             return self._u
+
+        def _bearer(self) -> str | None:
+            a = self.headers.get("Authorization") or ""
+            return a[7:].strip() if a[:7].lower() == "bearer " else None
 
         def _authed(self) -> bool:
             return self._user() is not None
@@ -2963,6 +3121,10 @@ def make_server(app: App, host: str, port: int):
                 if u and u.get("role") in ("admin", "editor"):
                     # only people who may save photos (and sounds, 4.9) send a big body
                     limit = PHOTO_UPLOAD_MAX if up == "/api/photo/upload" else sound.UPLOAD_MAX
+            elif up == "/api/backup/restore":
+                u = self._user()
+                if u and u.get("role") == "admin" and not u.get("token"):
+                    limit = RESTORE_MAX              # 4.17: an encrypted backup with the house photos
             if n > limit:
                 self.close_connection = True
                 raise ApiError("Request is too large.", 413)
@@ -3140,6 +3302,8 @@ def make_server(app: App, host: str, port: int):
                         return self._json(404, {"error": "No photo yet."})
                     return self._send(200, f.read_bytes(), "image/jpeg")
                 r = self._get(path, q)
+                if r is _SENT:                          # 4.17: answered already (a download)
+                    return None
                 return self._json(200, r)
             except ApiError as e:
                 return self._json(e.code, {"error": str(e)})
@@ -3216,8 +3380,8 @@ def make_server(app: App, host: str, port: int):
                        "port": app.store.settings.get("service", {}).get("web_port", 8787),
                        "version": VERSION, "user": {"username": u["username"], "role": u["role"],
                                                     "local": bool(u.get("local")), "setup": bool(u.get("setup"))}}
-                if u["role"] != "admin":
-                    return out   # no credentials, webhook token or folders for Editors and Viewers
+                if u["role"] != "admin" or u.get("token"):
+                    return out   # no credentials, webhook token or folders for Editors, Viewers and API tokens (4.17)
                 from .store import SESSION_IDLE_CHOICES, SESSION_MAX_DAYS
                 out.update({"client_id": s.get("client_id", ""),
                             "secret_hint": ("••••" + s["client_secret"][-4:]) if s.get("client_secret") else "",
@@ -3229,6 +3393,22 @@ def make_server(app: App, host: str, port: int):
                 return out
             if path == "/api/users":
                 return app.store.users()
+            if path == "/api/audit":                  # Administrators (4.17)
+                rows = app.store.audit_rows(int(q.get("limit", 200) or 200), int(q.get("before", 0) or 0) or None,
+                                            q.get("who") or None, q.get("q") or None)
+                if q.get("format") == "csv":
+                    buf = io.StringIO()
+                    w = csv.writer(buf)
+                    w.writerow(["when", "who", "role", "from", "what", "detail", "ok"])
+                    for r in rows:
+                        w.writerow([datetime.fromtimestamp(r["at"]).isoformat(timespec="seconds"), r["who"], r["role"] or "",
+                                    r["via"] or "", r["what"], r["detail"] or "", "yes" if r["ok"] else "refused"])
+                    self._send(200, buf.getvalue().encode("utf-8-sig"), "text/csv; charset=utf-8",
+                               {"Content-Disposition": 'attachment; filename="eaveluxos-audit.csv"'})
+                    return _SENT
+                return {"rows": rows}
+            if path == "/api/tokens":                 # Administrators (4.17)
+                return app.store.tokens()
             if path == "/api/safety":
                 return app.safety_status()
             if path == "/api/history":
@@ -3298,7 +3478,7 @@ def make_server(app: App, host: str, port: int):
                 self._read_raw()  # always consume the body, even for early refusals
                 if path.startswith("/api/hook/"):
                     return self._hook(url)
-                if self.headers.get("X-Requested-With") != "eaveluxos":
+                if self.headers.get("X-Requested-With") != "eaveluxos" and self._bearer() is None:
                     return self._json(403, {"error": "Missing request header."})
                 if path == "/api/login":
                     return self._login(ip)
@@ -3318,9 +3498,16 @@ def make_server(app: App, host: str, port: int):
                 else:
                     b = self._body()
                 self._authorize_post(path, b)
+                if self._user().get("token") and (path in SENSITIVE or path in TOKEN_NEVER):
+                    raise ApiError("An API token can't do that. Sign in as an Administrator.", 403)
                 self._confirm_password(path, b)
-                return self._json(200, self._post(path, b))
+                before = app.store.settings if path == "/api/settings" else None
+                out = self._post(path, b)
+                self._audit(path, b, before)
+                return self._json(200, out)
             except ApiError as e:
+                if e.code == 403 and self._u not in (_UNSET, None):
+                    self._audit(path, {}, None, ok=False, why=str(e))
                 return self._json(e.code, {"error": str(e), **e.extra})
             except PhotoUnreadable as e:
                 return self._json(e.code, {"error": str(e)})
@@ -3331,6 +3518,22 @@ def make_server(app: App, host: str, port: int):
             except Exception:
                 log.exception("POST %s failed", path)
                 return self._json(500, {"error": "Something went wrong. Details are in the log."})
+
+        def _audit(self, path, b, before, ok=True, why=""):
+            """4.17: who changed what, in the audit log (Setup › Accounts & access)."""
+            if path in AUDIT_SKIP or (path == "/api/action" and b.get("action") in AUDIT_QUIET_ACTIONS):
+                return
+            try:
+                u = self._user() or {}
+                who = u.get("username") or "?"
+                via = self.client_address[0] + (" (proxy)" if self._via_proxy else "")
+                what = AUDIT_NAMES.get(path) or path.replace("/api/", "").replace("/", " › ")
+                if path == "/api/action":
+                    what = "Lights: " + str(b.get("action") or "")
+                detail = why or _audit_detail(path, b, before)
+                app.store.audit(who, what, detail, role=u.get("role"), via=via, ok=ok)
+            except Exception:
+                log.debug("audit failed", exc_info=True)
 
         def _login(self, ip):
             if self._too_many(ip):
@@ -3394,6 +3597,8 @@ def make_server(app: App, host: str, port: int):
                 return app.local_ports(b.get("ports"), b.get("device"))
             if path == "/api/local/commands":       # Administrators (4.4)
                 return app.local_commands(b.get("on"))
+            if path == "/api/local/timer_on_quit":  # Administrators (4.17)
+                return app.timer_on_quit(b.get("on"))
             if path == "/api/resync":               # Administrators (4.4)
                 return app.resync_cloud()
             if path == "/api/local/backup":         # Administrators (4.3.6)
@@ -3598,6 +3803,27 @@ def make_server(app: App, host: str, port: int):
                     raise ApiError("You can't delete the account you're signed in with. Ask another Administrator.")
                 app.store.delete_user(str(b.get("id", "")))
                 return {"ok": True}
+            if path == "/api/tokens":                 # Administrators (4.17): a token for an integration
+                name = str(b.get("name") or "").strip()
+                role = b.get("role")
+                days = b.get("days")
+                if not name or len(name) > 60:
+                    raise ApiError("Name the token (who uses it, like Home Assistant), up to 60 characters.")
+                if role not in ("viewer", "editor", "admin"):
+                    raise ApiError("Choose what the token can do: viewer, editor or admin.")
+                if days is not None and (isinstance(days, bool) or not isinstance(days, int) or not 1 <= days <= 3650):
+                    raise ApiError("A token lasts 1 to 3650 days, or until revoked.")
+                if len(app.store.tokens()) >= 50:
+                    raise ApiError("50 tokens is the most. Revoke one you no longer use.")
+                return app.store.new_token(name, role, days)
+            if path == "/api/backup/encrypted":       # Administrators (4.17)
+                return app.encrypted_backup(b.get("passphrase"), bool(b.get("photos")))
+            if path == "/api/backup/restore":
+                return app.restore_encrypted(b.get("backup"), b.get("passphrase"), b.get("accounts", True) is not False)
+            if path == "/api/tokens/revoke":
+                if not app.store.revoke_token(str(b.get("id", ""))):
+                    raise ApiError("No such token.", 404)
+                return {"ok": True}
             if path == "/api/session_policy":
                 app.store.set_session_idle_hours(int(b.get("idle_hours", 0)))
                 return {"ok": True, "idle_hours": app.store.session_idle_hours()}
@@ -3722,6 +3948,8 @@ def make_server(app: App, host: str, port: int):
                          " (it starts by itself at the next sign-in)" if at_login else "")
 
                 def quit_now():
+                    # 4.17: the controller's own timers take over, when asked
+                    app.hand_over()
                     # Run as a login service, a plain exit is restarted at once;
                     # ask the service manager to stop it instead.
                     autostart.stop_service()
@@ -3810,12 +4038,16 @@ def make_server(app: App, host: str, port: int):
                     return self._json(409, {"error": "Finish setup first."})
                 done = app._auto_event({"type": "webhook", "name": name})
                 app.ctrl.note(f"Webhook event '{name}' from {self.client_address[0]}")
+                app.store.audit("webhook", f"Webhook event: {name}", "; ".join(done or [])[:400], role="webhook",
+                                via=self.client_address[0])
                 return self._json(200, {**self._hook_state(), "automations": done})
             if body["action"] not in ("flash", "stop_flash", "on", "off", "resume", "levels", "music", "stop_music",
                                       "dismiss_alert"):
                 return self._json(400, {"error": "unknown action"})
             r = self._post("/api/action", body)
             app.ctrl.note(f"Webhook '{body['action']}' from {self.client_address[0]}")
+            app.store.audit("webhook", f"Webhook: {body['action']}", _audit_detail("/api/action", body, None), role="webhook",
+                            via=self.client_address[0])
             out = self._hook_state()
             if isinstance(r, dict) and "flash_started" in r:
                 out["flash_started"] = r["flash_started"]   # false: something more important is showing

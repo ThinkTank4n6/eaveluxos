@@ -524,6 +524,13 @@ class Commands:
             log.info("Over the home network (%s): lights %s.", self.host(dev), "on" if on else "off")
         return done
 
+    def timer_mode(self, dev) -> bool:
+        """4.17: the controller's own timers take over (on Quit, when asked)."""
+        done = self._do(dev, lambda link: link.timer_mode() or True) is True
+        if done:
+            log.info("Over the home network (%s): handed the lights to the controller's own timers.", self.host(dev))
+        return done
+
     def show(self, dev, pid: int) -> bool:
         done = self._do(dev, lambda link: link.show_saved(pid) or True) is True
         if done:

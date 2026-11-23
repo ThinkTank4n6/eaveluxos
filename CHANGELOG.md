@@ -1,5 +1,48 @@
 # Changelog
 
+## 4.17.0: local-first and security
+
+From the "more ambitious" list: authenticated access for programs,
+encrypted configuration backups, an audit log, help for remote access, and
+the lights running without the internet.
+
+- **API tokens** (Setup › Accounts & access): a named token per program
+  (Home Assistant, a script) with a role (Viewer, Editor, Administrator) and
+  an end date, sent as `Authorization: Bearer elx_...`. Shown once and kept
+  only as a SHA-256 fingerprint, revocable, with when and from where it was
+  last used. Whatever its role, a token never manages accounts or tokens,
+  the Trimlight connection, updates, Quit, imports or backups, and never
+  sees the account's secrets.
+- **Audit log** (Setup › Accounts & access): who changed what and from
+  where (people, API tokens, webhooks, automations), refused attempts
+  marked, a year kept, search and CSV download. Never a password, secret or
+  token in it; sliders and previews aren't listed each time.
+- **Encrypted backups** (Setup › App): settings, Trimlight account details,
+  accounts and optionally the house photos, sealed with a passphrase
+  (scrypt, AES-256-GCM; vault.py). Putting one back replaces the settings
+  (the old ones stay in Version history) and keeps this app's own port.
+- **No internet:** with on/off and saved patterns going over the home
+  network, the lights keep running when the internet or Trimlight's cloud
+  is down, also when EaveLuxOS starts during the outage (the controllers it
+  listed last are kept in controllers.json). Home says so.
+- **Hand over to the controller's own timers on Quit** (Setup › Local
+  mode): Quit (or Ctrl+C) sends Timer mode (2, decoded Nov 21) so the
+  controller's two daily timers run the lights while EaveLuxOS is stopped.
+- **Away from home** (Setup › Accounts & access): use a VPN (the router's
+  own, for example WireGuard on a Firewalla, or Tailscale), never a
+  forwarded port; a checklist of passwords and HTTPS.
+- Code review:
+  1. An Administrator API token could read Accounts & access's data,
+     including the webhook token and the Trimlight Client ID; tokens now get
+     what an Editor sees (tests/repro_token_reads_secrets.py).
+  2. Brightness and speed sliders would have filled the audit log, one
+     line per move; they aren't logged.
+  3. An encrypted backup with photos was bigger than any request the app
+     accepts (2 MB); Administrators (signed in, not by token) can now send
+     one of up to 100 MB, and photos are capped at 60 MB.
+  4. "Cloud can't be reached" only for network errors, not, say, wrong
+     account details.
+
 ## 4.16.6: a short power cut is noticed; pause the schedule; Timer mode
 
 - **Fixed: a short power cut was never noticed** (Chris's test, Nov 21:
