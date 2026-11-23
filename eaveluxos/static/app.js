@@ -408,12 +408,15 @@ function statusPill(st) {
   else if (st.target.reason === 'paused') setPill('', 'Schedule paused');
   else if (st.error) setPill('bad', "Can't reach lights");
   else setPill('ok', st.target.on ? 'Lights on' : 'Lights off');
-  // The header On/Off: the one matching what the lights are doing is greyed
-  // out. During a music show what the lights show isn't known: both work.
-  const t = st.target || {}, music = t.reason === 'music' || t.reason === 'paused';   // 4.16.6: paused: both work too
+  // The header On/Off. 4.21.1 (review #1): both always work. "Lights off"
+  // is what this app wants, not a reading: the lights can be on anyway (the
+  // Trimlight app, the controller's own timer, power coming back), and a
+  // greyed-out Off then couldn't turn them off. The one matching what this
+  // app wants is only marked.
+  const t = st.target || {}, music = t.reason === 'music' || t.reason === 'paused';
   const on = $('#quick [data-q=on]'), off = $('#quick [data-q=off]');
-  if (on) on.disabled = !!st.setup_only || (t.on && !music);
-  if (off) off.disabled = !!st.setup_only || (!t.on && !music);
+  if (on) { on.disabled = !!st.setup_only; on.classList.toggle('qcur', !!t.on && !music); on.setAttribute('aria-pressed', String(!!t.on && !music)); }
+  if (off) { off.disabled = !!st.setup_only; off.classList.toggle('qcur', !t.on && !music); off.setAttribute('aria-pressed', String(!t.on && !music)); }
 }
 function setPill(kind, text) { const p = $('#pill'); p.className = 'pill' + (kind ? ' ' + kind : ''); p.textContent = text; }
 
@@ -572,7 +575,7 @@ function buildQuick(canControl, local) {
       S.status = await api('action', { body: { action: on ? 'on' : 'off' } });
       statusPill(S.status);
       const t = S.status.target;
-      toast(on ? `Lights on: ${t.effect || 'on'}, until the next scheduled change.` : 'Lights off until the next scheduled change.');
+      toast(on ? `Lights on: ${t.effect || 'on'}, until the next scheduled change.` : 'Lights off (sent to every controller) until the next scheduled change.');
       if (S.view === 'home' || S.view === 'music') VIEWS[S.view]();
     }).catch(() => {});
   };

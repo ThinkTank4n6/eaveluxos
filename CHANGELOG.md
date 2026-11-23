@@ -1,5 +1,28 @@
 # Changelog
 
+## 4.21.1: the Off button always turns the lights off
+
+Reported from an Intel Mac: "Off doesn't turn the lights off". Nothing in
+the Off button's way differs by computer (no Mac, Intel or Apple-silicon
+code in it; a test checks that), so these are the ways it could fail on any
+computer. Each fixed; the first has a 20-line standalone repro,
+tests/repro_min_off_greyed.py, and the rest tests against the real code
+(tests/test_off4211.py).
+
+1. **Off was greyed out whenever EaveLuxOS itself wanted the lights off**,
+   so lights turned on outside it (the Trimlight app, the controller's own
+   timer, power coming back in Timer mode, as on Nov 21 at 4:53 PM) couldn't
+   be turned off with it. On and Off now always work; the one matching what
+   the app wants is only dimmed (and marked for screen readers).
+2. A pattern or On chosen by hand sent only the pattern when the app
+   believed the lights were already on, so lights turned off outside it
+   stayed off. A choice by hand now always sends the on/off too.
+3. Off during a flash (the security flash, a score celebration, an
+   automation's flash) waited for the flash to end, up to 10 minutes. Off
+   now ends it at once.
+4. Off pressed twice within the same second (because the first didn't seem
+   to work) wasn't sent the second time. A choice by hand is always sent.
+
 ## 4.21.0: sharing and energy
 
 - **Sharing shows and automations** (marketplace.py): share codes carry a

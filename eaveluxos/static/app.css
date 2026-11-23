@@ -63,6 +63,7 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
 .qbtn svg{width:17px;height:17px;flex:none}
 .qbtn:hover:not(:disabled){border-color:var(--lamp);color:var(--lamp)}
 .qbtn:disabled{opacity:.45;cursor:default}
+.qbtn.qcur{opacity:.6}   /* 4.21.1: what this app wants now; still clickable */
 .qbtn.qquit{color:var(--muted)}
 .qbtn.qquit:hover{border-color:var(--warn);color:var(--warn)}
 /* feature search (4.2.1) */

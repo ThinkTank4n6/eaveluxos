@@ -1064,6 +1064,11 @@ class Controller:
                     # now, a flash, a restore, or the first send after a start)
                     fade = (getattr(self.cfg, "fade_seconds", 0) if t.reason in ("schedule", "weather")
                             and self.applied_key is not None and not t.delegated else 0)
+                    if t.reason == "manual":
+                        # 4.21.1 (review #2): a choice by hand always sends the
+                        # on/off itself, not just the pattern: the lights may
+                        # have been turned off (or on) outside this app since
+                        self.known_on = False
                     switched_on = self._apply(t.on, t.effect, t.levels, timer_off=t.key == "off|timer",
                                               delegated=t.delegated, skip=skip, fade=fade)
                     with self.lock:
@@ -1492,10 +1497,20 @@ class Controller:
             prev = self.override
             if prev and prev.get("obj") is not None and prev.get("expires"):
                 prev = prev.get("restore")              # 4.16: what the first preview covered
+            if not on and obj is None and (self.flash or self.flash_held):
+                # 4.21.1 (review #3): Off pressed during a flash (security,
+                # a score, an automation) turns the lights off now, instead
+                # of waiting out the flash (up to 10 minutes)
+                self.note(f"{(self.flash or {}).get('label') or 'Flash'} ended: Lights off was chosen.")
+                self.flash, self.flash_held = None, []
             self.override = {"on": on, "effect": key, "obj": obj, "since": self.cfg.loc.now(),
                              "expires": time.time() + expires_min * 60 if expires_min else None,
                              **({"restore": prev} if obj is not None and expires_min and prev else {})}
             self.adjust = {}
+            # 4.21.1 (review #4): a choice by hand is always sent, even the same
+            # one again within the same second (Off pressed twice because the
+            # lights didn't go off the first time)
+            self.applied_key = None
             self._kick()
         self.tick(maintenance=False)
 

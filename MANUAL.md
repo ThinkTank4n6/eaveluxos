@@ -1,7 +1,7 @@
 # EaveLuxOS: User Manual
 ### The Intelligent Lighting Control Platform
 
-Version 4.21.0 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
+Version 4.21.1 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
 
 > **Quick start: you probably don't need Python.** Download the ready-made
 > app from the project's GitHub **Releases** page
@@ -654,6 +654,13 @@ door, and the tabs are along the bottom of the screen.
   top of the page still mean all of them, and end any one controller's own
   choice. When the controllers show different things, the headline lists
   each one.
+- **On and Off at the top always work (4.21.1).** The one matching what
+  EaveLuxOS wants right now is dimmed, but you can still press it: the lights
+  can be on while the app says "Lights off" (turned on with the Trimlight
+  app, by the controller's own timer, or when power comes back), and
+  **Off** then turns them off. Every press is sent to every controller again,
+  the on/off itself and not just the pattern. **Off** also ends a flash that's
+  running (security, a score, an automation) instead of waiting for it.
 - **Activity:** a log of everything the app did.
 
 ## 10. Patterns
