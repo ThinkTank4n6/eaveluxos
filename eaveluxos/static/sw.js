@@ -15,7 +15,7 @@ const VERSION = '__VERSION__';
 const CACHE = 'eaveluxos-' + VERSION;
 const FILES = ['./', 'index.html', 'app.css', 'app.js', 'theme.js', 'markdown.js', 'roofline.js', 'painter.js', 'whites.js',
   'housefx.js', 'calib.js', 'mood.js', 'bands.js', 'beat.js', 'musiczones.js', 'qr.js', 'colors.js', 'nav.js', 'search.js', 'merge.js',
-  'zonemix.js', 'security.js', 'offline.html', 'manifest.webmanifest', 'icon.svg', 'logo-mark.svg', 'icon-180.png', 'icon-192.png',
+  'zonemix.js', 'security.js', 'triggers.js', 'offline.html', 'manifest.webmanifest', 'icon.svg', 'logo-mark.svg', 'icon-180.png', 'icon-192.png',
   'icon-512.png', 'icon-maskable-192.png', 'icon-maskable-512.png'];
 
 self.addEventListener('install', e => {
@@ -31,11 +31,15 @@ self.addEventListener('fetch', e => {
   const req = e.request, url = new URL(req.url);
   if (req.method !== 'GET' || url.origin !== self.location.origin) return;
   if (url.pathname.includes('/api/')) return;                // the lights and settings: always live, never kept
+  if (url.pathname === '/ca.crt' || url.pathname === '/trust' || url.pathname.startsWith('/docs/')) return;   // 4.18.2: never kept, never the page
   if (req.mode === 'navigate') {
     // The page: fresh when the app computer answers; otherwise the kept copy,
     // which then says the app computer can't be reached.
     e.respondWith(fetch(req).then(r => {
-      if (r.ok) { const copy = r.clone(); caches.open(CACHE).then(c => c.put('index.html', copy)); }
+      // 4.18.2: only the app's own page is kept as the page (a download opened
+      // in the browser, like the certificate, must never replace it)
+      if (r.ok && (r.headers.get('Content-Type') || '').startsWith('text/html') && (url.pathname === '/' || url.pathname === '/index.html')) {
+        const copy = r.clone(); caches.open(CACHE).then(c => c.put('index.html', copy)); }
       return r;
     }).catch(() => caches.match('index.html').then(r => r || caches.match('offline.html'))));
     return;

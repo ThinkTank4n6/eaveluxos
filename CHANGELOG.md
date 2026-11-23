@@ -1,5 +1,147 @@
 # Changelog
 
+## 4.18.2: set up a phone, and the usability suggestions from the review
+
+- **Set up a phone or tablet** (Setup › App › On your phone, and the phone
+  bar's **How**): the app computer shows a code to scan; the phone gets one
+  page, in order: trust the app's certificate (a **Download the
+  certificate** button and the steps for that device, with its
+  fingerprint), the home-screen icon, and who's home (who this phone is,
+  **I'm home** / **I'm away**, and the Shortcuts recipe with the name
+  filled in). The app finds mkcert's root certificate itself and offers it
+  only if it signed the app's certificate; never its key. With HTTPS on,
+  `/trust` and `/ca.crt` are the only things sent over plain http.
+- **Who's home on Home**, under the state line (Editors and
+  Administrators).
+- **Arrive/leave settling:** after someone's change, another within 2
+  minutes (0 to 30, on the Who's home panel) is noted but starts no
+  automations, so a phone at the edge of the Wi-Fi doesn't repeat the
+  welcome flash. Marking by hand is never ignored.
+- **Birthdays & anniversaries:** up to 6 patterns in turn (with the minutes
+  each, and **↑** to reorder), **Preview** on the lights, and **Today** /
+  **Lights tonight** badges in the list.
+- **Automations in groups** (People, Games, Weather, webhooks, Times and the
+  schedule) once there are seven or more.
+- tests/repro_min_cloud_catchup.py: the 4.18.1 Review #1 (the false
+  "changed outside this app") as a 20-line script that runs by itself
+  (`--fixed` shows the fix).
+
+Code review (each fixed; the first has a repro script):
+
+1. The installed app kept the answer to any page opened in it as "the app's
+   page" for when the app computer can't be reached. Opening the new
+   certificate download, or the manual's file, replaced it: away from home
+   the app would open as a certificate or a text file. Only the app's own
+   page is kept now (tests/repro_sw_keeps_download.py).
+2. Home redraws every few seconds and asked who's home each time; at most
+   every 20 seconds now (and at once after you mark someone).
+
+## 4.18.1: code review of 4.18, and today's log
+
+A full review of 4.18 (bugs, edge cases, races, and the screens as a user
+sees them), plus what Chris's log for Nov 22 showed. Each fixed; the first
+has a repro script.
+
+1. **A false "changed outside this app" every evening.** The lights came on
+   over the home network at 4:40 PM, and at 4:48 the app said Trimlight was
+   changed outside it and sent everything again. Nothing had changed: the
+   cloud doesn't hear about home-network commands, so its first report
+   after one still showed the old state, and its catching up with what was
+   sent counted as a change. A report that matches what this app sent is
+   now never a change from outside (tests/repro_cloud_catches_up.py).
+2. On the days before or after a birthday (with *days before/after*), Home
+   and the morning note said "Today is Chris's birthday". They now say
+   "Tonight: the lights for Chris's birthday (in 2 days)".
+3. A pattern used only by a birthday, or by an automation, showed as unused
+   on Patterns, and deleting it then failed with "Chris: choose 1 to 6 of
+   your patterns." Both are listed under *used by* now.
+4. Viewer accounts and Viewer API tokens could read who's home, which
+   says when the house is empty (as private as away mode). Now Editors and
+   Administrators only.
+5. Two quick reports (arrive, then leave) could run their automations in
+   the wrong order, each in its own request. One change and its
+   automations now run at a time.
+6. Marking someone home or away by hand was in the audit log without who
+   or which; it now says "Marked someone home or away · person: Chris,
+   state: home".
+7. The iPhone recipe used **Arrive**, which runs down the street, before the
+   phone is back on the home Wi-Fi, so it couldn't reach the app. It uses
+   **Wi-Fi › When Joining** your network now, and the panel has a **Copy
+   token** button.
+8. The automation builder offered Someone/Nobody is home, and the templates
+   that need people, before anyone was added, and saving then failed. They
+   wait for people now (and the templates update when someone is added).
+9. The template picker made the Automations panel wider than a phone; it
+   has its own line.
+10. Removing someone kept their last state in presence.json until the next
+    arrival or departure; it's removed now.
+11. "Remove O'Brien?" showed `O&#39;Brien` (escaped twice); a date's on/off
+    box had no name for screen readers.
+
+## 4.18.0: triggers and calendar
+
+From the list: the adaptive holiday and event calendar (your own dates),
+geofencing, voice assistants and motion-triggered lighting.
+
+- **Birthdays and anniversaries** (Schedule › Special days): a name, a
+  birthday, an anniversary or another date, an optional year (*turns 47*,
+  *25th anniversary*), a pattern, times and up to 7 days around it. Every
+  year without setting it up again, ranked 220 (above holidays, below game
+  days); Home announces it that morning like a holiday; February 29 shows on
+  February 28 in other years. Never in a shared or exported file.
+- **Who's home** (Alerts): the people who live here, and whether each is
+  home, from a phone's webhook (`POST /api/hook/presence {"person",
+  "state"}`) sent by an iPhone Shortcuts automation or Home Assistant, or
+  set by hand. Only home or away is kept (presence.json), no location.
+  Recipes for both on the panel.
+- **Automations:** new events **Someone arrives home** (anyone or one
+  person, optionally only the first one back) and **Someone leaves home**
+  (optionally only the last one out), and conditions **Someone is home** /
+  **Nobody is home**.
+- **Templates:** Motion lights, Welcome home, Motion while nobody's home,
+  Doorbell, Everyone left.
+- **Siri, Alexa and Google** (Alerts › Webhooks): Siri Shortcuts recipes for
+  on, off, back to the schedule, the security flash and an automation by
+  name; a Home Assistant `rest_command` for Alexa and Google. Motion: the
+  camera and sensor recipe.
+- **Pausing the schedule** now holds automations too (the reason says "the
+  schedule is paused", not "a music show is on").
+
+Code review (each fixed; the first has a repro script):
+
+1. With two people on the list and only one phone heard from, that one
+   leaving counted as "everyone has left" and **Nobody is home** was true,
+   although the other may be home (an "Everyone left: lights off"
+   automation would have turned the lights off on them). Now both wait
+   until every person's phone has reported
+   (tests/repro_everyone_left_too_soon.py).
+2. "Beats a manual choice" let an automation change the lights while the
+   schedule was paused.
+3. The Everyone left template checked "after 11 PM" (today only), so
+   leaving after midnight didn't count; it is 11 PM to sunrise now.
+4. Who wins tonight listed a birthday as a holiday; it says birthday or
+   anniversary.
+5. The new page script reused a name another script already had (MONTHS),
+   which stopped it loading; renamed, and the browser test loads every page
+   script together.
+
+Manual: installing is now download-first (section 4: the ready-made app
+from GitHub's Releases page, which includes Python, with the fingerprint
+check; Python only for the source code). Section 8 is now *Phones and
+tablets*: finding the address, HTTPS with mkcert step by step on Windows,
+Mac and Linux, and trusting the certificate and installing the app on an
+iPhone, an iPad, an Android phone and an Android tablet (with the
+Private Wi-Fi Address fix for a device that times out).
+
+Tests (GitHub's Mac run of 4.17.0 failed two; the app itself was fine):
+
+- The live-preview speed test ran each rate for 1.2 seconds, so at 6 a
+  second only the last keep-alive could lag, and one late answer is
+  forgiven: a slow Mac runner passed 6. Each rate now runs 2.4 seconds.
+- A backup too big for an API token is refused before it's read; macOS
+  reports that as a broken pipe while still sending instead of the 413.
+  Both count as refused.
+
 ## 4.17.0: local-first and security
 
 From the "more ambitious" list: authenticated access for programs,

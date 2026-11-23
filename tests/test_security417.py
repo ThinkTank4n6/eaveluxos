@@ -312,9 +312,17 @@ class ReviewFixes(Live):
         tok = self.token("admin")
         r = urllib.request.Request(f"http://127.0.0.1:{self.port}/api/backup/restore", data=big,
                                    headers={"Content-Type": "application/json", "Authorization": f"Bearer {tok}"})
-        with self.assertRaises(urllib.error.HTTPError) as cm:
+        # Refused before the body is read. Linux reads the 413; macOS may
+        # report the closed connection while still sending instead (4.18).
+        with self.assertRaises(urllib.error.URLError) as cm:
             urllib.request.urlopen(r, timeout=20)
-        self.assertEqual(cm.exception.code, 413)
+        e = cm.exception
+        if isinstance(e, urllib.error.HTTPError):
+            self.assertEqual(e.code, 413)
+        else:
+            self.assertIsInstance(e.reason, (BrokenPipeError, ConnectionResetError, ConnectionAbortedError), e)
+        self.assertFalse(self.app.store.audit_rows(50) and any("Restored" in x["what"] and x["ok"] for x in self.app.store.audit_rows(50)),
+                         "nothing was put back")
 
 
 if __name__ == "__main__":

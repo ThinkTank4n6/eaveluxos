@@ -6,11 +6,12 @@ something to the lights.
   When  a team scores; a game starts or ends (win, loss or either); a severe
         weather alert starts; a webhook event is called by its name; a time
         of day or sunrise/sunset with an offset; the schedule turns the lights
-        on or off.
+        on or off; someone arrives home or leaves (4.18, presence.py).
   If    (all of them) it's dark (sunset to sunrise); between two times;
         before or after a time; on some days of the week; between two dates;
         the lights are on or off; a rule or a pattern is showing; the team is
-        home or away, winning or losing (game events only).
+        home or away, winning or losing (game events only); someone is home,
+        nobody is home (4.18).
   Then  (in order) flash a pattern, a color or a zone for some seconds and
         go back to what was showing; show a pattern for some minutes or until
         the schedule changes; turn off for some minutes; play a team's
@@ -35,9 +36,10 @@ from .schedule import ConfigError, TimeExpr, ts
 log = logging.getLogger("eaveluxos.automations")
 
 MAX_AUTOS, MAX_CONDS, MAX_ACTS = 50, 8, 4
-EVENTS = ("score", "game_start", "game_end", "weather", "webhook", "time", "lights")
+EVENTS = ("score", "game_start", "game_end", "weather", "webhook", "time", "lights", "arrive", "leave")
 CONDS = ("dark", "between", "before", "after", "days", "dates", "lights", "rule", "pattern",
-         "home", "away", "winning", "losing")
+         "home", "away", "winning", "losing", "someone_home", "nobody_home")
+PRESENCE_EVENTS = ("arrive", "leave")
 ACTIONS = ("flash", "show", "off", "sound")
 GAME_EVENTS = ("score", "game_start", "game_end")
 TIME_WINDOW = 120            # seconds after a time event that it may still fire (the engine looks every 15)
@@ -65,9 +67,10 @@ def _mmdd(v, where):
     return (m, d)
 
 
-def parse(raw, effects: dict, teams: set, devices_ok=lambda d: True) -> list[dict]:
+def parse(raw, effects: dict, teams: set, devices_ok=lambda d: True, people=()) -> list[dict]:
     """Check and tidy the "automations" setting. teams: the Game-day team keys
-    (league-team) that game events may name."""
+    (league-team) that game events may name; people: the names under Who's
+    home (4.18) that arriving and leaving may name."""
     if raw is None:
         return []
     if not isinstance(raw, list) or len(raw) > MAX_AUTOS:
@@ -109,6 +112,16 @@ def parse(raw, effects: dict, teams: set, devices_ok=lambda d: True) -> list[dic
             when["_at"] = _time(w.get("at"), where)
         elif w["type"] == "lights":
             when["on"] = bool(w.get("on", True))
+        elif w["type"] in PRESENCE_EVENTS:
+            who = w.get("person", "any")
+            if who != "any":
+                who = next((p for p in people if p.lower() == str(who).lower()), None)
+                if who is None:
+                    raise ConfigError(f"{where}: that person isn't under Alerts › Who's home any more.")
+            when["person"] = who
+            # arrive: only the first one home; leave: only when the last one leaves
+            key = "first" if w["type"] == "arrive" else "last"
+            when[key] = bool(w.get(key, False))
         conds = a.get("if") or []
         if not isinstance(conds, list) or len(conds) > MAX_CONDS:
             raise ConfigError(f"{where}: up to {MAX_CONDS} conditions.")
@@ -141,6 +154,8 @@ def parse(raw, effects: dict, teams: set, devices_ok=lambda d: True) -> list[dic
                 if c.get("effect") not in effects:
                     raise ConfigError(f"{where}: the pattern in a condition is gone.")
                 cc["effect"] = c["effect"]
+            elif t in ("someone_home", "nobody_home") and not people:
+                raise ConfigError(f"{where}: add people under Alerts › Who's home first.")
             elif t in ("home", "away", "winning", "losing") and when["type"] not in GAME_EVENTS:
                 raise ConfigError(f"{where}: home, away, winning and losing are only for game events.")
             cs.append(cc)
@@ -227,7 +242,11 @@ def describe(a: dict, names=lambda kind, v: v) -> str:
             "weather": lambda: f"a {w['event']} starts" if w.get("event") else "a weather warning starts",
             "webhook": lambda: f"the webhook event “{w['name']}” comes",
             "time": lambda: f"it's {w['at']}",
-            "lights": lambda: "the schedule turns the lights " + ("on" if w["on"] else "off")}[w["type"]]()
+            "lights": lambda: "the schedule turns the lights " + ("on" if w["on"] else "off"),
+            "arrive": lambda: ("someone" if w["person"] == "any" else w["person"]) + " arrives home"
+                              + (" and nobody else is home" if w.get("first") else ""),
+            "leave": lambda: (("everyone has left" if w["person"] == "any" else f"{w['person']} leaves and nobody is home")
+                              if w.get("last") else ("someone" if w["person"] == "any" else w["person"]) + " leaves")}[w["type"]]()
     cs = []
     for c in a["if"]:
         t = c["type"]
@@ -240,7 +259,8 @@ def describe(a: dict, names=lambda kind, v: v) -> str:
                    "rule": lambda: f"{c['name']} is running",
                    "pattern": lambda: f"{names('effect', c['effect'])} is showing",
                    "home": lambda: "they're at home", "away": lambda: "they're away",
-                   "winning": lambda: "they're winning", "losing": lambda: "they're losing"}[t]())
+                   "winning": lambda: "they're winning", "losing": lambda: "they're losing",
+                   "someone_home": lambda: "someone is home", "nobody_home": lambda: "nobody is home"}[t]())
     acts = []
     for x in a["then"]:
         on = f" on {names('device', x['device'])}" if x.get("device") else ""
@@ -327,6 +347,14 @@ class Engine:
         if k == "rule":
             names = {t.source} | {p.get("rule") for p in (t.parts or {}).values()}
             return c["name"] in names, ""
+        if k in ("someone_home", "nobody_home"):
+            pr, people = getattr(self.app, "presence", None), getattr(self.app.ctrl.cfg, "people", [])
+            if pr is None or not pr.known(people):
+                return False, "nobody has told the app yet whether they're home"
+            nobody = pr.nobody_home(people)
+            if nobody is None:              # someone not heard from may be home (Review #1)
+                return False, "not everyone's phone has said yet whether they're home"
+            return (not nobody) == (k == "someone_home"), ""
         if k == "pattern":
             keys = {getattr(t.effect, "key", None)} | {getattr(p, "key", None) for p in ((t.effect.parts or {}).values() if t.effect is not None and t.effect.kind == "split" else ())}
             return c["effect"] in keys, ""
@@ -371,6 +399,11 @@ class Engine:
             return False
         if w["type"] == "time" and w is not ev.get("when"):
             return False
+        if w["type"] in PRESENCE_EVENTS:
+            if w["person"] != "any" and w["person"] != ev.get("person"):
+                return False
+            if w.get("first") and not ev.get("first") or w.get("last") and not ev.get("last"):
+                return False
         return True
 
     def _devices(self, a) -> set:
@@ -417,6 +450,9 @@ class Engine:
             # pattern goes through the same path as a choice made by hand,
             # which would have dismissed the warning.
             return f"the {t.source or 'weather'} alert is showing"
+        if devs and t.reason == "paused":
+            # 4.18: a paused schedule means hands off, even for "beats a manual choice"
+            return "the schedule is paused"
         if devs and t.hands_off and not a["beats_manual"]:
             return "a music show is on"
         if used and ("*" in used or "*" in devs or used & devs):

@@ -1,31 +1,19 @@
 # EaveLuxOS: User Manual
 ### The Intelligent Lighting Control Platform
 
-Version 4.17.0 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
+Version 4.18.2 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
 
-> **Downloaded the ready-made app? You can skip most of the setup.**
-> The downloads on the project's GitHub **Releases** page
-> (https://github.com/ThinkTank4n6/eaveluxos/releases/latest) already include
-> Python and everything else the app needs. With one of them you **don't**
-> install Python, run `pip`, download `eaveluxos.zip` or use a launcher file.
-> Skip **section 3 (Install Python)** and the zip steps in **section 4**.
+> **Quick start: you probably don't need Python.** Download the ready-made
+> app from the project's GitHub **Releases** page
+> (https://github.com/ThinkTank4n6/eaveluxos/releases/latest): it already
+> includes Python and everything else. Section 4 walks through it. Python
+> (section 3) is only needed to run EaveLuxOS from its source code, for
+> example on 32-bit Raspberry Pi OS.
 >
-> | Computer | Download | To start it |
-> |---|---|---|
-> | Windows | `EaveLuxOS-Windows.zip` | Unzip it into a folder you'll keep and double-click `EaveLuxOS.exe`. If Windows says "Windows protected your PC", click **More info › Run anyway**. |
-> | Mac (M1 and newer) | `EaveLuxOS-macOS.dmg` | Drag **EaveLuxOS** into **Applications** and open it. If macOS blocks it, open **System Settings › Privacy & Security**, scroll down and click **Open Anyway**. |
-> | Mac (Intel) | `EaveLuxOS-macOS-Intel.dmg` | The same, for an Intel Mac (4.10.1). Apple menu › **About This Mac** shows "Processor: … Intel" on one. |
-> | Linux PC | `eaveluxos_…_amd64.deb` (or `EaveLuxOS-Linux-x86_64.tar.gz`) | `sudo apt install ./<file>`, then start **EaveLuxOS** from the app menu. For the `.tar.gz`, unpack it and run `./eaveluxos`. |
-> | Raspberry Pi (64-bit) | `eaveluxos_…_arm64.deb` | `sudo apt install ./<file>`, then run `eaveluxos run`. |
->
-> Your browser opens to the setup assistant. You still need your Trimlight
-> **Client ID** and **Client Secret** (section 2), then continue at
-> **section 5 (The setup assistant)**. Where this manual shows a command as
-> `python3 main.py …`, use `EaveLuxOS-cli.exe …` on Windows and `eaveluxos …`
-> on Linux or a Pi.
->
-> Section 3 and the zip steps in section 4 are only for running EaveLuxOS
-> from its source code (for example on 32-bit Raspberry Pi OS).
+> Then: your Trimlight **Client ID** and **Client Secret** (section 2), the
+> setup assistant (section 5), and the app on your phones and tablets
+> (section 8). Where this manual shows a command as `python3 main.py …`, use
+> `EaveLuxOS-cli.exe …` on Windows and `eaveluxos …` on Linux or a Pi.
 
 EaveLuxOS is a free, community-made lighting control platform. Today it runs
 **Trimlight Edge** permanent lights. It is not made, sold, endorsed or
@@ -51,12 +39,12 @@ manual refers to "Trimlight's guide", that's the document it means.
 
 1. [What you need](#1-what-you-need)
 2. [Get your Trimlight API credentials](#2-get-your-trimlight-api-credentials)
-3. [Install Python](#3-install-python)
+3. [Install Python (source code only)](#3-install-python-source-code-only)
 4. [Download and start the app](#4-download-and-start-the-app)
 5. [The setup assistant](#5-the-setup-assistant)
 6. [Prepare the Trimlight Edge app](#6-prepare-the-trimlight-edge-app)
 7. [Make it start automatically](#7-make-it-start-automatically)
-8. [Use it from your phone](#8-use-it-from-your-phone)
+8. [Phones and tablets: iPhone, iPad, Android](#8-phones-and-tablets-iphone-ipad-android)
 9. [Home](#9-home)
 10. [Patterns](#10-patterns)
 11. [Create a pattern](#11-create-a-pattern)
@@ -120,7 +108,7 @@ things moved:
 | A Trimlight account with the controller paired to it | Done in the Trimlight Edge app: **Sign up**, then **+ › Add device** (Trimlight's guide, "Creating an Account" and "Pairing to a local WIFI Network"). |
 | Trimlight API Client ID and Client Secret | A pair of codes from Trimlight (see step 2). |
 | A computer that stays on | Windows 10 or 11, macOS, or Linux. A small mini PC is ideal. It must be on for the schedule to run. |
-| Python 3.11 or newer | Free (see step 3). **Not needed if you use the ready-made download** (see the top of this manual). |
+| Python | **Usually not needed.** The ready-made app from GitHub's Releases page includes it (section 4). Only for running from the source code: Python 3.11 or newer (section 3). |
 | Home Wi-Fi | The computer and your phone should be on the same home network. |
 
 The computer does **not** need to be near the lights. It controls them
@@ -161,11 +149,11 @@ If the page doesn't accept your account or doesn't give you credentials,
 contact Trimlight support and ask for **API access (Client ID and Client
 Secret) for your Trimlight Edge controller**.
 
-## 3. Install Python
+## 3. Install Python (source code only)
 
-**Using the ready-made download from the Releases page? Skip this section.**
-It already includes Python. Get your API credentials (section 2), start the
-app and go to section 5.
+**Using the ready-made app from the Releases page (section 4)? Skip this
+section:** it already includes Python. This is only for running EaveLuxOS
+from its source code (`eaveluxos.zip`).
 
 ### Windows
 
@@ -189,19 +177,39 @@ install it with your system's software installer (the package is `python3`).
 
 ## 4. Download and start the app
 
-> **No Python? Use the installer instead,** from the project's GitHub
-> **Releases** page. Then skip section 3. The README explains the first-run
-> security prompts for each system.
-> - **Windows:** `EaveLuxOS-Windows.zip`. Unzip it and double-click
->   `EaveLuxOS.exe`.
-> - **Mac:** `EaveLuxOS-macOS.dmg` (Apple silicon) or `EaveLuxOS-macOS-Intel.dmg`
->   (Intel). Drag the app to Applications.
-> - **Linux PC:** `eaveluxos_…_amd64.deb`
-> - **Raspberry Pi (64-bit):** `eaveluxos_…_arm64.deb`
->
-> Install either `.deb` with `sudo apt install ./<file>`. Commands in this
-> manual written as `python3 main.py …` become `EaveLuxOS-cli.exe …` on
-> Windows, and `eaveluxos …` on Linux or a Pi.
+### The ready-made app (recommended)
+
+1. On the app computer, open
+   **https://github.com/ThinkTank4n6/eaveluxos/releases/latest**. (From the
+   project page: the **Releases** heading on the right, then the newest
+   release, marked **Latest**.)
+2. Scroll down to **Assets** and download the file for your computer:
+
+| Computer | Download | Install and start |
+|---|---|---|
+| Windows 10 or 11 | `EaveLuxOS-Windows.zip` | Right-click it › **Extract All…** into a folder you'll keep, such as `Documents\EaveLuxOS` (not Downloads, and not inside the zip). Double-click **EaveLuxOS.exe**. If Windows says "Windows protected your PC", click **More info › Run anyway** (once). |
+| Mac with Apple silicon (M1 and newer) | `EaveLuxOS-macOS.dmg` | Open it and drag **EaveLuxOS** into **Applications**, then open it from there. If macOS blocks it, open **System Settings › Privacy & Security**, scroll down and click **Open Anyway**. |
+| Mac with Intel | `EaveLuxOS-macOS-Intel.dmg` | The same. Apple menu › **About This Mac** says "Intel" on one. |
+| Linux PC | `eaveluxos_…_amd64.deb` (or `EaveLuxOS-Linux-x86_64.tar.gz`) | `sudo apt install ./eaveluxos_…_amd64.deb`, then start **EaveLuxOS** from the app menu. For the `.tar.gz`, unpack it and run `./eaveluxos`. |
+| Raspberry Pi (64-bit Raspberry Pi OS) | `eaveluxos_…_arm64.deb` | `sudo apt install ./eaveluxos_…_arm64.deb`, then `eaveluxos run`. |
+
+3. Optional, to make sure the download is complete and unchanged: compare
+   its fingerprint with the line for it in **SHA256SUMS.txt** (also under
+   Assets). Windows Command Prompt: `certutil -hashfile
+   %USERPROFILE%\Downloads\EaveLuxOS-Windows.zip SHA256`; Mac or Linux:
+   `shasum -a 256 <file>`. The long number must match exactly.
+4. Your browser opens to **http://localhost:8787** (or **https://** once HTTPS
+   is on, section 8) with the setup assistant: go to section 5.
+
+Later versions install themselves from **Setup › App › Update** (section
+23); you don't download them again. Your settings are kept apart from the
+program (see *Where your data is kept* below), so a new version, or going
+back to an older one, keeps them.
+
+### From the source code (needs Python)
+
+Only if there's no ready-made app for your computer, or you want to change
+the code. Install Python first (section 3).
 
 1. Download **eaveluxos.zip** and unzip it somewhere permanent, such
    as your **Documents** folder. Don't run it from inside the zip or from
@@ -354,18 +362,168 @@ powercfg /change standby-timeout-ac 0
 powercfg /change hibernate-timeout-ac 0
 ```
 
-## 8. Use it from your phone
+## 8. Phones and tablets: iPhone, iPad, Android
 
-1. On the app computer, open **Setup › Accounts & access** and look under **Phones and other
-   computers** for an address such as `http://192.168.1.20:8787`.
-2. On your phone, connect to your home Wi-Fi and open that address in Safari
-   or Chrome.
-3. Enter your user name and password.
-4. **iPhone:** in Safari, tap **Share › Add to Home Screen**. **Android:** in
-   Chrome, tap **Install** on the bar EaveLuxOS shows, or the **⋮** menu, then
-   **Install app** (or **Add to Home screen**). You now have an EaveLuxOS
-   icon. **Setup › App › On your phone** shows the same steps and whether this
-   phone has it.
+EaveLuxOS runs on the app computer; phones and tablets open it in their
+browser and can install it on the home screen like an app. Nothing comes
+from an app store.
+
+### The quick way: Set up a phone (4.18.2)
+
+On the app computer, open **Setup › App › On your phone** and click **Set up
+a phone or tablet, step by step**. It shows a code: point the phone's camera
+at it (the phone on your home Wi-Fi). The phone opens a page that takes it
+through everything below, in order:
+
+1. **Trust the app's certificate** (only with HTTPS): **Download the
+   certificate**, then the two or three taps for an iPhone, iPad or Android
+   phone, shown for the device you're holding. The page shows the
+   certificate's fingerprint; it's the same as the one on the computer's
+   page. (With HTTPS on, this one page and the certificate are the only
+   things the app sends without encryption: the phone needs them before it
+   can trust anything. The certificate is public; its key never leaves the
+   app computer.)
+2. **Open the secure address** and sign in.
+3. **Put EaveLuxOS on the home screen**: an **Install** button where the
+   browser offers one, otherwise the steps for this device.
+4. **Who's home** (optional): choose who this phone belongs to; **I'm home**
+   and **I'm away**, and the Shortcuts recipe with that name filled in.
+
+The page finds mkcert's root certificate by itself (the computer's mkcert
+folder, `$CAROOT`, or a copy of **rootCA.pem** in EaveLuxOS's `tls` folder),
+and only if it's the one that signed the app's certificate. The **How**
+button on a phone's "Put EaveLuxOS on your home screen" bar opens the same
+page. The rest of this section is the same, step by step by hand.
+
+### 1. Find the address
+
+On the app computer, open **Setup › Accounts & access** and look under
+**Phones and other computers** for an address such as
+`http://192.168.1.20:8787` (or `https://…` once HTTPS is on). Give the app
+computer a **reserved IP address** (a DHCP reservation) in your router, so
+the address never changes.
+
+Every phone and tablet must be on your **home Wi-Fi** (not a guest network,
+and not mobile data) to reach it. You sign in with your EaveLuxOS user name
+and password (section 5; more accounts in section 20).
+
+### 2. HTTPS with mkcert (recommended)
+
+Without HTTPS the app works, but the password crosses your Wi-Fi
+unencrypted, the browser doesn't keep the app's files, and Android adds a
+plain shortcut instead of an installed app. **mkcert** is a free tool that
+makes a certificate your own devices trust, with no warnings. Do this once,
+on the app computer.
+
+**Install mkcert**
+
+- **Windows:** in Command Prompt, `winget install FiloSottile.mkcert`. (Or
+  download `mkcert-…-windows-amd64.exe` from
+  https://github.com/FiloSottile/mkcert/releases, rename it `mkcert.exe` and
+  put it in a folder of your own; run it from there.) Close and reopen
+  Command Prompt afterward.
+- **Mac:** with Homebrew (https://brew.sh), in Terminal: `brew install mkcert`
+  (and `brew install nss` if you use Firefox).
+- **Linux or a Pi:** `sudo apt install mkcert libnss3-tools`.
+
+**Make the certificate.** Replace `192.168.1.20` with the app computer's
+address from step 1. On **Windows**, in Command Prompt:
+
+```
+mkcert -install
+mkdir "%LOCALAPPDATA%\EaveLuxOS\tls"
+cd /d "%LOCALAPPDATA%\EaveLuxOS\tls"
+mkcert -cert-file cert.pem -key-file key.pem 192.168.1.20 localhost 127.0.0.1
+```
+
+`mkcert -install` asks once whether to trust the new certificate authority:
+click **Yes**. On a **Mac**, in Terminal:
+
+```
+mkcert -install
+mkdir -p ~/Library/Application\ Support/EaveLuxOS/tls
+cd ~/Library/Application\ Support/EaveLuxOS/tls
+mkcert -cert-file cert.pem -key-file key.pem 192.168.1.20 localhost 127.0.0.1
+```
+
+On **Linux or a Pi**, the same in the app's data folder's `tls` folder
+(**Setup › App › Setup and about** shows the data folder).
+
+**Restart EaveLuxOS** (**Quit** at the top, then start it again). Its address
+now starts with **https://**, the browser shows a padlock, and old
+`http://` bookmarks forward to `https://` by themselves.
+
+**The root certificate for your phones.** Run `mkcert -CAROOT`: it names a
+folder holding two files. Only **rootCA.pem** goes to your phones and
+tablets (steps 3 and 4). **Never copy `rootCA-key.pem` anywhere:** with it,
+anyone could make certificates your devices trust. If your router gives the
+app computer a new address, run the last `mkcert -cert-file …` line again
+with the new address and restart.
+
+No mkcert? `python3 main.py make-cert` (installed apps: `EaveLuxOS-cli.exe
+make-cert` on Windows, `eaveluxos make-cert` on Linux) makes a self-signed
+certificate instead. Each browser then warns once, and phones won't install
+the app fully; mkcert is better.
+
+### 3. iPhone and iPad
+
+**Trust the certificate (once, with HTTPS):**
+
+1. Send **rootCA.pem** to the iPhone or iPad: AirDrop it from a Mac, or email
+   it to yourself and tap the attachment in the Mail app. It says
+   **Profile Downloaded**.
+2. Open the **Settings** app: **General**, then **VPN & Device
+   Management**. Tap the **mkcert** profile and **Install** (enter the
+   device passcode), then **Install** again.
+3. Still in the **Settings** app: **General**, **About**, then **Certificate
+   Trust Settings** at the bottom. Turn on the switch for the **mkcert**
+   certificate and tap **Continue**.
+
+**Install the app:**
+
+1. Open **Safari** and go to the address from step 1 (with `https://`).
+2. Sign in.
+3. Tap the **Share** button (on an iPhone at the bottom, on an iPad at the
+   top right; in newer iOS, the **⋯** button first), then **Add to Home
+   Screen**. Leave **Open as Web App** on if it's shown, and tap **Add**.
+
+The EaveLuxOS icon opens straight into Quick (below). **Setup › App › On
+your phone** shows the same steps and whether this device has it.
+
+**If the address times out on one device** while it works on another:
+the router or firewall may be holding back a device it hasn't seen before
+(Firewalla, eero and others can quarantine new devices), and an iPhone or
+iPad uses a different **Private Wi-Fi Address** for each network. In the
+**Settings** app: **Wi-Fi**, tap **ⓘ** next to your network and set
+**Private Wi-Fi Address** to **Fixed** (or off), then allow the device in
+the router's app.
+
+### 4. Android phones and tablets
+
+**Trust the certificate (once, with HTTPS):**
+
+1. Copy **rootCA.pem** to the phone or tablet (email it to yourself, or put
+   it in Google Drive) and download it. If the phone won't offer it as a
+   certificate, rename it **rootCA.crt**.
+2. Open the **Settings** app and search for **CA certificate**. It's under
+   **Security & privacy** (Pixel: *More security & privacy*, *Encryption &
+   credentials*, *Install a certificate*; Samsung: *Security and privacy*,
+   *More security settings*, *Install from device storage*).
+3. Tap **CA certificate**, then **Install anyway**, and pick the file.
+
+**Install the app:**
+
+1. Open **Chrome** and go to the address from step 1 (with `https://`).
+   (Firefox for Android doesn't use certificates you add; Samsung Internet
+   does.)
+2. Sign in.
+3. Tap **Install** on the bar EaveLuxOS shows, or the **⋮** menu, then
+   **Install app** (on some versions **Add to Home screen**, then
+   **Install**).
+
+Tablets work the same way as phones; the app uses the larger screen by
+itself. Press and hold the icon for **Lights on**, **Lights off**, **Back to
+the schedule** and **Security flash** (below).
 
 ### The app on your home screen (4.14)
 
@@ -387,7 +545,7 @@ EaveLuxOS installs from the browser like an app, with no app store:
 - On a plain **http://** address the app works the same, but the browser
   doesn't keep its files, and Android Chrome adds a home-screen shortcut
   rather than an installed app. For the full app, use HTTPS with a
-  certificate the phone trusts (mkcert, below).
+  certificate the phone trusts (mkcert, step 2 above).
 
 **Quick buttons.** Until you choose them, Quick shows Lights on, Lights off,
 Back to the schedule, your Home favorites and up to three scenes. **Edit**
@@ -410,27 +568,8 @@ app's exact address, including the port, so other web apps on the same
 computer never see it. If you change the app's port (section 20), or update
 from a version before 2.3.2, each phone signs in once more.
 
-> **Tip:** The address can change when your router restarts. To keep it fixed,
-> give the app computer a **reserved IP address** (sometimes called a DHCP
-> reservation) in your router's settings.
-
-> **Optional: HTTPS.** By default, the app uses plain HTTP on your home
-> network, so the app password crosses your Wi-Fi unencrypted. The quickest
-> fix: on the app computer run `python3 main.py make-cert` (installed apps:
-> `eaveluxos make-cert`, or `EaveLuxOS-cli.exe make-cert` on Windows) and
-> restart the app. Each browser warns once that the certificate is
-> self-signed; accept it on your own devices. For no warning at all, make a
-> certificate with the free tool **mkcert** (`mkcert -install`, then
-> `mkcert -cert-file cert.pem -key-file key.pem 192.168.1.20 localhost`). Put
-> `cert.pem` and `key.pem` in the app's `tls` folder (Windows:
-> `%LOCALAPPDATA%\EaveLuxOS\tls`; elsewhere `data/tls`) and restart the app.
-> Include this computer's address (the one the app shows for your phone) and
-> `localhost`. Keep `rootCA-key.pem` (in the folder `mkcert -CAROOT` names)
-> on this computer only; only `rootCA.pem` goes to the phones.
-> With HTTPS on, an old `http://` address or bookmark forwards to `https://`
-> by itself (4.16.5). The
-> address then starts with `https://`. Phones trust it after you install
-> mkcert's root certificate on them, as mkcert's instructions describe.
+> **HTTPS:** see step 2 above. With HTTPS on, an old `http://` address or
+> bookmark forwards to `https://` by itself (4.16.5).
 
 > **Away from home:** The app only works on your home network, which is
 > deliberate. Never "port forward" it on your router. For remote access, use a
@@ -1339,6 +1478,33 @@ sent. These share one pattern and rank just below the holidays you picked
 (205). A newly chosen country is checked right away (and again within hours
 if the service can't be reached); **Check now** works once a minute. Holidays kept only in one state or province aren't included.
 
+### Birthdays and anniversaries (4.18)
+
+**Schedule › Birthdays & anniversaries** keeps your own dates and shows
+their lights every year without setting them up again.
+
+1. Tap **Add a date**. Type a name (for example *Chris*, or *Our wedding*),
+   choose whether it's a birthday, an anniversary or another date, and pick
+   the month and day.
+2. Optionally type the year: the list then says *turns 47* or *25th
+   anniversary*, and nothing shows in the years before it.
+3. Choose the patterns (up to 6, shown in turn for the minutes you choose;
+   **↑** moves one earlier, **Preview** shows it on the lights for 15
+   minutes), the times (like rules: sunset, sunset + 30, 18:00) and, if you
+   like, up to 7 days before and after.
+
+The list shows **Today** on the date itself and **Lights tonight** on the
+days around it.
+
+A date ranks 220: above holidays (210), so a birthday on Christmas gets its
+own lights, and below game days (250). Home says *Today is Chris's
+birthday* that morning, like a holiday (on the days around it, *Tonight: the
+lights for Chris's birthday (in 2 days)*), and **Who wins tonight** lists it as
+a birthday or anniversary. February 29 shows on February 28 in other years.
+The tick box turns a date off without deleting it. Your dates stay on this
+computer: they are never in a shared or exported settings file (an
+encrypted backup keeps them).
+
 ### Game-day lights
 
 Your team's colors on the nights they play, instead of the usual pattern.
@@ -1587,6 +1753,82 @@ flash its pattern for the same seconds, and play its sound if it has one),
 and turns the old celebration off so it doesn't flash twice. Then add
 conditions, such as **It's dark**, or change it. Score celebrations you
 don't convert keep working as before.
+
+### Who's home: arriving and leaving (4.18)
+
+Automations can start when someone comes home or leaves, and can check
+whether anyone is home. EaveLuxOS doesn't track phones: each phone tells it,
+with a webhook, when its owner arrives or leaves. Only *home* or *away* and
+the time are kept (in `presence.json`); no location is sent or stored.
+
+1. Under **Alerts › Who's home**, add the people who live here (up to 12).
+2. Turn on webhooks (section 21) and set up each phone:
+   - **iPhone, Shortcuts:** **Automation › New Automation › Wi-Fi**, choose
+     your home network, **When Joining** and **Run Immediately**. (Not
+     **Arrive**: it runs down the street, before the phone is back on your
+     Wi-Fi, so it can't reach the app.) Add **Get Contents of URL** with
+     `https://APP-COMPUTER-ADDRESS:8787/api/hook/presence`; under **Show
+     More**: Method **POST**, header **X-Token** with the webhook token
+     (the panel has a **Copy token** button), Request Body **JSON** with
+     `person` (the name as on the list) and `state` = `home`. Make a second
+     automation with **Leave** (your home, **Run Immediately**) and
+     `state` = `away`.
+   - **Home Assistant** (iPhone or Android, with the companion app): a
+     `rest_command` and an automation on the person's state; the panel shows
+     both, ready to copy.
+3. **Mark home** / **Mark away** on the panel sets someone by hand (and runs
+   the automations, like the phone would). So do **I'm home** / **I'm away**
+   on the phone's **Set up this phone** page.
+
+Home shows who's home under the state line (*Who's home: Chris · away:
+Ann*), for Editors and Administrators.
+
+**A phone at the edge of the Wi-Fi** can go home, away, home within a
+minute. After someone's change, the next one within **2 minutes** (set it
+on the panel, 0 to 30; 0 never ignores) is only noted: Who's home stays
+right and Home › Activity says "arrived home again within 2 min: noted, no
+automations", but no automation runs, so the welcome flash doesn't repeat.
+Marking someone by hand is never ignored.
+
+When you leave, the phone is no longer on your home Wi-Fi, so it can only
+reach the app over a VPN (section 20, *Away from home*). Without one, use
+Home Assistant for leaving: it runs at home.
+
+In the automation builder:
+
+- **When › Someone arrives home**: anyone or one person; tick **only when
+  nobody else was home** for the first one back.
+- **When › Someone leaves home**: anyone or one person; tick **only when
+  nobody is left home** for the last one out.
+- **If › Someone is home** / **Nobody is home**.
+
+"Nobody is home" and "everyone has left" count only once every person's
+phone has said so: someone the app hasn't heard from yet may well be home.
+A phone saying the same thing twice runs nothing.
+
+With seven automations or more, the list is in groups by what starts them:
+People, Games, Weather, Cameras, sensors and buttons (webhooks), Times and
+the schedule.
+
+### Templates and motion lights (4.18)
+
+**Start from a template** (next to **Add an automation**) fills in a
+ready-made automation to change and save:
+
+| Template | When | If | Then |
+|---|---|---|---|
+| Motion lights | webhook event `motion` | it's dark | white in the first zone for 60 s |
+| Welcome home | the first one arrives | it's dark | a warm flash for 2 minutes |
+| Motion while nobody's home | webhook event `motion` | nobody is home, it's dark | red for 30 s (highest priority, beats a manual choice) |
+| Doorbell | webhook event `doorbell` | | blue for 20 s |
+| Everyone left | the last one leaves | 11 PM to sunrise | off for 8 hours |
+
+A camera (Frigate, Blue Iris, UniFi Protect through Home Assistant) or a
+motion sensor sends `POST /api/hook/event` with `{"name": "motion"}`. Use a
+name per camera (`motion-driveway`, `motion-porch`) and an automation per
+name to light a different zone for each; the cooldown keeps a busy camera
+from flashing again and again. A paused schedule (section 13) runs no
+automations that change the lights.
 
 ### Weather rules
 
@@ -2606,6 +2848,7 @@ can start the security flash at night.
 | `music` | Start a music show (section 16) | `{"minutes": 60}`; `0` until stopped |
 | `stop_music` | End the music show | |
 | `dismiss_alert` | Put the lights back for the severe weather alert showing now (section 14) | |
+| `presence` | Someone arrived or left (section 14, *Who's home*) | `{"person": "Chris", "state": "home"}` or `"away"` |
 | `status` | Change nothing; report what the lights are doing (also with **GET**) | |
 
 Every action replies with what the lights are doing then: on or off, the
@@ -2613,6 +2856,22 @@ pattern and its internal name, why (`schedule`, `manual`, `weather`, `alert`,
 `flash`, `music`), brightness, speed, and the list of your patterns. `status` changes
 nothing, so another system can ask as often as it likes (it isn't written to
 the activity list).
+
+### Siri, Alexa and Google (4.18)
+
+**Siri:** in the Shortcuts app, make a shortcut with one action, **Get
+Contents of URL** (Method POST, header **X-Token** with the webhook token,
+and a JSON body if the action takes one), and name it what you'll say, for
+example *Holiday lights on*. "Hey Siri, holiday lights on" then runs it, also
+from the Lock Screen, CarPlay or an Apple Watch. **Alerts › Webhooks ›
+Siri, Alexa and Google** lists the addresses: lights on with a pattern, off,
+back to the schedule, the security flash, and an automation by name.
+
+**Alexa and Google Assistant** go through Home Assistant: add the
+`rest_command` shown on that panel, make a Home Assistant script for each
+phrase, and expose the scripts to Alexa or Google in Home Assistant's voice
+assistant settings (Home Assistant Cloud, or its Alexa and Google
+integrations).
 
 ### Alerts: a pattern, a length and a zone
 

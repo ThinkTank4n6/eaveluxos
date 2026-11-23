@@ -39,7 +39,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from zoneinfo import available_timezones
 
-from . import alerts, automations, autostart, catalog, community, gameday, holidays, keepawake, lanlink, localmode, restore, scores, sharecode, sound, updates, winfirewall
+from . import alerts, automations, autostart, catalog, community, gameday, holidays, keepawake, lanlink, localmode, presence, restore, scores, sharecode, sound, updates, winfirewall
 from .api import TrimlightAPI, TrimlightError, port_base
 from .controller import Controller
 from . import safety
@@ -207,6 +207,7 @@ REAUTH_SECONDS = 300
 EDITOR_POSTS = {"/api/action", "/api/settings", "/api/photo", "/api/photo/upload", "/api/photo/delete", "/api/device/save_effect", "/api/import",
                 "/api/sound/upload", "/api/sound/delete", "/api/sound/test",     # 4.9: celebration sounds
                 "/api/automation/try", "/api/automation/check",                  # 4.11: automations
+                "/api/presence",                                                 # 4.18: who's home, set by hand
                 "/api/textpattern", "/api/mood", "/api/holidays/refresh", "/api/share", "/api/share/open",
                 "/api/musiclink",    # 4.1: a music show from this computer (address, finding and tests: Administrators)
                 "/api/musiczones",   # 4.13: zones that follow the music
@@ -225,7 +226,7 @@ HOUSEHOLD_KEYS = ("location", "safety", "weather", "setup_done", "color", "commu
 # This home's own, never in an export and never taken from someone's file:
 # away mode reveals when nobody's home, and usage is this home's equipment and
 # electric rate (3.15.1).
-PRIVATE_KEYS = ("away", "usage", "ai", "lan", "paused")   # ai (3.18.2): which paid model to call is this home's choice
+PRIVATE_KEYS = ("away", "usage", "ai", "lan", "paused", "dates", "presence")   # 4.18: birthdays and who lives here stay home   # ai (3.18.2): which paid model to call is this home's choice
 ROLE_NAMES = {"admin": "Administrator", "editor": "Editor", "viewer": "Viewer"}
 # A browser on the app computer itself (when it doesn't require a password).
 LOCAL_USER = {"id": None, "username": "this computer", "role": "admin", "disabled": False, "local": True}
@@ -247,13 +248,14 @@ AUDIT_NAMES = {"/api/settings": "Changed settings", "/api/import": "Imported set
                "/api/tokens": "Created an API token", "/api/tokens/revoke": "Revoked an API token",
                "/api/backup/encrypted": "Downloaded an encrypted backup", "/api/backup/restore": "Restored an encrypted backup",
                "/api/local/delete": "Deleted patterns on a controller", "/api/backups/restore": "Put patterns back on a controller",
-               "/api/local/ports": "Changed a controller's ports", "/api/sessions/end_all": "Signed out everywhere"}
+               "/api/local/ports": "Changed a controller's ports", "/api/sessions/end_all": "Signed out everywhere",
+               "/api/presence": "Marked someone home or away"}
 # 4.17: never with an API token, whatever its role: accounts, tokens and the app itself
 TOKEN_NEVER = {"/api/users", "/api/users/delete", "/api/password", "/api/tokens", "/api/tokens/revoke", "/api/quit",
                "/api/update/install", "/api/update/rollback", "/api/backup/encrypted", "/api/backup/restore",
                "/api/sessions/end_all", "/api/session_policy", "/api/import", "/api/history/restore"}
 _AUDIT_KEYS = ("action", "effect", "on", "device", "name", "username", "role", "id", "mode", "file", "team", "side",
-               "address", "key", "ids", "minutes", "seconds", "version")
+               "address", "key", "ids", "minutes", "seconds", "version", "person", "state")
 
 
 _SENT = object()      # a GET answered by itself (a file download)
@@ -276,6 +278,69 @@ def _audit_detail(path, b, before) -> str:
         parts.append(f"{k}: {str(v)[:80]}")
     return ", ".join(parts)[:400]
 _UNSET = object()
+
+
+def _trust_page(ca, secure_url: str) -> str:
+    """4.18.2: the one page sent over plain http when HTTPS is on: how a
+    phone trusts this app's certificate. No script, no sign-in, nothing
+    private: the root certificate is public."""
+    import html as _h
+    u = _h.escape(secure_url, quote=True)
+    if not ca:
+        steps = ("<p>The app computer has no mkcert root certificate to give phones. On the app computer, run "
+                 "<code>mkcert -CAROOT</code> and copy <b>rootCA.pem</b> (never rootCA-key.pem) into EaveLuxOS's "
+                 "<code>tls</code> folder, then reload this page.</p>")
+    else:
+        fp = ca.get("sha256", "")
+        fp = ":".join(fp[i:i + 2] for i in range(0, len(fp), 2))
+        steps = f"""<p><a class="b" href="/ca.crt">1. Download the certificate</a></p>
+<p class="s">Fingerprint (SHA-256), the same as on the app computer's Set up a phone page:<br><code>{_h.escape(fp)}</code></p>
+<h2>iPhone or iPad</h2><ol><li>Tap <b>Allow</b>: it says <b>Profile Downloaded</b>.</li>
+<li>Open the <b>Settings</b> app: <b>General</b>, <b>VPN &amp; Device Management</b>, the <b>mkcert</b> profile, <b>Install</b>.</li>
+<li>Then <b>General</b>, <b>About</b>, <b>Certificate Trust Settings</b>: turn on <b>mkcert</b>.</li></ol>
+<h2>Android phone or tablet</h2><ol><li>Open the <b>Settings</b> app and search for <b>CA certificate</b>.</li>
+<li>Tap it, <b>Install anyway</b>, and choose <b>EaveLuxOS-root.crt</b> from Downloads.</li></ol>"""
+    return f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>EaveLuxOS: trust this app</title><style>body{{font:16px/1.5 system-ui,sans-serif;margin:0 auto;max-width:34em;padding:16px;color:#1d2433;background:#f6f7fb}}
+code{{word-break:break-all;font-size:.85em}}.b{{display:block;text-align:center;padding:12px;border-radius:10px;background:#a65c06;color:#fff;font-weight:600;text-decoration:none}}
+.s{{color:#5b6478;font-size:.9em}}h2{{font-size:1.05em;margin-top:1.4em}}</style></head><body>
+<h1 style="font-size:1.3em">Set up this phone for EaveLuxOS</h1>
+<p>This app uses a secure (https) address with its own certificate. Trust it once on this phone, then open the app.</p>
+{steps}
+<p><a class="b" href="{u}">2. Open EaveLuxOS (secure)</a></p>
+<p class="s">Then sign in and follow the rest of <b>Set up this phone</b>: the home-screen icon and, if you like, who's home.</p>
+</body></html>"""
+
+
+def ssl_pem_to_der(pem: bytes) -> bytes:
+    import ssl
+    try:
+        return ssl.PEM_cert_to_DER_cert(pem.decode("ascii", "replace"))
+    except (ValueError, UnicodeError):
+        return b""
+
+
+def _signed_by(cert_path, ca_pem: bytes) -> bool:
+    """Is this app's HTTPS certificate issued by this root? (Another mkcert
+    root on the computer would be no use to a phone.) Without the
+    cryptography package it can't tell, and says yes."""
+    try:
+        from cryptography import x509
+    except ImportError:              # pragma: no cover
+        return True
+    try:
+        ca = x509.load_pem_x509_certificate(ca_pem)
+        leaf = x509.load_pem_x509_certificate(Path(cert_path).read_bytes())
+        if leaf.issuer != ca.subject:
+            return False
+        from cryptography.hazmat.primitives.asymmetric import ec, padding
+        pub = ca.public_key()
+        args = (ec.ECDSA(leaf.signature_hash_algorithm),) if isinstance(pub, ec.EllipticCurvePublicKey) \
+            else (padding.PKCS1v15(), leaf.signature_hash_algorithm)
+        pub.verify(leaf.signature, leaf.tbs_certificate_bytes, *args)
+        return True
+    except Exception:
+        return False
 
 
 def _canon(v) -> str:
@@ -389,6 +454,8 @@ class App:
         self._country_checked = {}                                               # code -> last "Check now" (3.19.1)
         self.scores = scores.ScoreWatch(self.on_score, on_game=self.on_game)     # score celebrations (3.16), automations (4.11)
         self.autos = automations.Engine(self)                                   # When / If / Then (4.11)
+        self.presence = presence.Presence(self.store.dir)                       # who's home (4.18)
+        self._presence_lock = threading.Lock()
         self.ai_fetch = None                                                     # tests replace the AI call (3.18)
         self.ai_calls = []                                                       # times of AI calls, for the limits (3.18.2)
         self.mood_state = None                                                   # mood follow: {"level", "key", "at"}
@@ -2008,6 +2075,84 @@ class App:
         return {"conditions": [{"text": t, "ok": ok} for t, ok in rows],
                 "game_only": any(c["type"] in ("home", "away", "winning", "losing") for c in a["if"])}
 
+    # --- set up this phone (4.18.2) ---------------------------------------------
+    def phone_ca(self) -> dict | None:
+        """mkcert's root certificate, when it's the one that signed this app's
+        HTTPS certificate: {"pem", "sha256", "where"}. Looked for in the tls
+        folder (rootCA.pem copied there), $CAROOT, and mkcert's own folder.
+        Only ever the public certificate: never rootCA-key.pem."""
+        tls = self.store.dir / "tls"
+        cands = [tls / "rootCA.pem"]
+        if os.environ.get("CAROOT"):
+            cands.append(Path(os.environ["CAROOT"]) / "rootCA.pem")
+        home = Path.home()
+        if os.name == "nt" and os.environ.get("LOCALAPPDATA"):
+            cands.append(Path(os.environ["LOCALAPPDATA"]) / "mkcert" / "rootCA.pem")
+        cands += [home / "Library" / "Application Support" / "mkcert" / "rootCA.pem",
+                  Path(os.environ.get("XDG_DATA_HOME") or home / ".local" / "share") / "mkcert" / "rootCA.pem"]
+        cert = tls / "cert.pem"
+        for f in cands:
+            try:
+                if not f.is_file() or f.stat().st_size > 16384:
+                    continue
+                pem = f.read_bytes()
+            except OSError:
+                continue
+            if not pem.lstrip().startswith(b"-----BEGIN CERTIFICATE-----") or b"PRIVATE KEY" in pem:
+                continue
+            if not _signed_by(cert, pem):
+                continue
+            der = ssl_pem_to_der(pem)
+            return {"pem": pem, "sha256": hashlib.sha256(der).hexdigest().upper() if der else "", "where": str(f)}
+        return None
+
+    def phone_info(self, port: int | None = None) -> dict:
+        ca = self.phone_ca()
+        https = getattr(self, "scheme", "http") == "https"
+        port = port or int((self.store.settings.get("service") or {}).get("web_port", 8787))
+        addrs = [a for a in lan_addresses() if ":" not in a]
+        people = presence.check_people(self.store.settings.get("presence")) if self.store.settings.get("presence") else []
+        fp = ca["sha256"] if ca else ""
+        return {"https": https, "ca": bool(ca), "ca_sha256": ":".join(fp[i:i + 2] for i in range(0, len(fp), 2)),
+                "addresses": addrs, "port": port, "people": people}
+
+    # --- who's home (4.18) ----------------------------------------------------
+    def presence_status(self) -> dict:
+        people = self.ctrl.cfg.people if self.ctrl else presence.check_people(self.store.settings.get("presence"))
+        self.presence.prune(people)          # Review #11: someone taken off the list is forgotten now
+        return {"people": self.presence.summary(people), "home": sorted(self.presence.home(people))}
+
+    def presence_set(self, person, state, via: str = "") -> dict:
+        """Someone arrived or left (a phone's webhook, or by hand on the
+        Who's home panel): remember it and start the automations it starts."""
+        if not self.ctrl:
+            raise ApiError("Finish setup first.", 409)
+        people = self.ctrl.cfg.people
+        state = {"arrived": "home", "arrive": "home", "left": "away", "leave": "away"}.get(str(state).lower(), str(state).lower())
+        if state not in presence.STATES:
+            raise ApiError('The state is "home" or "away".')
+        who = self.presence.find(people, person)
+        if who is None:
+            raise ApiError("Add that person under Alerts › Who's home first." if people else
+                           "Add the people who live here under Alerts › Who's home first.", 404)
+        # Review #5 (4.18.1): one change and its automations at a time, so two
+        # quick reports (arrive, then leave) can't run their automations in
+        # the wrong order
+        with self._presence_lock:
+            settle = presence.settle_minutes(self.store.settings.get("presence")) * 60 if via == "webhook" else 0
+            r = self.presence.set(people, who, state, settle)
+            done = []
+            if r["settling"]:
+                # 4.18.2: a phone at the edge of the Wi-Fi going home, away, home
+                self.ctrl.note(f"{who} {'arrived home' if state == 'home' else 'left'} again within "
+                               f"{settle // 60:.0f} min: noted, no automations.")
+            elif r["changed"]:
+                self.ctrl.note(f"{who} {'arrived home' if state == 'home' else 'left'}{' (' + via + ')' if via else ''}.")
+                ev = {"type": "arrive" if state == "home" else "leave", "person": who, "first": r["first"], "last": r["last"]}
+                done = self._auto_event(ev)
+        return {"ok": True, "person": who, "state": state, "changed": r["changed"], "settling": r["settling"],
+                "home": r["home"], "automations": done}
+
     def health_status(self) -> dict:
         """4.15: each controller: what the cloud says (online, firmware), how
         its requests went (today and 14 days), and the home-network check."""
@@ -3267,6 +3412,20 @@ def make_server(app: App, host: str, port: int):
                 if not f:
                     return self._json(404, {"error": f"{name} isn't included in this copy of the app."})
                 return self._send(200, f.read_bytes(), ctype)
+            if path == "/trust":
+                self.send_response(302)
+                self.send_header("Location", "/#phone")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+            if path == "/ca.crt":
+                # 4.18.2: the mkcert root certificate (public, never its key),
+                # so a phone can trust this app's HTTPS: Set up this phone
+                ca = app.phone_ca()
+                if not ca:
+                    return self._json(404, {"error": "No mkcert root certificate was found on the app computer."})
+                return self._send(200, ca["pem"], "application/x-x509-ca-cert",
+                                  {"Content-Disposition": 'attachment; filename="EaveLuxOS-root.crt"'})
             if not path.startswith("/api/"):
                 return self._static(path)
             try:
@@ -3291,6 +3450,14 @@ def make_server(app: App, host: str, port: int):
                     return self._json(200, app.conflicts(q.get("date")))
                 if path == "/api/house/tonight":          # 4.12: the whole-house timeline
                     return self._json(200, app.house_tonight())
+                if path == "/api/phone":                  # 4.18.2: Set up this phone
+                    return self._json(200, app.phone_info(self.server.server_address[1]))
+                if path == "/api/presence":               # 4.18: who's home
+                    # Review #4 (4.18.1): when nobody's home is as private as
+                    # away mode: not for Viewer accounts or Viewer tokens
+                    if (self._user() or {}).get("role") == "viewer":
+                        return self._json(403, {"error": "Viewers can't see who's home."})
+                    return self._json(200, app.presence_status())
                 if path == "/api/automations/history":    # 4.11: what automations did lately
                     return self._json(200, app.automation_history())
                 if path == "/api/sound/clip":      # 4.9: to listen in the browser
@@ -3902,6 +4069,8 @@ def make_server(app: App, host: str, port: int):
                 return {"ok": True}
             if path == "/api/automation/try":
                 return app.automation_try(str(b.get("id", "")))
+            if path == "/api/presence":
+                return app.presence_set(b.get("person"), b.get("state"), "set by hand")
             if path == "/api/automation/check":
                 return app.automation_check(str(b.get("id", "")))
             if path == "/api/sound/upload":
@@ -4041,6 +4210,16 @@ def make_server(app: App, host: str, port: int):
                 app.store.audit("webhook", f"Webhook event: {name}", "; ".join(done or [])[:400], role="webhook",
                                 via=self.client_address[0])
                 return self._json(200, {**self._hook_state(), "automations": done})
+            if body["action"] == "presence":
+                # 4.18: a phone says someone arrived or left:
+                # POST /api/hook/presence {"person": "Chris", "state": "home"}
+                try:
+                    r = app.presence_set(body.get("person"), body.get("state"), "webhook")
+                except ApiError as e:
+                    return self._json(e.code, {"error": str(e)})
+                app.store.audit("webhook", f"Webhook: {r['person']} {'arrived' if r['state'] == 'home' else 'left'}",
+                                "; ".join(r["automations"] or [])[:400], role="webhook", via=self.client_address[0])
+                return self._json(200, {**self._hook_state(), **{k: r[k] for k in ("person", "state", "changed", "settling", "home", "automations")}})
             if body["action"] not in ("flash", "stop_flash", "on", "off", "resume", "levels", "music", "stop_music",
                                       "dismiss_alert"):
                 return self._json(400, {"error": "unknown action"})
@@ -4084,6 +4263,7 @@ def make_server(app: App, host: str, port: int):
         # http:// request (an old bookmark, a typed address) is sent on to
         # https:// instead of "didn't send any data"
         srv.tls_ctx = ctx
+        srv.ca_provider = app.phone_ca         # 4.18.2: the root certificate for phones, over plain http too
         app.scheme = "https"
     return srv
 
@@ -4107,6 +4287,7 @@ class _Server(ThreadingHTTPServer):
         super().handle_error(request, client_address)
 
     tls_ctx = None             # set by make_server when HTTPS is on
+    ca_provider = None         # 4.18.2: () -> the mkcert root certificate, or None
 
     def finish_request(self, request, client_address):
         request.settimeout(30)  # covers the TLS handshake as well as slow clients
@@ -4119,7 +4300,7 @@ class _Server(ThreadingHTTPServer):
         if not first:
             return
         if first[0] != 0x16:                 # not a TLS handshake: plain HTTP
-            return _to_https(request, self.server_address[1])
+            return _to_https(request, self.server_address[1], self.ca_provider)
         tls = self.tls_ctx.wrap_socket(request, server_side=True)   # the handshake, in this request's thread
         try:
             super().finish_request(tls, client_address)
@@ -4133,10 +4314,13 @@ class _Server(ThreadingHTTPServer):
 _HOST_OK = re.compile(r"^(\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9.-]{1,253})(:\d{1,5})?$")
 
 
-def _to_https(sock, port: int):
+def _to_https(sock, port: int, ca_provider=None):
     """4.16.5: answer a plain http:// request on the HTTPS port with a
     temporary redirect to the same address on https:// (temporary, so
-    turning HTTPS off later doesn't leave browsers stuck on it)."""
+    turning HTTPS off later doesn't leave browsers stuck on it).
+    4.18.2: except /trust and /ca.crt, which a phone needs before it trusts
+    the certificate (Set up this phone): the public root certificate and a
+    page that says what to do with it. Nothing else is ever sent unencrypted."""
     data = b""
     try:
         sock.settimeout(5)
@@ -4162,6 +4346,24 @@ def _to_https(sock, port: int):
     if host.startswith("[") and "]:" in host:
         name = host.rsplit(":", 1)[0]
     where = f"https://{name}:{port}{path}"
+    bare = path.split("?", 1)[0]
+    if bare in ("/trust", "/ca.crt") and ca_provider is not None:
+        try:
+            ca = ca_provider()
+        except Exception:
+            ca = None
+        if bare == "/ca.crt" and ca:
+            out, ctype, extra = ca["pem"], b"application/x-x509-ca-cert", b'Content-Disposition: attachment; filename="EaveLuxOS-root.crt"\r\n'
+        else:
+            out, ctype, extra = _trust_page(ca, f"https://{name}:{port}/#phone").encode(), b"text/html; charset=utf-8", b""
+        try:
+            sock.sendall(b"HTTP/1.1 200 OK\r\nContent-Type: " + ctype + b"\r\nContent-Length: " + str(len(out)).encode()
+                         + b"\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\n"
+                         + b"Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'\r\n"
+                         + extra + b"Connection: close\r\n\r\n" + out)
+        except OSError:
+            pass
+        return
     body = b"This address uses https://. Opening " + where.encode() + b"\n"
     try:
         sock.sendall(b"HTTP/1.1 307 Temporary Redirect\r\nLocation: " + where.encode()

@@ -138,7 +138,10 @@ class Stream(WithController):
 
     def test_speed_test_finds_the_pace_it_keeps_up_with(self):
         self.ctl.max_fps = 4
-        r = M.speed_test("127.0.0.1", rates=(2, 4, 6, 8), seconds=1.2)
+        # 2.4 s a rate (4.18): long enough that a too-fast rate lags on more
+        # than one keep-alive (one late answer is forgiven as Wi-Fi). With 1.2 s,
+        # a slow Mac runner saw only the last one lag and passed 6 a second.
+        r = M.speed_test("127.0.0.1", rates=(2, 4, 6, 8), seconds=2.4)
         self.assertEqual(r["fps"], 4, r)
         self.assertEqual([x["fps"] for x in r["rates"]], [2, 4, 6], "stops at the first that lags")
         self.assertFalse(r["rates"][-1]["ok"])

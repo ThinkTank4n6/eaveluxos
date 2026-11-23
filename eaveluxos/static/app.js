@@ -107,7 +107,7 @@ const SUMS = {
     return i < 0 ? 'Nothing in the coming week' : `${i === 1 ? 'Tomorrow' : st.days[i].dow + ' ' + st.days[i].label} ${st.days[i].on} – ${st.days[i].off}: ${st.days[i].effect || ''}`;
   },
   holidays: () => { const h = S.settings.holidays || {}; const n = (h.list || []).length, nx = S.status?.coming?.holiday;
-    return onOff(h.enabled && (n || h.country), [S.status?.holiday ? `today: ${S.status.holiday.name}` : nx ? `next: ${nx.name}, ${shortDay(nx.date)}` : '',
+    return onOff(h.enabled && (n || h.country), [S.status?.holiday && !S.status.holiday.around ? `today: ${S.status.holiday.name}` : nx ? `next: ${nx.name}, ${shortDay(nx.date)}` : '',
       n ? plural(n, 'holiday') : '', h.country ? `public holidays (${h.country.code})` : ''].filter(Boolean).join(' · ')); },
   game: () => { const g = S.settings.gameday || {}, nx = S.status?.coming?.game;
     const party = (g.celebrate_enabled ?? !!g.enabled) && (g.teams || []).some(t => t.celebrate);
@@ -752,6 +752,7 @@ VIEWS.home = async () => {
             ${st.setup?.problem ? `<p class="callout warn" style="margin-bottom:12px">${esc(st.setup.problem)}</p>` : ''}
             <h1>${esc(head)}</h1><p>${esc(sub)}</p>
             <p style="margin-top:8px"><a class="btn small ghost" href="#quick">Quick buttons</a></p>
+            <p class="small" id="homewho" hidden></p>
             ${st.error ? `<p class="callout warn" style="margin-top:10px">Can't reach the lights right now: ${esc(st.error)}</p>` : ''}
             ${st.cloud_down && !st.error ? `<p class="callout small" style="margin-top:10px">Trimlight\u2019s cloud can\u2019t be reached (no internet?). The lights run over your home network meanwhile; weather and scores wait until it\u2019s back.</p>` : ''}</div>
           ${tonightPanel(st)}
@@ -797,6 +798,7 @@ VIEWS.home = async () => {
           </details></div>
         </div>
       </div></div>`;
+    if (typeof homeWho === 'function') homeWho($('#homewho'));   // 4.18.2: who's home
   };
   const act = async (body, btn) => busy(btn, async () => { S.status = await api('action', { body }); render(S.status); }).catch(() => {});
   m.onclick = e => {
@@ -857,6 +859,8 @@ function usedBy(key) {
   Object.entries(s.mood || {}).forEach(([lv, k]) => { if (k === key) out.push(`mood follow (${lv} music)`); });
   (s.holidays?.list || []).forEach(h => { if ((h.effects || []).includes(key)) out.push(`the holiday lights for ${(HOLIDAY_NAMES[h.key] || h.key.replace(/_/g, ' '))}`); });   // 3.19.1
   if ((s.holidays?.country?.effects || []).includes(key)) out.push('public holiday lights');
+  (s.dates?.list || []).forEach(e => { if ((e.effects || []).includes(key)) out.push(`the lights for ${typeof personalLabel === 'function' ? personalLabel(e) : e.name}`); });   // 4.18.1
+  (s.automations || []).forEach(a => { if ([...(a.then || []), ...(a.if || [])].some(x => x.effect === key)) out.push(`the automation “${a.name}”`); });
   Object.entries(s.effects || {}).forEach(([k, e]) => { if (e.split && (Object.values(e.split).includes(key) || e.rest === key)) out.push(`the split pattern ${e.label || k}`); });
   return out;
 }
@@ -1715,7 +1719,7 @@ function stateLine(st) {
   else if (t.on && t.reason === 'weather') sub = `${t.source}: ${t.effect} until ${st.window.end}, instead of ${st.window.rule}.`;
   else if (t.on && st.window) sub = `${st.window.rule}: ${t.effect} until ${st.window.end}.` + (t.delegated ? ' The controller is running tonight from its own timer, so the lights go off on time even if this computer stops.' : '');
   else sub = nextTxt ? `Next on at ${nextTxt}.` : 'Nothing scheduled this week.';
-  if (st.holiday && !t.on && !['flash', 'alert', 'music', 'manual'].includes(t.reason)) sub = `Today is ${st.holiday.name}: ${st.holiday.playlist} from ${st.holiday.on}. ` + sub;
+  if (st.holiday && !t.on && !['flash', 'alert', 'music', 'manual'].includes(t.reason)) sub = (st.holiday.around ? `Tonight: the lights for ${st.holiday.name} (${st.holiday.around}): ` : `Today is ${st.holiday.name}: `) + `${st.holiday.playlist} from ${st.holiday.on}. ` + sub;
   if (t.on && t.curve) sub += ` Night curve: ${t.curve.kelvin ? t.curve.kelvin + ' K, ' : ''}${t.curve.level}% brightness.`;
   if (!t.applied && !st.error) sub += ' Sending…';
   return { head, sub };
@@ -2270,12 +2274,14 @@ VIEWS.schedule = async () => {
     <h3 class="secthead">Special days</h3>
     <div class="stack">
       ${fold('holidays', 'Holidays', '<div class="panel stack" id="holbox"><p class="muted small">Loading…</p></div>')}
+      ${fold('dates', 'Birthdays & anniversaries', '<div class="panel stack" id="datebox"><p class="muted small">Loading…</p></div>')}
       ${fold('game', 'Game-day lights', '<div class="panel stack" id="gamebox"><p class="muted small">Loading…</p></div>')}
       ${fold('away', 'Away mode', '<div class="panel stack" id="awaybox"><p class="muted small">Loading…</p></div>')}
     </div></div>`;
   whenOpen('away', () => awayPanel($('#awaybox')));
   whenOpen('game', () => gamePanel($('#gamebox')));
   whenOpen('holidays', () => holidayPanel($('#holbox')));
+  whenOpen('dates', () => datesPanel($('#datebox')));
   schedNowPanel($('#schednow'), S.status);
   api('status').then(st => { S.status = st; foldSums(); if (S.view === 'schedule') schedNowPanel($('#schednow'), st); }).catch(() => {});
   api('rulecheck').then(rc => { for (const [name, info] of Object.entries(rc)) {
@@ -2315,11 +2321,11 @@ VIEWS.schedule = async () => {
    engine is automations.py; this is the list and the builder. */
 const AUTO_WHEN = [['score', 'A team scores'], ['game_start', 'A game starts'], ['game_end', 'A game ends'],
   ['weather', 'A severe weather warning starts'], ['webhook', 'A webhook event comes'], ['time', 'It’s a time of day'],
-  ['lights', 'The schedule turns the lights on or off']];
+  ['lights', 'The schedule turns the lights on or off'], ['arrive', 'Someone arrives home'], ['leave', 'Someone leaves home']];
 const AUTO_IF = [['dark', 'It’s dark (sunset to sunrise)'], ['between', 'Between two times'], ['before', 'Before a time'],
   ['after', 'After a time'], ['days', 'On these days'], ['dates', 'Between two dates'], ['lights', 'The lights are on or off'],
   ['rule', 'A rule is running'], ['pattern', 'A pattern is showing'], ['home', 'The team is at home'], ['away', 'The team is away'],
-  ['winning', 'The team is winning'], ['losing', 'The team is losing']];
+  ['winning', 'The team is winning'], ['losing', 'The team is losing'], ['someone_home', 'Someone is home'], ['nobody_home', 'Nobody is home']];
 const AUTO_THEN = [['flash', 'Flash, then go back'], ['show', 'Show a pattern'], ['off', 'Turn off for a while'], ['sound', 'Play a team’s sound']];
 const AUTO_DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const GAME_ONLY = ['home', 'away', 'winning', 'losing'];
@@ -2335,29 +2341,45 @@ function autoDescribe(a) {
   const when = { score: () => `${team(w.team)} scores`, game_start: () => `${team(w.team)}’s game starts`,
     game_end: () => `${team(w.team)}’s game ends${w.result === 'win' ? ' in a win' : w.result === 'loss' ? ' in a loss' : ''}`,
     weather: () => w.event ? `a ${w.event} starts` : 'a weather warning starts', webhook: () => `the webhook event “${w.name || ''}” comes`,
-    time: () => `it’s ${w.at || ''}`, lights: () => `the schedule turns the lights ${w.on === false ? 'off' : 'on'}` }[w.type];
+    time: () => `it’s ${w.at || ''}`, lights: () => `the schedule turns the lights ${w.on === false ? 'off' : 'on'}`,
+    arrive: () => `${!w.person || w.person === 'any' ? 'someone' : w.person} arrives home${w.first ? ' and nobody else is home' : ''}`,
+    leave: () => w.last ? (!w.person || w.person === 'any' ? 'everyone has left' : `${w.person} leaves and nobody is home`) : `${!w.person || w.person === 'any' ? 'someone' : w.person} leaves` }[w.type];
   const cs = (a.if || []).map(c => ({ dark: () => 'it’s dark', between: () => `between ${c.from} and ${c.to}`, before: () => `before ${c.at}`,
     after: () => `after ${c.at}`, days: () => 'on ' + (c.days || []).map(d => AUTO_DAYS[d]).join(', '), dates: () => `from ${c.from} to ${c.to}`,
     lights: () => `the lights are ${c.on === false ? 'off' : 'on'}`, rule: () => `${c.name} is running`, pattern: () => `${eff(c.effect)} is showing`,
-    home: () => 'they’re home', away: () => 'they’re away', winning: () => 'they’re winning', losing: () => 'they’re losing' }[c.type] || (() => ''))());
+    home: () => 'they’re home', away: () => 'they’re away', winning: () => 'they’re winning', losing: () => 'they’re losing',
+    someone_home: () => 'someone is home', nobody_home: () => 'nobody is home' }[c.type] || (() => ''))());
   const acts = (a.then || []).map(x => { const on = x.device ? ` on ${dev(x.device)}` : '';
     return ({ flash: () => `flash ${x.effect ? eff(x.effect) : x.color}${x.zone ? ' in ' + x.zone : ''} for ${x.seconds} s${on}`,
       show: () => `show ${eff(x.effect)}${on} ${x.minutes ? `for ${x.minutes} min` : 'until the schedule changes'}`,
       off: () => `turn off${on} for ${x.minutes} min`, sound: () => `play ${team(x.team)}’s sound` }[x.type] || (() => ''))(); });
   return `When ${when ? when() : '…'}${cs.length ? ', if ' + cs.join(' and ') : ''}, then ${acts.join(', then ') || '…'}.`;
 }
+/* 4.18.2: a long list in groups, by what starts each automation */
+const AUTO_GROUPS = [['People', ['arrive', 'leave']], ['Games', ['score', 'game_start', 'game_end']], ['Weather', ['weather']],
+  ['Cameras, sensors and buttons (webhooks)', ['webhook']], ['Times and the schedule', ['time', 'lights']]];
+function autoGroups(autos, min = 7) {
+  const rows = autos.map((a, i) => [a, i]);
+  if (autos.length < min) return [['', rows]];
+  return AUTO_GROUPS.map(([t, kinds]) => [t, rows.filter(([a]) => kinds.includes((a.when || {}).type))])
+    .concat([['Other', rows.filter(([a]) => !AUTO_GROUPS.some(([, k]) => k.includes((a.when || {}).type)))]])
+    .filter(([, r]) => r.length);
+}
 async function autoPanel(box) {
   const autos = S.settings.automations || [], ro = role() === 'viewer';
   let hist = [];
   try { hist = await api('automations/history'); } catch { /* shown empty */ }
+  const tpls = typeof AUTO_TEMPLATES === 'object' ? AUTO_TEMPLATES : {};
   box.innerHTML = `<div class="panel-head"><h2>Automations</h2>${ro ? '' : '<button class="small" data-autoadd>Add an automation</button>'}</div>
+    ${ro ? '' : `<div class="row" style="flex-wrap:wrap">${Object.keys(tpls).length ? `<select data-autotpl style="width:auto;max-width:100%" aria-label="Start from a template"><option value="">Start from a template…</option>${Object.entries(tpls).map(([k, t]) => { const off = t.people && !((S.settings.presence || {}).people || []).length;
+          return `<option value="${esc(k)}" ${off ? 'disabled' : ''}>${esc(t.label)}${off ? ' (add people under Who’s home first)' : ''}</option>`; }).join('')}</select>` : ''}</div>`}
     <p class="note">When something happens, if everything you list is true, then the lights do what you say, and go back afterward. For example: when the Flyers score, if it’s dark, flash orange and black for 20 seconds. A higher priority goes first when two start at once.</p>
-    <div class="list">${autos.map((a, i) => `<div class="item"><div class="grow">
+    <div class="list">${autoGroups(autos).map(([title, rows]) => (title ? `<h3 class="autogroup">${esc(title)} <span class="muted small">${rows.length}</span></h3>` : '') + rows.map(([a, i]) => `<div class="item"><div class="grow">
         <div class="row" style="gap:8px"><label class="check"><input type="checkbox" data-autoon="${i}" ${a.enabled === false ? '' : 'checked'} ${ro ? 'disabled' : ''}><span class="name">${esc(a.name)}</span></label>
           <span class="badge ${(a.priority ?? 100) >= 200 ? 'hi' : ''}">${autoPrio(a.priority ?? 100)} · ${a.priority ?? 100}</span>${a.beats_manual ? '<span class="badge">beats a manual choice</span>' : ''}</div>
         <div class="sub">${esc(autoDescribe(a))}</div><div class="small" data-autoout="${i}"></div></div>
         <div class="row" style="gap:6px">${ro ? '' : `<button class="small ghost" data-autotry="${i}">Try it now</button>`}<button class="small ghost" data-autochk="${i}">Check it now</button>
-          ${ro ? '' : `<button class="small ghost" data-autoedit="${i}">Edit</button><button class="small ghost danger" data-autodel="${i}">Delete</button>`}</div></div>`).join('')
+          ${ro ? '' : `<button class="small ghost" data-autoedit="${i}">Edit</button><button class="small ghost danger" data-autodel="${i}">Delete</button>`}</div></div>`).join('')).join('')
       || '<p class="muted">No automations yet.</p>'}</div>
     ${hist.length ? `<h3 style="margin:10px 0 4px">Lately</h3><div class="small">${hist.slice(0, 8).map(h => `<div><span class="muted">${esc(h.at)}</span> ${esc(h.text)}</div>`).join('')}</div>` : ''}
     <p class="note">Webhooks can start one by name: <code>POST /api/hook/event</code> with <code>{"name": "doorbell"}</code> (Alerts › Webhooks has the address and token). A team’s score celebration under Schedule › Game-day lights can become an automation with <b>Make it an automation</b>.</p>`;
@@ -2365,6 +2387,7 @@ async function autoPanel(box) {
   box.onchange = e => {
     const t = e.target;
     if (t.dataset.autoon !== undefined) { const n = clone(S.settings); n.automations[+t.dataset.autoon].enabled = t.checked; save(n, t.checked ? 'On' : 'Off'); }
+    if (t.dataset.autotpl !== undefined && t.value) { const k = t.value; t.value = ''; autoDialog(null, () => autoPanel(box), tpls[k].make()); }   // 4.18
   };
   box.onclick = async e => {
     const b = e.target.closest('button'); if (!b) return; const d = b.dataset;
@@ -2383,12 +2406,13 @@ async function autoPanel(box) {
         : 'No conditions: it runs whenever the event comes.'; }).catch(() => {});
   };
 }
-function autoDialog(idx, done) {
+function autoDialog(idx, done, preset) {
   const src = idx === null ? null : (S.settings.automations || [])[idx];
-  const A = src ? clone(src) : { id: 'a' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name: '', enabled: true,
+  const A = src ? clone(src) : preset ? { id: 'a' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), enabled: true, priority: 100, cooldown: 30, beats_manual: false, ...clone(preset) } : { id: 'a' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name: '', enabled: true,
     priority: 100, cooldown: 30, beats_manual: false, when: { type: 'score', team: 'any' }, if: [{ type: 'dark' }], then: [{ type: 'flash', seconds: 20 }] };
   const effs = Object.entries(S.settings.effects || {}), teams = autoTeams(), ctls = ctlList(), zones = mapData().zones || [];
   const rules = (S.settings.rules || []).map(r => r.name).filter(Boolean);
+  const people = ((S.settings.presence || {}).people || []);
   const opt = (v, cur, label) => `<option value="${esc(v)}" ${String(v) === String(cur ?? '') ? 'selected' : ''}>${esc(label)}</option>`;
   const teamSel = (k, cur, any = true) => `<select data-k="${k}" style="width:auto;max-width:100%">${any ? opt('any', cur, 'Any team') : ''}${teams.map(t => opt(t.key, cur, t.name)).join('')}</select>`;
   const effSel = (k, cur, none) => `<select data-k="${k}" style="width:auto;max-width:100%">${none ? opt('', cur, none) : ''}${effs.map(([key, e]) => opt(key, cur, e.label || key)).join('')}</select>`;
@@ -2400,8 +2424,11 @@ function autoDialog(idx, done) {
     ${w.type === 'weather' ? `<input type="text" data-k="when.event" value="${esc(w.event || '')}" placeholder="any warning, or e.g. Tornado Warning">` : ''}
     ${w.type === 'webhook' ? `<input type="text" data-k="when.name" value="${esc(w.name || '')}" placeholder="e.g. doorbell" maxlength="40">` : ''}
     ${w.type === 'time' ? timeIn('when.at', w.at, 'sunset + 15, 6:30 pm') : ''}
-    ${w.type === 'lights' ? `<select data-k="when.on" style="width:auto">${opt('true', String(w.on !== false), 'on')}${opt('false', String(w.on !== false), 'off')}</select>` : ''}`; };
-  const condHtml = (c, i) => `<div class="row autorow" style="gap:6px"><select data-k="if.${i}.type" style="width:auto;max-width:100%">${AUTO_IF.filter(([v]) => !GAME_ONLY.includes(v) || ['score', 'game_start', 'game_end'].includes(A.when.type)).map(([v, l]) => opt(v, c.type, l)).join('')}</select>
+    ${w.type === 'lights' ? `<select data-k="when.on" style="width:auto">${opt('true', String(w.on !== false), 'on')}${opt('false', String(w.on !== false), 'off')}</select>` : ''}
+    ${['arrive', 'leave'].includes(w.type) ? (people.length ? `<select data-k="when.person" style="width:auto">${opt('any', w.person, 'Anyone')}${people.map(p => opt(p, w.person, p)).join('')}</select>
+      <label class="check small"><input type="checkbox" data-k="when.${w.type === 'arrive' ? 'first' : 'last'}" ${w[w.type === 'arrive' ? 'first' : 'last'] ? 'checked' : ''}> ${w.type === 'arrive' ? 'only when nobody else was home' : 'only when nobody is left home'}</label>`
+      : '<span class="note">Add the people who live here under Alerts › Who’s home first.</span>') : ''}`; };
+  const condHtml = (c, i) => `<div class="row autorow" style="gap:6px"><select data-k="if.${i}.type" style="width:auto;max-width:100%">${AUTO_IF.filter(([v]) => (!GAME_ONLY.includes(v) || ['score', 'game_start', 'game_end'].includes(A.when.type)) && (people.length || !['someone_home', 'nobody_home'].includes(v) || c.type === v)).map(([v, l]) => opt(v, c.type, l)).join('')}</select>
     ${c.type === 'between' ? timeIn(`if.${i}.from`, c.from, 'from, e.g. 6:00 pm') + timeIn(`if.${i}.to`, c.to, 'to, e.g. 11:00 pm') : ''}
     ${c.type === 'before' || c.type === 'after' ? timeIn(`if.${i}.at`, c.at, 'e.g. 10:00 pm, sunset') : ''}
     ${c.type === 'days' ? AUTO_DAYS.map((d, j) => `<label class="check small"><input type="checkbox" data-k="if.${i}.day.${j}" ${(c.days || []).includes(j) ? 'checked' : ''}>${d}</label>`).join('') : ''}
@@ -2445,7 +2472,7 @@ function autoDialog(idx, done) {
     if (v === undefined || v === '') delete o[last]; else o[last] = v;
     if (last === 'type') {               // a new kind: start it clean
       const fresh = { flash: { seconds: 20 }, off: { minutes: 30 }, dark: { from: 'sunset', to: 'sunrise' }, days: { days: [4, 5, 6] },
-        lights: { on: true }, score: { team: 'any' }, game_start: { team: 'any' }, game_end: { team: 'any', result: 'any' }, time: { at: 'sunset' } }[v] || {};
+        lights: { on: true }, arrive: { person: 'any' }, leave: { person: 'any' }, score: { team: 'any' }, game_start: { team: 'any' }, game_end: { team: 'any', result: 'any' }, time: { at: 'sunset' } }[v] || {};
       const keep = parts[0] === 'then' ? { device: o.device } : {};
       Object.keys(o).forEach(x => delete o[x]); Object.assign(o, { type: v, ...fresh, ...keep });
       if (!['score', 'game_start', 'game_end'].includes(A.when.type)) A.if = A.if.filter(c => !GAME_ONLY.includes(c.type));
@@ -2499,6 +2526,7 @@ VIEWS.alerts = async () => {
     <div class="panel-head"><h2>Alerts</h2><span class="muted small">What changes the lights when something happens: the weather, a warning, a camera or alarm, a button.</span></div>
     <div class="stack">
       ${fold('autos', 'Automations (When \u00b7 If \u00b7 Then)', '<div class="panel stack" id="autobox"><p class="muted small">Loading\u2026</p></div>', wide())}
+      ${fold('people', 'Who\u2019s home', '<div class="panel stack" id="peoplebox"><p class="muted small">Loading\u2026</p></div>')}
       ${fold('weather', 'Weather', weather, wide())}
       ${fold('wxalerts', 'Severe weather alerts', '<div class="panel stack" id="wxalertbox"><p class="muted small">Loading…</p></div>')}
       ${fold('security', 'Security flash', security)}
@@ -2508,6 +2536,7 @@ VIEWS.alerts = async () => {
     <p class="note" style="margin-top:14px">Flashing a team\u2019s colors when it scores is set per team under Schedule \u203a Game-day lights.</p></div>`;
   whenOpen('wxalerts', () => wxAlertPanel($('#wxalertbox')));
   whenOpen('autos', () => autoPanel($('#autobox')));
+  whenOpen('people', () => presencePanel($('#peoplebox'), admin));
   if (admin) { whenOpen('webhooks', () => webhookPanel($('#hookbox'))); whenOpen('phone', () => alertPanel($('#alertbox'))); }
   m.onclick = async e => {
     const b = e.target.closest('button'); if (!b) return; const d = b.dataset;
@@ -2543,8 +2572,9 @@ async function webhookPanel(box) {
       <p class="note">Actions: flash, stop_flash, on (with {"effect": "name"}), off, resume, levels, dismiss_alert. Send the token in the X-Token header, or as "token" in a JSON body for services that can't set headers. Tokens in the web address are refused.</p>
       <p class="small">An alert with its own pattern, length and zone (for example a package at the front door):</p><pre class="code">curl -X POST -H "X-Token: ${esc(a.webhook_token)}" \\\n  -H "Content-Type: application/json" \\\n  -d '{"effect": "package", "zone": "Front porch", "seconds": 30}' \\\n  http://${esc(a.addresses[0] || 'THIS-PC')}:${a.port}/api/hook/flash</pre>
       <p class="note"><b>effect</b>: one of your patterns, or an alert pattern: package, alarm, doorbell, delivery, severe, security. Or send <b>color</b> (like "#00FF00") instead. <b>zone</b>: a zone from the House tab (optional). <b>seconds</b>: 5 to 14400 (30 if left out).</p>
-      <div id="trybox"></div>` : ''}`;
+      <div id="trybox"></div><div id="voicebox" class="stack"></div>` : ''}`;
   tryAlertPanel($('#trybox', box));
+  if (a.webhook_token && $('#voicebox', box)) voicePanel($('#voicebox', box), a);   // 4.18: Siri, Alexa, Google, motion
   box.onchange = e => {
     if (e.target.id === 'hook') busy(null, () => api('webhook', { body: { enable: e.target.checked } })).then(() => webhookPanel(box)).catch(() => { e.target.checked = !e.target.checked; });
   };
@@ -4021,7 +4051,7 @@ async function winPanel(box, day) {
   catch (e) { box.innerHTML = `<h2>Who wins tonight</h2><p class="callout warn small">${esc(e.message)}</p>`; return; }
   const t = x => new Date(x).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
   const a0 = Date.parse(r.start), a1 = Date.parse(r.end), pct = x => (Date.parse(x) - a0) / (a1 - a0) * 100;
-  const kinds = { rule: 'Rule', holiday: 'Holiday', 'game day': 'Game day' };
+  const kinds = { rule: 'Rule', holiday: 'Holiday', 'game day': 'Game day', 'your date': 'Birthday or anniversary' };
   const dev = Object.entries(r.devices).map(([d, spans]) => {
     const on = spans.filter(x => x.on);
     return `<div class="stack" style="gap:6px">${d !== 'all' ? `<b>${esc(r.names[d] || d)}</b>` : ''}
@@ -4083,7 +4113,7 @@ function installBar() {
   bar.onclick = e => {
     const b = e.target.closest('button'); if (!b) return;
     if (b.dataset.inst !== undefined) return pwaInstall();
-    if (b.dataset.insthow !== undefined) return go('app');
+    if (b.dataset.insthow !== undefined) return go('phone');      // 4.18.2: the step-by-step page
     try { localStorage.setItem('elx-install-hidden', '1'); } catch { /* no storage */ }
     bar.remove();
   };
@@ -4108,8 +4138,9 @@ function pwaPanel(box) {
       <li>The icon opens <b>Quick</b>: big buttons for On, Off, the schedule, your favorites and scenes. Press and hold the icon (Android) for <b>Lights on</b>, <b>Lights off</b>, <b>Back to the schedule</b> and <b>Security flash</b>.</li>
       <li>${secure ? (sw ? 'This address is secure, so the app\u2019s files are kept on this device: it opens at once, and says so plainly when you\u2019re away from home.' : 'This address is secure, so the app\u2019s files are kept on this device after the next visit.')
         : 'This address is plain <code>http://</code>, so the app works but isn\u2019t kept on the phone, and Android adds a shortcut instead of an app. For the full app, use the app\u2019s <code>https://</code> address (Manual, section 8: HTTPS with mkcert, trusted on the phone).'}</li>
-      <li>It works on your home Wi-Fi (or your home VPN), as the app always has.</li></ul>`;
-  box.onclick = e => { if (e.target.closest('[data-pwainstall]')) pwaInstall(); };
+      <li>It works on your home Wi-Fi (or your home VPN), as the app always has.</li></ul>
+    <div><button class="small" data-gophone>Set up ${IOS || /Android/i.test(navigator.userAgent) ? 'this phone' : 'a phone or tablet'}, step by step</button></div>`;
+  box.onclick = e => { if (e.target.closest('[data-pwainstall]')) pwaInstall(); if (e.target.closest('[data-gophone]')) go('phone'); };
 }
 
 /* Quick: big buttons for what you reach for most. The household chooses

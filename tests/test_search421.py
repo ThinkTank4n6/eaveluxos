@@ -32,7 +32,8 @@ class Index(unittest.TestCase):
     """Every entry must point at something that's really there."""
     @classmethod
     def setUpClass(cls):
-        cls.app = (STATIC / "app.js").read_text(encoding="utf-8")
+        # 4.18.2: views and panels in the later page scripts count too
+        cls.app = "\n".join((STATIC / f).read_text(encoding="utf-8") for f in ("app.js", "security.js", "triggers.js"))
         cls.index = (STATIC / "index.html").read_text(encoding="utf-8")
 
     @unittest.skipUnless(shutil.which("node"), "Node.js isn't installed")

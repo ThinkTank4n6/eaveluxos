@@ -840,6 +840,7 @@ class Config:
     automations: list = field(default_factory=list)   # 4.11: When/If/Then (automations.py)
     watch: dict = field(default_factory=dict)          # 4.11: teams automations follow, celebrations off or not
     gamma: float | None = None
+    people: list = field(default_factory=list)          # 4.18: who's home (presence.py)
     paused: dict | None = None                         # 4.16.6: {"since": iso}: this app leaves the lights alone
 
 
@@ -1041,6 +1042,43 @@ def _holiday_rules(hc, effects: dict, order0: int, country_dates, taken_names=()
     return out
 
 
+def _personal_rules(pc, effects: dict, order0: int, taken_names=()) -> list:
+    """Birthdays, anniversaries and other dates of yours (4.18): a rule each
+    that runs only on its night (and the days around it you choose), every
+    year, above holidays."""
+    from .holidays import MAX_PERSONAL, PERSONAL_PRIORITY, HolidayError, YearlyNights, check_personal, personal_label
+    if pc is None:
+        return []
+    if not isinstance(pc, dict) or not isinstance(pc.get("list", []), list):
+        raise ConfigError("Your dates must be an object with a list.")
+    if len(pc.get("list", [])) > MAX_PERSONAL:
+        raise ConfigError(f"Up to {MAX_PERSONAL} dates of your own.")
+    out, used = [], set(taken_names)
+    for i, raw_e in enumerate(pc.get("list", [])):
+        try:
+            e = check_personal(raw_e, effects, f"Date {i + 1}")
+        except HolidayError as err:
+            raise ConfigError(str(err)) from None
+        if not e["enabled"] or pc.get("enabled") is False:
+            continue
+        label = personal_label(e)
+        n, k = label, 2
+        while n in used:
+            n, k = f"{label} ({k})", k + 1
+        used.add(n)
+        c = {"name": n, "on": e["on"], "off": e["off"], "effect": e["effects"], "priority": PERSONAL_PRIORITY}
+        if len(e["effects"]) > 1:
+            c["rotate_minutes"] = e["rotate"]
+        try:
+            r = Rule.from_config(order0 + len(out), c, effects)
+        except ConfigError as err:
+            raise ConfigError(f"{label}: {err}") from None
+        r.only_dates, r.holiday = YearlyNights(e["m"], e["d"], e["before"], e["after"], e.get("year")), label
+        r.personal = True
+        out.append(r)
+    return out
+
+
 def build_config(raw: dict, secrets: dict, need_secrets: bool = True, gamedates: dict | None = None,
                  country_dates: dict | None = None) -> Config:
     """raw: the settings document (same shape as config.toml).
@@ -1077,6 +1115,7 @@ def build_config(raw: dict, secrets: dict, need_secrets: bool = True, gamedates:
     rules = [Rule.from_config(i, r, effects) for i, r in enumerate(raw.get("rules", []))]
     rules += _game_rules(raw.get("gameday"), effects, len(rules), gamedates or {}, [r.name for r in rules])
     rules += _holiday_rules(raw.get("holidays"), effects, len(rules), country_dates, [r.name for r in rules])
+    rules += _personal_rules(raw.get("dates"), effects, len(rules), [r.name for r in rules])
     names = [r.name for r in rules]
     if len(names) != len(set(names)):
         raise ConfigError("Two schedule rules have the same name. Give each one its own name.")
@@ -1151,7 +1190,9 @@ def build_config(raw: dict, secrets: dict, need_secrets: bool = True, gamedates:
             gd_teams.add(_tk(ct["league"], ct["team"]))
         except (_GE, TypeError, KeyError, AttributeError):
             pass
-    autos = _ap(raw.get("automations"), effects, gd_teams)
+    from .presence import check_people as _cp
+    people = _cp(raw.get("presence"))
+    autos = _ap(raw.get("automations"), effects, gd_teams, people=people)
     return Config(
         loc=loc, effects=effects, schedule=Schedule(rules, loc, away), weather_rules=wrules,
         weather=weather, security=security, safety=safety,
@@ -1165,7 +1206,7 @@ def build_config(raw: dict, secrets: dict, need_secrets: bool = True, gamedates:
         music=build_music(raw, loc),
         weather_alerts=wx_alerts, zones=zones, total_bulbs=total_bulbs,
         celebrate=_celebrations(raw.get("gameday"), effects), gamma=gamma,
-        automations=autos, watch=_aw(raw.get("gameday"), autos), paused=pz,
+        automations=autos, watch=_aw(raw.get("gameday"), autos), paused=pz, people=people,
     )
 
 

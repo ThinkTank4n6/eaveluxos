@@ -987,7 +987,11 @@ class Controller:
         for p in self.cfg.schedule.day_plans(now.date()):
             if getattr(p.rule, "holiday", None):
                 on = p.start.strftime("%I:%M %p").lstrip("0")
-                return {"name": p.rule.holiday, "playlist": p.effect_label(), "on": on,
+                off = getattr(p.rule.only_dates, "offset", None)
+                k = (off(now.date()) or 0) if off else 0
+                # Review #2 (4.18.1): the days around a birthday aren't the day itself
+                around = "" if not k else (f"in {-k} day{'s' if k < -1 else ''}" if k < 0 else f"{k} day{'s' if k > 1 else ''} ago")
+                return {"name": p.rule.holiday, "around": around, "playlist": p.effect_label(), "on": on,
                         "patterns": [e.label for e in p.rule.effects]}
         return None
 
@@ -1012,7 +1016,8 @@ class Controller:
                 log.warning("Couldn't save the holiday note day: %s", e)
         h = self.holiday_today(now)
         if h:
-            self.note(f"Today is {h['name']}: tonight's lights are {h['playlist']}, from {h['on']}.")
+            self.note(f"Tonight: the lights for {h['name']} ({h['around']}) are {h['playlist']}, from {h['on']}." if h.get("around")
+                      else f"Today is {h['name']}: tonight's lights are {h['playlist']}, from {h['on']}.")
 
     def _safety_step(self, now_ts: float):
         """Keep the controller's copy of the coming nights current (daily, and
@@ -1124,7 +1129,13 @@ class Controller:
             seen = json.dumps([d["switch_raw"] if "switch" in parts else None,
                                d.get("effect_raw") if "pattern" in parts else None], sort_keys=True, default=str)
             base = self.cloud_seen.get(d["id"])
-            if base is None or base == seen:
+            # Review #1 (4.18.1, Chris's log Nov 22 16:48): a LAN send isn't
+            # heard by the cloud, so the first read-back after one can still
+            # show the old state; when the cloud catches up, its report is what
+            # this app sent. That's not a change from outside.
+            caught_up = (("switch" not in parts or d["switch_raw"] == self.lan_state.get(d["id"]))
+                         and ("pattern" not in parts or self._matches(d.get("effect_raw"), self.sent_effect.get(d["id"])) is True))
+            if base is None or base == seen or caught_up:
                 self.cloud_seen[d["id"]] = seen
                 self.cloud_moving.pop(d["id"], None)
             elif self.cloud_moving.get(d["id"]) == seen:

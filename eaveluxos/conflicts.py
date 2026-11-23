@@ -18,6 +18,8 @@ from .schedule import _rank, ts
 
 
 def _kind(rule) -> str:
+    if getattr(rule, "personal", False):
+        return "your date"           # 4.18: a birthday or anniversary
     if getattr(rule, "holiday", None):
         return "holiday"
     if getattr(rule, "only_dates", None) is not None:

@@ -280,6 +280,88 @@ class DateSet:
         return d in self.dates
 
 
+# ---------------------------------------------------------------- personal dates (4.18)
+PERSONAL_PRIORITY = 220      # a birthday beats the holiday it falls on; game days still win
+MAX_PERSONAL = 40
+PERSONAL_KINDS = ("birthday", "anniversary", "other")
+
+
+def personal_day(m: int, d: int, year: int) -> date:
+    """The day in this year: February 29 is February 28 in other years."""
+    if (m, d) == (2, 29) and not (year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)):
+        return date(year, 2, 28)
+    return date(year, m, d)
+
+
+def personal_label(e: dict) -> str:
+    """Chris + birthday -> Chris's birthday; Our wedding + anniversary -> Our wedding anniversary."""
+    name, kind = e["name"], e["kind"]
+    if kind == "other" or kind in name.lower():
+        return name
+    return f"{name}'s birthday" if kind == "birthday" else f"{name} anniversary"
+
+
+class YearlyNights:
+    """A personal date's nights, every year (Rule.only_dates)."""
+
+    def __init__(self, m: int, d: int, before: int = 0, after: int = 0, since: int | None = None):
+        self.m, self.d, self.before, self.after, self.since = m, d, before, after, since
+
+    def offset(self, night) -> int | None:
+        """Days from the date itself (-2: two days before; 0: the day), or
+        None when this night isn't one of its nights."""
+        for y in (night.year - 1, night.year, night.year + 1):
+            if self.since and y < self.since:
+                continue
+            day = personal_day(self.m, self.d, y)
+            if day - timedelta(days=self.before) <= night <= day + timedelta(days=self.after):
+                return (night - day).days
+        return None
+
+    def __contains__(self, night) -> bool:
+        return self.offset(night) is not None
+
+
+def check_personal(e: dict, effects: dict, where: str = "Date") -> dict:
+    """One birthday, anniversary or other date of yours -> its parts, or HolidayError."""
+    if not isinstance(e, dict):
+        raise HolidayError(f"{where}: malformed.")
+    name = " ".join(str(e.get("name") or "").split())
+    if not 1 <= len(name) <= 40:
+        raise HolidayError(f"{where}: give it a name (up to 40 characters).")
+    kind = e.get("kind", "birthday")
+    if kind not in PERSONAL_KINDS:
+        raise HolidayError(f"{name}: a birthday, an anniversary or another date.")
+    try:
+        m, d = (int(x) for x in str(e.get("date") or "").split("-"))
+        date(2024, m, d)
+    except (ValueError, TypeError):
+        raise HolidayError(f"{name}: the date is month-day, for example 07-14.") from None
+    out = {"name": name, "kind": kind, "date": f"{m:02d}-{d:02d}", "m": m, "d": d,
+           "enabled": e.get("enabled", True) is not False}
+    y = e.get("year")
+    if y not in (None, ""):
+        if isinstance(y, bool) or not isinstance(y, int) or not 1900 <= y <= date.today().year + 1:
+            raise HolidayError(f"{name}: the year is like 1984 (or leave it out).")
+        out["year"] = y
+    effs = e.get("effects")
+    if not isinstance(effs, list) or not 1 <= len(effs) <= 6 or not all(isinstance(k, str) and k in effects for k in effs):
+        raise HolidayError(f"{name}: choose 1 to 6 of your patterns.")
+    out["effects"] = effs
+    for k in ("before", "after"):
+        v = e.get(k, 0)
+        if isinstance(v, bool) or not isinstance(v, int) or not 0 <= v <= 7:
+            raise HolidayError(f"{name}: days {k} is 0 to 7.")
+        out[k] = v
+    rot = e.get("rotate", 15)
+    if isinstance(rot, bool) or not isinstance(rot, int) or not 1 <= rot <= 240:
+        raise HolidayError(f"{name}: each pattern shows 1 to 240 minutes.")
+    out["rotate"] = rot
+    out["on"] = str(e.get("on") or "sunset")
+    out["off"] = str(e.get("off") or "23:00")
+    return out
+
+
 def check_entry(e: dict, effects: dict, where: str = "Holiday") -> dict:
     """One picked holiday from settings -> its parts, or HolidayError."""
     if not isinstance(e, dict):
