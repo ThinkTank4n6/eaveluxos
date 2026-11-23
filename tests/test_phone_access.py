@@ -108,7 +108,13 @@ class AddressTests(unittest.TestCase):
                 return (self.ip, 0)
         server._lan_cache = (0.0, [])                          # no answer kept from an earlier test
         self.addCleanup(setattr, server, "_lan_cache", (0.0, []))   # nor these fake ones for later tests
-        with mock.patch.object(server.socket, "socket", Sock), \
+        # 4.18.3: a real lookup of this computer's name from an earlier test can
+        # still be running (on GitHub's Mac it takes many seconds); then this
+        # test waited for that one instead of its own. Start a fresh one, and
+        # give it time on a slow runner.
+        with mock.patch.object(server, "_name_thread", None), mock.patch.object(server, "_name_ips", []), \
+                mock.patch.object(server, "NAME_WAIT", 10), \
+                mock.patch.object(server.socket, "socket", Sock), \
                 mock.patch.object(server.socket, "getaddrinfo", return_value=[
                     (socket.AF_INET, 0, 0, "", ("127.0.0.1", 0)), (socket.AF_INET, 0, 0, "", ("169.254.3.4", 0)),
                     (socket.AF_INET, 0, 0, "", ("192.168.56.1", 0))]):

@@ -32,11 +32,12 @@ def _b64(raw: bytes) -> str:
     return base64.urlsafe_b64encode(raw).decode().rstrip("=")
 
 
-def encode(patterns: list, rotate: int | None = None) -> str:
-    """Pattern definitions (as in settings) -> a share code."""
-    if not 1 <= len(patterns) <= MAX_PATTERNS:
+def encode(patterns: list, rotate: int | None = None, extra: dict | None = None) -> str:
+    """Pattern definitions (as in settings) -> a share code. extra (4.21):
+    {"s": a Studio show} or {"a": [an automation template]}."""
+    if not (0 if extra else 1) <= len(patterns) <= MAX_PATTERNS:
         raise ShareError(f"Share 1 to {MAX_PATTERNS} patterns at a time.")
-    doc = {"v": 1, "p": [{k: v for k, v in p.items() if k in PATTERN_KEYS} for p in patterns]}
+    doc = {"v": 1, "p": [{k: v for k, v in p.items() if k in PATTERN_KEYS} for p in patterns], **(extra or {})}
     if rotate and len(patterns) > 1:
         doc["r"] = int(rotate)
     c = zlib.compressobj(9, zlib.DEFLATED, -15)
@@ -45,6 +46,28 @@ def encode(patterns: list, rotate: int | None = None) -> str:
     if len(code) > MAX_CODE:
         raise ShareError("Those patterns are too big for a share code. Share fewer, or export a file.")
     return code
+
+
+def encode_show(show) -> dict:
+    """4.21: a Studio show as a share code (its looks travel inside it)."""
+    from .studio import check_show
+    try:
+        s = check_show(show)
+    except ValueError as e:
+        raise ShareError(str(e)) from None
+    code = encode([], extra={"s": s})
+    return {"code": code, "length": len(code), "labels": [s["name"]]}
+
+
+def encode_automation(a: dict, effects: dict) -> dict:
+    """4.21: an automation as a share code: a template and its patterns."""
+    from .marketplace import TemplateError, make_template
+    try:
+        t, pats = make_template(a, effects)
+    except TemplateError as e:
+        raise ShareError(str(e)) from None
+    code = encode(pats, extra={"a": [t]})
+    return {"code": code, "length": len(code), "labels": [t["name"]]}
 
 
 def encode_keys(effects: dict, keys, rotate=None) -> dict:
@@ -117,7 +140,8 @@ def decode(text) -> dict:
         raise ShareError("That share code is damaged. Copy all of it, from ELX1: to the end.")
     if not isinstance(doc, dict) or doc.get("v") != 1 or not isinstance(doc.get("p"), list):
         raise ShareError("That share code is from a newer EaveLuxOS, or damaged.")
-    if not 1 <= len(doc["p"]) <= MAX_PATTERNS:
+    kind = "show" if "s" in doc else "automation" if "a" in doc else "patterns"
+    if not (0 if kind != "patterns" else 1) <= len(doc["p"]) <= MAX_PATTERNS:
         raise ShareError(f"A share code holds 1 to {MAX_PATTERNS} patterns.")
     pats = []
     for i, p in enumerate(doc["p"]):
@@ -127,4 +151,20 @@ def decode(text) -> dict:
             raise ShareError(str(e).replace("That community pattern", f"Pattern {i + 1} in the code")) from None
     r = doc.get("r")
     rotate = r if isinstance(r, int) and not isinstance(r, bool) and 1 <= r <= 240 and len(pats) > 1 else None
-    return {"patterns": pats, "rotate": rotate, "code": code}
+    out = {"kind": kind, "patterns": pats, "rotate": rotate, "code": code}
+    if kind == "show":                          # 4.21: a Studio show
+        from .studio import check_show
+        try:
+            out["show"] = check_show(doc["s"])
+        except ValueError as e:
+            raise ShareError(f"That shared show isn't valid ({e}).") from None
+    elif kind == "automation":                  # 4.21: an automation template
+        from .marketplace import TemplateError, check_template
+        a = doc["a"]
+        if not (isinstance(a, list) and len(a) == 1):
+            raise ShareError("That shared automation is damaged.")
+        try:
+            out["automation"] = check_template(a[0], len(pats))
+        except TemplateError as e:
+            raise ShareError(str(e)) from None
+    return out

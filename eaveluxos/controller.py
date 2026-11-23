@@ -520,8 +520,110 @@ class Controller:
         self.cloud_seen.pop(dev, None)        # 4.16.6: the next read-back is the new baseline
         self.cloud_moving.pop(dev, None)
 
+    def _fade(self, dev: str, old, new, seconds: float):
+        """4.19: a fade over the home network before the new pattern (or the
+        switch-off) is sent; nothing when it can't be done that way."""
+        from . import transitions
+        if not seconds or self.lan is None or not hasattr(self.lan, "fade"):
+            return
+        # Review #2 (4.19): controllers fade one after another (one
+        # command at a time), so together they take the fade's length
+        n = max(1, len(self.devices))
+        fr = transitions.frames(old, new, max(1.0, seconds / n) if n > 1 else seconds)
+        if fr:
+            gen = getattr(self, "change_gen", 0)
+            try:
+                self.lan.fade(dev, fr, 1 / transitions.FPS, cancel=lambda: getattr(self, "change_gen", 0) != gen)
+            except Exception as e:          # a fade never stops the change itself
+                log.warning("Fade on %s failed: %s", dev, e)
+
+    # --- Studio (4.20): play a show's keyframes on the lights ---------------------
+    show_stop = None
+    show_state = None
+
+    def play_show(self, patterns: list, hold: float, fade: float, sleep=None) -> dict:
+        """Each keyframe (a pattern's settings) for `hold` seconds, faded
+        into from the one before, once through; then the last one stays as a
+        10-minute preview. A button pressed meanwhile (or Stop) ends it."""
+        import threading as _th
+        effs = [Effect.from_config(f"studio_preview_{i}", p, self.cfg.gamma) for i, p in enumerate(patterns)]
+        self.stop_show()
+        stop = _th.Event()
+        self.show_stop = stop
+        self.show_state = {"step": 0, "steps": len(effs), "since": time.time()}
+        sleep = sleep or stop.wait
+
+        def run():
+            prev, mine = None, None
+            try:
+                for i, e in enumerate(effs):
+                    if stop.is_set():
+                        return
+                    if prev is not None and fade and self.lan is not None:
+                        with self.apply_lock:
+                            for d in self.devices:
+                                self._fade(d["deviceId"], prev, dict(e.payload), fade)
+                    if stop.is_set() or (mine is not None and getattr(self, "change_gen", 0) != mine):
+                        return          # Review #1 (4.20): a button pressed during the fade wins
+                    self.manual(True, obj=e, expires_min=10)          # (it sends it)
+                    mine = getattr(self, "change_gen", 0)
+                    self.show_state = {**(self.show_state or {}), "step": i + 1}
+                    prev = dict(e.payload)
+                    if i < len(effs) - 1:
+                        end = time.monotonic() + hold
+                        while time.monotonic() < end:
+                            if stop.is_set() or getattr(self, "change_gen", 0) != mine:
+                                return              # a button was pressed: it's theirs now
+                            sleep(min(0.25, max(0.0, end - time.monotonic())))
+            except Exception as ex:                 # a show never takes the scheduler down
+                log.warning("Studio show stopped: %s", ex)
+            finally:
+                if self.show_stop is stop:
+                    self.show_state = None
+        _th.Thread(target=run, daemon=True, name="studio-show").start()
+        return {"ok": True, "steps": len(effs)}
+
+    def stop_show(self):
+        if self.show_stop is not None:
+            self.show_stop.set()
+        self.show_stop, self.show_state = None, None
+
+    def sync_now(self) -> dict:
+        """4.21: start every controller's pattern again at the same moment,
+        so moving patterns line up across the house (over the home network)."""
+        if self.lan is None or not hasattr(self.lan, "preview_many"):
+            raise ValueError("Starting the controllers together goes over the home network: turn on Local mode commands.")
+        with self.apply_lock:
+            items = [(d["deviceId"], self.sent_effect[d["deviceId"]]) for d in self.devices
+                     if isinstance(self.sent_effect.get(d["deviceId"]), dict)
+                     and self.sent_effect[d["deviceId"]].get("category") in (0, 1)]
+            if len(items) < 2:
+                raise ValueError("Two or more controllers showing this app's patterns are needed to start them together.")
+            done = self.lan.preview_many([(dev, {k: v for k, v in p.items() if k != "id"}) for dev, p in items])
+            for dev in done:
+                self._sent(dev, "pattern", True)
+        self.note(f"Started {len(done)} controllers together." if done else "Couldn't reach the controllers over the home network.")
+        return {"started": len(done), "of": len(items)}
+
+    def try_fade(self, key: str, seconds: float) -> dict:
+        """4.19: Schedule › Fades › Try it: fade from what's showing to this
+        pattern, which then shows for 15 minutes (like other Try buttons)."""
+        eff = self.cfg.effects.get(key)
+        if eff is None or eff.kind != "custom":
+            raise ValueError("Choose one of your own patterns: only they can fade.")
+        if self.lan is None:
+            raise ValueError("Fades go over the home network: turn on Local mode commands first.")
+        with self.apply_lock:
+            self._ensure_devices()
+            for d in self.devices:
+                dev = d["deviceId"]
+                self._fade(dev, self.sent_effect.get(dev) if self.known_on else None, dict(eff.payload), seconds)
+        self.manual(True, key, expires_min=15)
+        self.tick(maintenance=False)
+        return {"ok": True}
+
     def _apply(self, on: bool, effect, levels: dict | None = None, timer_off: bool = False, delegated: bool = False,
-               skip=frozenset()):
+               skip=frozenset(), fade: float = 0):
         """timer_off: when off, use Timer mode (safety net) instead of Off.
         delegated: lights on, run by the controller's own timer (Timer mode).
         Returns whether the controllers are now switched on by this app; the
@@ -543,10 +645,13 @@ class Controller:
                 # restart its motion and add commands.
                 some_off = some_off or not on or (effect is not None and effect.for_device(dev) is None)
                 continue
-            self.sent_effect.pop(dev, None)
+            prev = self.sent_effect.pop(dev, None)
+            was_on = self.known_on
             part = effect.for_device(dev) if on and effect is not None else effect
             if not on or (effect is not None and effect.kind == "split" and part is None):
                 # A split pattern can leave a controller off (3.17).
+                if fade and was_on:
+                    self._fade(dev, prev, None, fade)       # 4.19: fade out first
                 self._switch(dev, 2 if timer_off else 0)
                 some_off = True
                 continue
@@ -572,6 +677,9 @@ class Controller:
                     payload["brightness"] = max(1, min(255, round(payload.get("brightness", 255) * lv["brightness"] / max(1, base))))
                 else:
                     payload.update(lv)
+                if fade and effect.kind != "split":
+                    # 4.19: from what was showing (or from dark, when the lights just came on)
+                    self._fade(dev, prev if was_on else None, payload, fade)
                 # 4.4.2: the same as a pattern saved on the controller? Show
                 # that one over the home network, by its number.
                 pid = self.lan.show_like(dev, payload) if self.lan is not None and effect.kind != "split" else None
@@ -796,6 +904,10 @@ class Controller:
         wr, match = self._weather_pick(w)
         rule = wr or w.rule
         eff, step = rule.pick(w.start, now)   # the weather rule's own rotation, or the schedule's
+        if wr is not None and getattr(wr, "temperature", False):
+            # 4.19: the temperature as a color (a new one every 5 °F)
+            from .weatherlook import temperature_effect
+            eff = temperature_effect(self.weather.current().get("temp_f"), self.cfg.gamma)
         # A weather rule keeps the scheduled rule's levels (e.g. late-night dim)
         # unless it sets its own.
         levels = {**w.rule.levels, **(wr.levels if wr else {}), **adjust}
@@ -948,8 +1060,12 @@ class Controller:
                 return                       # no checks or timer copies during a show either
             if due:
                 try:
+                    # 4.19: the schedule's own changes fade (not a choice made
+                    # now, a flash, a restore, or the first send after a start)
+                    fade = (getattr(self.cfg, "fade_seconds", 0) if t.reason in ("schedule", "weather")
+                            and self.applied_key is not None and not t.delegated else 0)
                     switched_on = self._apply(t.on, t.effect, t.levels, timer_off=t.key == "off|timer",
-                                              delegated=t.delegated, skip=skip)
+                                              delegated=t.delegated, skip=skip, fade=fade)
                     with self.lock:
                         if self.apply_gen == gen:
                             self.applied_key = t.key
@@ -1341,6 +1457,7 @@ class Controller:
         return ", ".join(f"{d['name']}'s pattern" for d in wrong)
 
     def _kick(self):
+        self.change_gen = getattr(self, "change_gen", 0) + 1    # 4.19: ends a fade under way
         self.next_try = 0.0
         self.fail_count = 0
 

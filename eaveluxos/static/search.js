@@ -44,6 +44,7 @@
     { t: 'Celebrate scores', w: 'Schedule', v: 'schedule', f: 'game', k: 'score goal touchdown flash celebration party live' },
     { t: 'Away mode', w: 'Schedule', v: 'schedule', f: 'away', k: 'vacation away random times travel' },
     { t: 'Birthdays & anniversaries', w: 'Schedule', v: 'schedule', f: 'dates', k: 'birthday anniversary personal date family wedding every year calendar' },
+    { t: 'Studio: layers, gradients and shows', w: 'Patterns', v: 'studio', k: 'studio editor advanced layers gradient keyframes timeline show animation describe words sequence' },
     { t: 'Set up a phone or tablet', w: 'Setup › App', v: 'phone', k: 'iphone ipad android tablet install certificate mkcert home screen qr scan phone setup trust' },
     { t: 'Who\u2019s home', w: 'Alerts', v: 'alerts', f: 'people', k: 'arrive leave geofence presence phone location people family welcome home' },
     { t: 'Siri, Alexa and Google', w: 'Alerts › Webhooks', v: 'alerts', f: 'webhooks', k: 'voice siri alexa google assistant shortcuts say hey' },

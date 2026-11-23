@@ -208,6 +208,11 @@ EDITOR_POSTS = {"/api/action", "/api/settings", "/api/photo", "/api/photo/upload
                 "/api/sound/upload", "/api/sound/delete", "/api/sound/test",     # 4.9: celebration sounds
                 "/api/automation/try", "/api/automation/check",                  # 4.11: automations
                 "/api/presence",                                                 # 4.18: who's home, set by hand
+                "/api/fade/try",                                                 # 4.19: try a fade
+                "/api/sync",                                                     # 4.21: controllers together
+                "/api/share/show", "/api/share/automation", "/api/share/install",  # 4.21: sharing more
+                "/api/studio/compose", "/api/studio/describe", "/api/studio/play", "/api/studio/stop",
+                "/api/studio/save",                                              # 4.20: Studio
                 "/api/textpattern", "/api/mood", "/api/holidays/refresh", "/api/share", "/api/share/open",
                 "/api/musiclink",    # 4.1: a music show from this computer (address, finding and tests: Administrators)
                 "/api/musiczones",   # 4.13: zones that follow the music
@@ -238,7 +243,7 @@ AUDIT_SKIP = {"/api/mood", "/api/musiclink", "/api/musiczones", "/api/rulecheck"
               "/api/conflicts", "/api/upcoming", "/api/house/tonight", "/api/catalog", "/api/status", "/api/session",
               "/api/devices", "/api/history", "/api/photos", "/api/backups", "/api/backups/patterns", "/api/export",
               "/api/runtime", "/api/timezones", "/api/tzinfo", "/api/health", "/api/triggers", "/api/hook/status",
-              "/api/audit"}
+              "/api/audit", "/api/studio/compose", "/api/studio/describe"}
 # Sent many times while a slider moves or a pattern is edited: not each one
 AUDIT_QUIET_ACTIONS = {"levels", "end_preview", "try"}
 AUDIT_NAMES = {"/api/settings": "Changed settings", "/api/import": "Imported settings", "/api/history/restore": "Restored an earlier version",
@@ -249,7 +254,9 @@ AUDIT_NAMES = {"/api/settings": "Changed settings", "/api/import": "Imported set
                "/api/backup/encrypted": "Downloaded an encrypted backup", "/api/backup/restore": "Restored an encrypted backup",
                "/api/local/delete": "Deleted patterns on a controller", "/api/backups/restore": "Put patterns back on a controller",
                "/api/local/ports": "Changed a controller's ports", "/api/sessions/end_all": "Signed out everywhere",
-               "/api/presence": "Marked someone home or away"}
+               "/api/presence": "Marked someone home or away", "/api/weather/looks": "Added the weather looks",
+               "/api/studio/play": "Played a Studio show", "/api/studio/save": "Saved a Studio show",
+               "/api/sync": "Started the controllers together", "/api/share/install": "Added from a share code"}
 # 4.17: never with an API token, whatever its role: accounts, tokens and the app itself
 TOKEN_NEVER = {"/api/users", "/api/users/delete", "/api/password", "/api/tokens", "/api/tokens/revoke", "/api/quit",
                "/api/update/install", "/api/update/rollback", "/api/backup/encrypted", "/api/backup/restore",
@@ -996,11 +1003,12 @@ class App:
         if not isinstance(gd, dict):
             return []
         lights, party = bool(gd.get("enabled")), gameday.celebrations_on(gd)
-        if not (lights or party):
+        wins = any(isinstance(t, dict) and t.get("win_effect") for t in gd.get("teams") or [])   # 4.21
+        if not (lights or party or wins):
             return []
         out = []
         for t in gd.get("teams") or []:
-            if not lights and not (isinstance(t, dict) and t.get("celebrate")):
+            if not lights and not (isinstance(t, dict) and (t.get("celebrate") or t.get("win_effect"))):
                 continue
             try:
                 out.append(gameday.check_team(t))
@@ -2017,8 +2025,35 @@ class App:
         result = None
         if kind == "end" and us is not None and them:
             result = "win" if us > them[0] else "loss" if us < them[0] else "tie"
+        if result == "win" and team.get("win_effect"):
+            self.celebrate_win(team)
         self._auto_event({"type": "game_start" if kind == "start" else "game_end", "team": team["key"],
                           "abbr": team["team"], "game": game, "result": result})
+
+    def celebrate_win(self, team: dict):
+        """4.21: the team won: its win pattern for its minutes, then back to
+        the schedule (only while the lights are on, if celebrations are set so)."""
+        c = self.ctrl
+        if c is None:
+            return
+        name = team.get("name") or team.get("team", "").upper()
+        try:
+            t = c._target(commit=False)
+            if team.get("only_when_on", True) and not t.on:
+                c.note(f"{name} won! No win lights: the lights are off.")
+                return
+            # Review #1 (4.21): a score celebration (often the winning goal's
+            # own) or an automation's flash goes back to what's chosen under
+            # it, so the win lights wait for it; only a weather warning, a
+            # music show, a pause or the security flash keep them off
+            fk = (c.flash or {}).get("kind") if t.reason == "flash" else None
+            if t.reason in ("alert", "music") or t.hands_off or (t.reason == "flash" and fk not in ("score", "automation")):
+                c.note(f"{name} won! No win lights: something more important is showing.")
+                return
+            c.manual(True, team["win_effect"], expires_min=int(team.get("win_minutes", 30)))
+            c.note(f"{name} won! Win lights for {team.get('win_minutes', 30)} minutes.")
+        except Exception as e:                 # the scoreboard goes on
+            log.warning("Win lights for %s failed: %s", name, e)
 
     def _auto_zones(self, dev):
         zs = (self.ctrl.cfg.zones or []) if self.ctrl else []
@@ -2074,6 +2109,98 @@ class App:
         rows = self.autos.check(a)
         return {"conditions": [{"text": t, "ok": ok} for t, ok in rows],
                 "game_only": any(c["type"] in ("home", "away", "winning", "losing") for c in a["if"])}
+
+    # --- sharing shows and automations (4.21) -------------------------------------
+    def share_more(self, what: str, b: dict) -> dict:
+        from . import marketplace
+        try:
+            if what == "show":
+                return sharecode.encode_show(b.get("show"))
+            if what == "automation":
+                a = next((x for x in self.store.settings.get("automations") or [] if x.get("id") == b.get("id")), None)
+                if a is None:
+                    raise sharecode.ShareError("Save the automation first.")
+                return sharecode.encode_automation(a, self.store.settings.get("effects") or {})
+            got = sharecode.decode(b.get("code"))
+            if got["kind"] == "automation":
+                new, name = marketplace.install(got["automation"], got["patterns"], self.store.settings)
+                self.save_settings(new)
+                return {"kind": "automation", "name": name, "patterns": len(got["patterns"])}
+            return got                              # a show opens in Studio; patterns as before
+        except (sharecode.ShareError, marketplace.TemplateError) as e:
+            raise ApiError(str(e)) from None
+
+    # --- energy (4.21) ------------------------------------------------------------
+    def energy_estimate(self) -> dict:
+        from . import energy
+        if not self.ctrl:
+            raise ApiError("Set up first.", 409)
+        us = self.store.settings.get("usage") or {}
+        cfg = self.ctrl.cfg
+        bulbs = int(us.get("bulbs") or cfg.total_bulbs or 0)
+        per = float(us.get("watts_per_bulb") or energy.WATTS_PER_BULB)
+        rate = us.get("rate")
+        today = cfg.loc.now().date()
+        st = self.ctrl.status()
+        t = self.ctrl._target(commit=False)
+        now_w = energy.pattern_watts(t.effect, bulbs, per, (t.levels or {}).get("brightness")) if t.on and bulbs else 0.0
+        top = sorted(((energy.pattern_watts(e, bulbs, per), e.label) for e in cfg.effects.values() if e.kind != "split"),
+                     reverse=True)[:5] if bulbs else []
+        return {"bulbs": bulbs, "watts_per_bulb": per, "rate": rate, "now_watts": round(now_w, 1), "on": bool(st["target"]["on"]),
+                "month": energy.month_estimate(cfg.schedule, today, 30, bulbs, per, rate) if bulbs else None,
+                "hungriest": [{"label": lbl, "watts": round(w, 1)} for w, lbl in top]}
+
+    # --- Studio (4.20) ------------------------------------------------------------
+    def studio(self, what: str, b: dict) -> dict:
+        from . import studio
+        try:
+            if what == "compose":
+                return studio.compose(b.get("spec"))
+            if what == "describe":
+                return studio.from_words(b.get("text"))
+            if not self.ctrl:
+                raise ApiError("Set up first.", 409)
+            if what == "stop":
+                self.ctrl.stop_show()
+                self.ctrl.resume()
+                return {"ok": True}
+            show = studio.check_show(b.get("show"))
+            if what == "play":
+                hold = b.get("hold", 5)
+                if isinstance(hold, bool) or not isinstance(hold, (int, float)) or not 2 <= hold <= 60:
+                    raise ValueError("Each keyframe plays 2 to 60 seconds here.")
+                return self.ctrl.play_show([k["pattern"] for k in show["keyframes"]], float(hold), show["fade"])
+            # save: the looks become patterns, and (if asked) a rule plays them in turn
+            s = copy.deepcopy(self.store.settings)
+            add, keys = studio.save_plan(show, s.get("effects") or {})
+            s.setdefault("effects", {}).update(add)
+            out = {"patterns": keys, "rule": None, "fade": None}
+            if b.get("schedule"):
+                names = {r.get("name") for r in s.get("rules") or []}
+                name, n = f"Studio: {show['name']}"[:60], 2
+                while name in names:
+                    name, n = f"Studio: {show['name']} ({n})"[:60], n + 1
+                rule = {"name": name, "on": str(b.get("on") or "sunset"), "off": str(b.get("off") or "23:00"),
+                        "effect": keys if len(keys) > 1 else keys[0]}
+                if len(keys) > 1:
+                    rule["rotate_each"] = [k["minutes"] for k in show["keyframes"]]
+                s.setdefault("rules", []).append(rule)
+                out["rule"] = name
+                if show["fade"] and not (s.get("transitions") or {}).get("fade_seconds"):
+                    s["transitions"] = {**(s.get("transitions") or {}), "fade_seconds": show["fade"]}
+                    out["fade"] = show["fade"]
+            self.save_settings(s)
+            return out
+        except ValueError as e:
+            raise ApiError(str(e)) from None
+
+    # --- weather looks (4.19) -----------------------------------------------------
+    def weather_looks(self, temperature: bool = True) -> dict:
+        from . import weatherlook
+        new, added = weatherlook.add_looks(self.store.settings, temperature)
+        if added:
+            self.save_settings(new)
+        return {"added": added}
 
     # --- set up this phone (4.18.2) ---------------------------------------------
     def phone_ca(self) -> dict | None:
@@ -3450,6 +3577,8 @@ def make_server(app: App, host: str, port: int):
                     return self._json(200, app.conflicts(q.get("date")))
                 if path == "/api/house/tonight":          # 4.12: the whole-house timeline
                     return self._json(200, app.house_tonight())
+                if path == "/api/studio/state":           # 4.20: a Studio show playing
+                    return self._json(200, {"playing": (app.ctrl.show_state if app.ctrl else None)})
                 if path == "/api/phone":                  # 4.18.2: Set up this phone
                     return self._json(200, app.phone_info(self.server.server_address[1]))
                 if path == "/api/presence":               # 4.18: who's home
@@ -3486,6 +3615,11 @@ def make_server(app: App, host: str, port: int):
             if path == "/api/community":
                 try:
                     return app.community.index(app.store.settings, refresh=q.get("refresh") == "1")
+                except community.CommunityError as e:
+                    raise ApiError(str(e), 502) from None
+            if path == "/api/community/item":         # 4.21: a shared show or automation
+                try:
+                    return app.community.item(app.store.settings, q.get("id", ""), q.get("kind", ""))
                 except community.CommunityError as e:
                     raise ApiError(str(e), 502) from None
             if path == "/api/community/pattern":
@@ -3585,6 +3719,8 @@ def make_server(app: App, host: str, port: int):
                 return sorted(f.stem for f in d.glob("*.jpg")) if d.is_dir() else []
             if path == "/api/rulecheck":
                 return app.rule_check()
+            if path == "/api/energy":                 # 4.21: estimates from the patterns
+                return app.energy_estimate()
             if path == "/api/runtime":                # hours on per month (3.15)
                 return {"months": app.ctrl.runtime.summary(12) if app.ctrl else []}
             if path == "/api/alerts":
@@ -3742,6 +3878,8 @@ def make_server(app: App, host: str, port: int):
                                                  b.get("rotate"))
                 except sharecode.ShareError as e:
                     raise ApiError(str(e)) from None
+            if path in ("/api/share/show", "/api/share/automation", "/api/share/install"):   # 4.21
+                return app.share_more(path.rsplit("/", 1)[-1], b)
             if path == "/api/share/open":           # Editors: what a share code holds, checked (3.19)
                 try:
                     return sharecode.decode(b.get("code"))
@@ -4069,6 +4207,25 @@ def make_server(app: App, host: str, port: int):
                 return {"ok": True}
             if path == "/api/automation/try":
                 return app.automation_try(str(b.get("id", "")))
+            if path in ("/api/studio/compose", "/api/studio/describe", "/api/studio/play", "/api/studio/stop",
+                        "/api/studio/save"):          # 4.20: Studio
+                return app.studio(path.rsplit("/", 1)[-1], b)
+            if path == "/api/sync":                   # 4.21: controllers started together
+                if not app.ctrl:
+                    raise ApiError("Set up first.", 409)
+                try:
+                    return app.ctrl.sync_now()
+                except ValueError as e:
+                    raise ApiError(str(e)) from None
+            if path == "/api/fade/try":               # 4.19
+                if not app.ctrl:
+                    raise ApiError("Set up first.", 409)
+                try:
+                    return app.ctrl.try_fade(str(b.get("effect", "")), min(8, max(1, int(b.get("seconds") or 3))))
+                except ValueError as e:
+                    raise ApiError(str(e)) from None
+            if path == "/api/weather/looks":          # 4.19: Administrators (weather is a household setting)
+                return app.weather_looks(b.get("temperature", True) is not False)
             if path == "/api/presence":
                 return app.presence_set(b.get("person"), b.get("state"), "set by hand")
             if path == "/api/automation/check":

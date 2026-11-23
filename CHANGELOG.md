@@ -1,5 +1,124 @@
 # Changelog
 
+## 4.21.0: sharing and energy
+
+- **Sharing shows and automations** (marketplace.py): share codes carry a
+  Studio show (opened in the other person's Studio) or an automation
+  template with its patterns (nothing about your home; added turned off).
+  **Share** in Studio and next to each automation; **Open a share code**
+  in Studio and under Automations too.
+- **The community library** lists Studio shows and automations as well as
+  patterns, with a filter (Everything, Patterns, Studio shows,
+  Automations); each is checked like a pasted code.
+- **Sports extras:** lights for a win (a pattern for 15 minutes to 4 hours
+  after a game the team wins, without score celebrations if you like), and
+  each team's own celebration length.
+- **Controllers started together:** **Start them together** on Home
+  restarts every controller's pattern at the same moment over the home
+  network, so moving patterns line up.
+- **Energy estimates** (energy.py, Lights usage): now, the next 30 nights
+  (hours, kWh, dollars) and your brightest patterns, from the patterns'
+  colors and brightness, your number of bulbs and the watts of one bulb.
+
+Code review (each fixed; the first has a 20-line standalone repro,
+tests/repro_min_win_skipped.py, and a test against the real code):
+
+1. When the winning goal's own celebration was still flashing at the final
+   horn (an empty-net goal), the win lights were skipped as "something more
+   important is showing", though a flash goes back to what's chosen under
+   it. A score or automation flash now lets the win lights follow it; a
+   weather warning, a music show, a pause or the security flash still
+   doesn't.
+2. Saving the cost estimate under Lights usage replaced the whole usage
+   setting, which would have dropped the new number of bulbs and watts per
+   bulb; it keeps them now.
+3. **Make it an automation** used the length for every team, not the
+   team's own.
+4. A community item whose file holds a different kind than its entry says
+   (a "show" whose code is an automation) is refused.
+
+## 4.20.0: Studio, the advanced effect editor
+
+- **Patterns › Studio** (studio.py, studio.js): shows built from keyframes
+  on a timeline, each look for its minutes, with fades between them.
+- **Layers and gradients:** a base of one color or a gradient through up to
+  6 colors (optionally there and back), and up to 4 layers on top (accents
+  every N bulbs, bands), with motion, speed and brightness. Composed into
+  what the controller plays: at most 30 colors, each over 1 to 90 bulbs (a
+  long gradient's in-between shades merged, layers kept).
+- **A stronger designer in words:** a whole show from one description
+  ("warm white for 30 minutes, then fade to candy cane, then deep blue"),
+  laid out as keyframes with their minutes and the fade.
+- **Play, then approve:** plays the show on the lights (quickly, with its
+  fades), showing which look is on; approved, the looks become your
+  patterns and a rule plays them in turn each night (fades turned on if
+  they were off).
+
+Code review (each fixed; the first has a standalone repro,
+tests/repro_min_show_overrides_press.py, and a test against the real code):
+
+1. A button pressed during the fade between two looks of a playing show was
+   overridden a moment later by the next look. The show now ends there, and
+   the button's choice stays.
+2. The timeline's bar used a class name another screen already used, which
+   changed that screen's layout and hid the bar; renamed.
+3. On a phone, a keyframe's long color strip pushed the page wider than the
+   screen; it now stays inside its card.
+
+Usability:
+
+- Which look is playing ("Look 2 of 3"), next to Play.
+- **Copy** a keyframe, to make a variation of it.
+
+## 4.19.0: show and effects
+
+- **Fades between patterns** (Schedule): 2 to 8 seconds, when the schedule
+  changes the pattern, and in and out when it turns the lights on and off.
+  Over the home network, as still frames from the old colors to the new
+  (transitions.py); only this app's own patterns; never the cloud, never
+  saved on the controller. **Try it** fades to a pattern now.
+- **The weather on the lights** (Alerts › Weather): **Add the weather
+  looks** adds rain, snow, thunderstorm (lightning flashes), windy and fog
+  patterns with their weather rules (weatherlook.py), and **Temperature
+  colors**, the temperature as a color from deep blue to red, a new one
+  every 5 °F. Any weather rule can show the temperature instead of a
+  pattern.
+- Not yet: the controller's own Lightning, Snowflake and Firework effects,
+  which wait for the pattern backups captured with and without them.
+
+Code review (each fixed; the first has a 20-line standalone repro,
+tests/repro_min_fade_blocks_press.py, and a test against the real code):
+
+1. A fade holds the controller for its whole length, for each controller in
+   turn, so a button pressed during one waited for all of it (an 8-second
+   fade on three controllers: 24 seconds before **Lights off** went out). A
+   press now ends the fade at the next frame.
+2. With several controllers, each faded for the full length, one after
+   another, so the last changed many seconds after the first. They now
+   share the fade's length (at least a second each).
+3. The same colors sent again (a night-curve step of a moving pattern, a
+   rotation between patterns with the same colors) "faded" from a color to
+   itself, stopping the pattern's motion for the fade's length. No fade
+   then.
+
+Usability:
+
+- **Try it** on the Fades panel, so you can see a fade before choosing it.
+- Weather rules that show the temperature say so in the list
+  ("→ the temperature as a color").
+
+## 4.18.3: a Mac test that waited for the wrong lookup
+
+Only a test changed; the app is the same as 4.18.2.
+
+- GitHub's Mac run of 4.18.2 failed one test (Phones and tablets: this
+  computer's addresses). The app looks up the computer's own name in the
+  background and waits a second for it. On the Mac runner a real lookup
+  from an earlier test was still running (it takes many seconds there), so
+  the test waited for that one instead of starting its own with the
+  pretend answer. The test now starts its own lookup and allows a slow
+  runner 10 seconds.
+
 ## 4.18.2: set up a phone, and the usability suggestions from the review
 
 - **Set up a phone or tablet** (Setup › App › On your phone, and the phone

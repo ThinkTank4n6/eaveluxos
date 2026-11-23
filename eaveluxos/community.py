@@ -31,6 +31,7 @@ PATTERN_MAX = 100_000
 CACHE_SECONDS = 15 * 60
 ID_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,59}")
 HEX_RE = re.compile(r"#[0-9A-Fa-f]{6}")
+KINDS = ("pattern", "show", "automation")    # 4.21: presets (Studio shows) and automation templates too
 PATTERN_KEYS = ("label", "colors", "counts", "custom_mode", "speed", "brightness", "exact_colors",
                 "builtin", "pixel_len", "reverse")
 
@@ -116,7 +117,10 @@ def clean_index(data) -> list[dict]:
             continue
         colors = [c.upper() for c in (e.get("colors") or []) if isinstance(c, str) and HEX_RE.fullmatch(c)][:8]
         tags = [_text(t, 24).lower() for t in (e.get("tags") or []) if isinstance(t, str)][:8]
-        out.append({"id": pid, "name": _text(e.get("name") or pid, 60), "author": _text(e.get("author"), 40),
+        kind = e.get("kind", "pattern")
+        if kind not in KINDS:
+            continue                                   # 4.21: something a newer version shares
+        out.append({"id": pid, "kind": kind, "name": _text(e.get("name") or pid, 60), "author": _text(e.get("author"), 40),
                     "description": _text(e.get("description"), 200), "colors": colors, "tags": [t for t in tags if t]})
         seen.add(pid)
     return out
@@ -166,3 +170,22 @@ class Library:
         except NotFound:
             raise CommunityError("That pattern has been removed from the community library. Tap Refresh for the current list.") from None
         return clean_pattern(pid, data)
+
+    def item(self, settings: dict, pid: str, kind: str) -> dict:
+        """4.21: a shared show or automation: its file holds a share code,
+        checked exactly as one pasted in (sharecode.decode)."""
+        from .sharecode import ShareError, decode
+        if kind not in ("show", "automation") or not ID_RE.fullmatch(pid or ""):
+            raise CommunityError("No such community item.")
+        base = base_url(settings)
+        try:
+            data = _fetch_json(f"{base}{kind}s/{pid}.json", PATTERN_MAX, self.opener)
+        except NotFound:
+            raise CommunityError("That has been removed from the community library. Tap Refresh for the current list.") from None
+        try:
+            out = decode((data or {}).get("code") if isinstance(data, dict) else None)
+        except ShareError as e:
+            raise CommunityError(str(e)) from None
+        if out["kind"] != kind:
+            raise CommunityError("That community item's file is damaged.")
+        return out

@@ -1,7 +1,7 @@
 # EaveLuxOS: User Manual
 ### The Intelligent Lighting Control Platform
 
-Version 4.18.2 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
+Version 4.21.0 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
 
 > **Quick start: you probably don't need Python.** Download the ready-made
 > app from the project's GitHub **Releases** page
@@ -940,6 +940,52 @@ port setup on Setup › Lights & controller (section 18), so get that right firs
 - **For a pulse**, fill several circles with a large count (up to 90) of one
   color, and add one circle of a second color that will travel through it.
 
+### Studio: layers, gradients and shows (4.20)
+
+**Patterns › Studio** is the advanced editor. You build a **show**: looks in
+order (keyframes on a timeline), each for some minutes, fading from one to
+the next. Approved, the looks become your patterns and the show can go on
+the schedule.
+
+**Describe it.** Type the whole show, for example *warm white for 30
+minutes, then fade to candy cane twinkle, then deep blue for 2 hours*, and
+tap **Lay it out**. Each part (split at *then*, `;` or `->`) becomes a
+keyframe made by the built-in designer; *for 30 minutes* or *for 2 hours*
+is its length (10 minutes if you don't say), and *fade* or *over 5 seconds*
+sets the fade between them. The line under the box says what it found.
+
+**The timeline** shows every keyframe in proportion to its minutes. For each
+keyframe: its minutes, **↑** to move it earlier, **Copy**, ✕, and **Layers**
+to change its look. **Add a look (layers)** starts a new one, and **Add one
+of your patterns** copies one of yours in. **Fade between** sets the fade
+(none, 2, 3, 5 or 8 seconds). Your work in progress is kept in this browser
+until you approve it or tap **Start over**.
+
+**Layers.** A look is a base and up to 4 layers on top:
+
+- **Base**: one color, or a **gradient** through up to 6 colors (**there
+  and back** mirrors it), over the **bulbs in one repeat** (2 to 300).
+- **Accent**: a color every N bulbs, 1 or more bulbs wide (sparkles of
+  white every 8 bulbs over a gradient, say).
+- **Band**: a color over a stretch of bulbs.
+- **Motion**, speed and brightness, as in Create.
+
+The strip under them is exactly what one repeat of the lights will show.
+The controller takes at most 30 colors, so a long gradient's in-between
+shades are merged (the closest neighbors first); layers keep their colors.
+
+**Play on the lights** plays the show once, quickly (3 to 20 seconds a look;
+the real minutes are for the schedule), with its fades, then the last look
+stays for 10 minutes. Next to the button it says which look is showing.
+**Stop**, or any button anywhere in the app, ends it, and a button pressed
+during a fade wins over the next look.
+
+**Approve and save** adds the looks to your patterns (named after the show;
+none of yours is replaced) and, with **Put it on the schedule** ticked, a
+rule *Studio: (name)* that plays them in turn, each for its minutes, every
+night between the times you give (sunset to 11 PM to start). If fades were
+off, the show's fade turns them on (Schedule › Fades between patterns).
+
 ## 12. House
 
 The House tab helps you find where each bulb is, label your house, and
@@ -1600,6 +1646,19 @@ see the score on TV**, not at the same moment. Starting the app in the middle
 of a game doesn't celebrate the score so far, and a final score is never
 celebrated.
 
+**Lights for a win (4.21).** For each team, **When they win, show** a
+pattern for 15 minutes to 4 hours after a game they win; then the schedule
+takes over again (and the lights still turn off at the schedule's next
+change). It works without score celebrations. **Only while the lights are
+on** applies to it too. If the winning goal's celebration is still flashing
+at the final horn, the win lights come right after it; a weather warning, a
+music show, a paused schedule or the security flash keeps them off.
+
+**A team's own celebration length (4.21).** With celebrations on, each
+team can have **Its own celebration length** (10 seconds to 2 minutes);
+otherwise it uses the length for every team. **Make it an automation**
+keeps it.
+
 ### How overlapping rules are decided
 
 From highest to lowest:
@@ -1648,6 +1707,35 @@ doesn't restart, and it gets no extra commands). On those nights the app
 runs both controllers itself rather than handing the night to the
 controllers' own timers, as for a night curve. The backup timer copies each
 controller's own nights to it.
+
+### Fades between patterns (4.19)
+
+**Schedule › Fades between patterns** blends the lights from the old colors
+to the new ones when the schedule changes the pattern, instead of a jump:
+a rotation, a holiday taking over at its time, a weather rule starting, a
+night-curve step to warmer whites, and in and out when the schedule turns
+the lights on and off.
+
+1. Choose **2, 3, 5 or 8 seconds** (or **Off**).
+2. **Try it** fades from what's showing to the pattern you choose, which
+   then shows for 15 minutes (as other Try buttons do).
+
+Good to know:
+
+- Fades go over the home network (**Setup › Local mode**, with commands on):
+  a fade is a few still frames shown live, as the Trimlight app shows a
+  pattern while you edit it. Nothing is saved on the controller, and the
+  cloud never gets a fade; without the home network the change is simply
+  sent at once.
+- Only your own patterns fade. A built-in effect or a pattern saved on the
+  controller has colors only the controller knows, so it changes at once.
+- A pattern you choose, **Lights off**, a flash, a restore after a power cut
+  and the first change after EaveLuxOS starts are never faded. A button
+  pressed during a fade ends it at once.
+- With several controllers, they fade one after another (a controller takes
+  one command at a time), sharing the fade's length (at least a second each).
+- The same colors sent again (for example a moving pattern's night-curve
+  step) don't fade, so their motion isn't stopped.
 
 ### Who wins tonight (4.15)
 
@@ -1861,6 +1949,33 @@ Important points:
   Forecasts that only say "chance of" are ignored.
 - If the weather service can't be reached for 2 hours, weather rules pause
   and your normal schedule continues.
+
+### The weather on the lights (4.19)
+
+**Add the weather looks** (Alerts › Weather, Administrators) adds ready-made
+patterns and weather rules in one step, and turns weather rules on. Nothing
+of yours is changed; a look whose name you already use is left out. Change
+or delete them like your own.
+
+| Weather | Look |
+|---|---|
+| Rain | blue drops falling (Comet) |
+| Snow | white and ice-blue twinkles (Stars) |
+| Thunderstorm | dark blue with white lightning flashes (Strobe) |
+| Windy | teal and white waves, fast |
+| Fog | soft grays breathing, dimmed |
+| Any (the temperature) | **Temperature colors**: deep blue when it's freezing, cyan, green when it's mild, yellow, orange, red when it's hot |
+
+The looks rank 150: above the everyday schedule, below holidays. Temperature
+colors rank 140, so rain still shows rain. The color changes every 5 °F, not
+with every reading; with fades on, it blends to the next. **Show the
+temperature as a color instead of a pattern** in any weather rule does the
+same with your own conditions or temperatures (for example only below
+32 °F).
+
+The controller's own **Lightning** and **Snowflake** effects (in the
+Trimlight app's Pattern Library) aren't used yet: how they're set is still
+being worked out from captures. These looks are EaveLuxOS's own patterns.
 
 ### Severe weather alerts
 
@@ -2359,6 +2474,15 @@ speed.
 
 ## 18. Setup › Lights & controller
 
+### Start the controllers together (4.21)
+
+With two or more controllers, a moving pattern starts when each one gets it,
+so the motion on the garage and on the house can be out of step. **Start
+them together** (Home, under the controllers) restarts every controller's
+pattern at the same moment over the home network: all connections are
+opened first, then the patterns go out back to back. It needs Local mode
+commands on, and two or more controllers showing EaveLuxOS's patterns.
+
 ### Controller health (4.15)
 
 **Setup › Controller health** shows, for each controller: online or offline
@@ -2734,6 +2858,17 @@ automatically, AI pattern ideas, version history and Setup and about.
   months. Under **Estimate the cost**, enter your system's watts (on the power
   supply's label; that's its maximum, so the estimate errs high) and your
   price per kWh from your electric bill. Only time the app was running counts.
+  **Estimated from your patterns** (4.21) works the draw out from what the
+  lights actually show: now (while they're on), the next 30 nights on the
+  schedule in hours, kWh and (with a price) dollars, and your five
+  brightest patterns. Under **How it's estimated**, enter your number of
+  bulbs (filled in from the House tab's count if you set one) and the watts
+  of one bulb at full white (0.3 W to start; from your lights'
+  specifications). A bulb draws about in proportion to how brightly its red,
+  green and blue are lit, so full white draws the most, one deep color about
+  a third, a dark bulb almost nothing; a built-in effect counts as half of
+  white, and the controller adds about 3 W. Weather, flashes and choices made
+  by hand aren't known ahead.
 - **Updates:** see section 23.
 - **Phone alerts** (Administrators; on the **Alerts** tab now): a message on your phone when the lights
   can't be reached to turn on or off (after 10 minutes), a controller is
@@ -3050,6 +3185,31 @@ pattern; it never changes your schedule or settings.
 open a pull request; its README explains the format, and an automatic check
 tells you if anything needs fixing. (The repository's starter kit is in this
 app's `tools/community-library` folder.)
+
+### Share Studio shows and automations (4.21)
+
+Share codes now carry more than patterns:
+
+- **A Studio show:** **Share** in Studio. The other person opens the code
+  (**Open a share code** in Patterns or Studio) and the show opens in their
+  Studio, to play on their lights and approve. Only the looks and their
+  minutes are in it.
+- **An automation:** **Share** next to it under **Alerts › Automations**.
+  The patterns it uses travel with it (only your own color patterns; one on
+  your controller or drawn for your house can't). Nothing about your home
+  does: a team becomes "any team", a person "anyone", a controller "all of
+  them", a condition on one of your rules and a team's sound are left out,
+  and a zone stays only if their house has one of that name. Opened, it
+  shows what it does first; **Add it** adds its patterns to theirs and the
+  automation **turned off**, to check and point at their own teams, people
+  or zones before turning it on.
+
+The **Community** list has **Studio shows** and **Automations** too
+(**Everything / Patterns / Studio shows / Automations** at the top): **Open
+in Studio** or **Add (turned off)**, checked exactly like a code pasted in.
+In the library's repository, a show or an automation is an index entry with
+`"kind": "show"` or `"kind": "automation"` and a file in `shows/` or
+`automations/` holding its share code (`{"code": "ELX1:…"}`).
 
 ## 23. Update, move or uninstall
 

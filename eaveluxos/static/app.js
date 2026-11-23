@@ -475,12 +475,14 @@ async function usagePanel(box) {
       <label class="field" style="flex:1;min-width:120px">Watts for the whole system <span class="hint">On the power supply's label (its maximum, so the estimate errs high)</span><input type="number" id="uswatts" min="0" max="5000" step="1" value="${u.watts ?? ''}" ${ro ? 'disabled' : ''}></label>
       <label class="field" style="flex:1;min-width:120px">Price per kWh ($) <span class="hint">From your electric bill</span><input type="number" id="usrate" min="0" max="5" step="0.001" value="${u.rate ?? ''}" ${ro ? 'disabled' : ''}></label></div>
       ${ro ? '' : '<div><button class="small ghost" data-ussave>Save</button></div>'}</details>
-    <p class="note">Counted by this app while it runs, from when it sent an on state (a music show counts as on). Time the app wasn\u2019t running isn\u2019t counted.</p>`;
+    <p class="note">Counted by this app while it runs, from when it sent an on state (a music show counts as on). Time the app wasn\u2019t running isn\u2019t counted.</p>
+    <div id="energybox" class="stack"></div>`;
+  if (typeof energyPanel === 'function') energyPanel($('#energybox', box));     // 4.21
   box.onclick = e => {
     const b = e.target.closest('[data-ussave]'); if (!b) return;
     e.stopPropagation();
     const num = id => { const v = $(id).value.trim(); return v === '' ? null : Number(v); };
-    const n = clone(S.settings); n.usage = { watts: num('#uswatts'), rate: num('#usrate') };
+    const n = clone(S.settings); n.usage = { ...(n.usage || {}), watts: num('#uswatts'), rate: num('#usrate') };   // 4.21: keeps the energy fields
     busy(b, () => saveSettings(n)).then(() => usagePanel(box)).catch(() => {});
   };
 }
@@ -807,6 +809,7 @@ VIEWS.home = async () => {
     else if (b.dataset.on) act({ action: 'on', effect: b.dataset.on }, b);
     else if (b.dataset.act) act({ action: b.dataset.act }, b);
     else if (b.dataset.tabjump) go(b.dataset.tabjump);
+    else if (b.dataset.syncnow !== undefined) busy(b, () => api('sync', { body: {} })).then(r => toast(`Started ${r.started} of ${r.of} controllers together`)).catch(() => {});
     else if (b.dataset.dismisswarn !== undefined) busy(b, () => api('warnings/dismiss', { body: {} })).then(async () => render(await refreshStatus())).catch(() => {});
   };
   m.oninput = e => { if (e.target.dataset.level) e.target.nextElementSibling.textContent = Math.round(e.target.value / 2.55) + '%'; };
@@ -1010,6 +1013,11 @@ function openShareDialog(prefill = '') {
     <div id="sharepv"></div>`, async f => {
     const r = await api('share/open', { body: { code: f.code.value } });
     if (!f.dataset.shown) { f.dataset.shown = '1'; showShared(r); return false; }      // first the preview, then add
+    if (r.kind === 'show') { ST.show = { name: r.show.name, fade: r.show.fade, keyframes: r.show.keyframes }; stSave(); return go('studio'); }   // 4.21
+    if (r.kind === 'automation') {                         // 4.21: added turned off, to look at first
+      const done = await api('share/install', { body: { code: f.code.value } });
+      toast(`Added “${done.name}”, turned off: check it, then turn it on`); S.settings = await api('settings'); return go('alerts');
+    }
     await addPatterns(r.patterns);                         // one save for all of them (3.19.1)
     VIEWS.patterns('mine');
   }, { ok: 'Show the patterns' });
@@ -1018,6 +1026,12 @@ function openShareDialog(prefill = '') {
   $('#dlg').addEventListener('close', stop, { once: true });
   const found = text => { stop(); f.code.value = text; delete f.dataset.shown; $('button.primary', f).click(); };
   const showShared = r => {
+    if (r.kind !== 'patterns' && r.kind !== undefined && typeof sharedPreview === 'function') {     // 4.21: a show or an automation
+      $('#sharepv').innerHTML = sharedPreview(r);
+      $('button.primary', f).textContent = r.kind === 'show' ? 'Open in Studio' : 'Add it (turned off)';
+      f._shared = r;
+      return;
+    }
     $('#sharepv').innerHTML = `<p><b>${r.patterns.length} pattern${r.patterns.length > 1 ? 's' : ''}</b>${r.rotate ? `, a playlist of ${r.rotate} minutes each` : ''}:</p>
       ${r.patterns.map((p, i) => `<div class="row" style="align-items:center"><span class="grow"><b>${esc(p.label)}</b> ${p.colors ? strand(p.colors, p.counts) : '<span class="small muted">built-in effect</span>'}</span><button type="button" class="small ghost" data-trysh="${i}">Try</button></div>`).join('')}
       <p class="note">Try shows it on the house for 15 minutes.${r.rotate ? ' To use them as a playlist, pick them together in a rule.' : ''}</p>`;
@@ -1055,7 +1069,7 @@ VIEWS.patterns = async (tab) => {
   const m = $('#main');
   const head = `<div class="panel-head"><h2>Patterns</h2><div class="seg" role="group" aria-label="Pattern source">
     ${[['mine', 'My patterns'], ['controller', 'In the Trimlight app'], ['builtin', 'Built-in (180)'], ['community', 'Community']].map(([k, l]) => `<button data-ptab="${k}" aria-pressed="${S.ptab === k}">${l}</button>`).join('')}</div>
-    <button class="primary" data-new>New pattern</button></div>`;
+    <div class="row" style="gap:6px"><button class="ghost" data-studio>Studio</button><button class="primary" data-new>New pattern</button></div></div>`;
   m.innerHTML = `<div class="view">${head}<div id="pbody"><p class="muted">Loading…</p></div></div>`;
   const body = $('#pbody');
   const tryDef = (def, btn) => busy(btn, () => api('action', { body: { action: 'try', effect: def } })).then(() => toast(`Showing “${def.label}” for 15 minutes, then back to the schedule`)).catch(() => {});
@@ -1100,17 +1114,20 @@ VIEWS.patterns = async (tab) => {
       return;
     } finally { S.comRefresh = false; }
     S.community = lib.patterns;
-    body.innerHTML = `<div class="panel stack"><div class="row"><input type="search" id="comq" placeholder="Search, e.g. christmas red" class="grow" style="max-width:340px" value="${esc(S.comq || '')}">
+    body.innerHTML = `<div class="panel stack"><div class="seg" role="group" aria-label="What kind">${[['', 'Everything'], ['pattern', 'Patterns'], ['show', 'Studio shows'], ['automation', 'Automations']].map(([k, l]) => `<button data-comkind="${k}" aria-pressed="${(S.comKind || '') === k}">${l}</button>`).join('')}</div>
+      <div class="row"><input type="search" id="comq" placeholder="Search, e.g. christmas red" class="grow" style="max-width:340px" value="${esc(S.comq || '')}">
         <button class="small ghost" data-comref>Refresh</button></div><div class="cards" id="comlist"></div>
       <p class="note">${lib.patterns.length} patterns shared by other owners and reviewed before they appear. Adding one copies it to your patterns; it changes nothing else. To share yours, see the Manual, \u201cShare patterns with other owners\u201d.</p></div>`;
     const draw = () => {
       const q = ($('#comq').value || '').toLowerCase().split(/\s+/).filter(Boolean);
-      const list = S.community.filter(p => q.every(w => `${p.name} ${p.author} ${p.description} ${p.tags.join(' ')}`.toLowerCase().includes(w)));
+      const list = S.community.filter(p => (!S.comKind || (p.kind || 'pattern') === S.comKind) && q.every(w => `${p.name} ${p.author} ${p.description} ${p.tags.join(' ')}`.toLowerCase().includes(w)));
       $('#comlist').innerHTML = list.length ? list.map(p => `<div class="card">
         <div class="title"><b>${esc(p.name)}</b></div>${p.colors.length ? strand(p.colors) : ''}
         ${p.description ? `<p class="small">${esc(p.description)}</p>` : ''}
         <p class="small muted">${p.author ? `Shared by ${esc(p.author)}` : 'Shared by an EaveLuxOS owner'}${p.tags.length ? ` \u00b7 ${esc(p.tags.join(', '))}` : ''}</p>
-        <div class="actions"><button class="small" data-comtry="${esc(p.id)}">Try</button><button class="small ghost" data-comadd="${esc(p.id)}">Add to my patterns</button></div></div>`).join('')
+        <div class="actions">${p.kind === 'show' ? `<span class="badge">Studio show</span><button class="small" data-comshow="${esc(p.id)}">Open in Studio</button>`
+          : p.kind === 'automation' ? `<span class="badge">Automation</span><button class="small" data-comauto="${esc(p.id)}">Add (turned off)</button>`
+          : `<button class="small" data-comtry="${esc(p.id)}">Try</button><button class="small ghost" data-comadd="${esc(p.id)}">Add to my patterns</button>`}</div></div>`).join('')
         : `<p class="muted">${S.community.length ? 'No community patterns match.' : 'No patterns have been shared yet.'}</p>`;
     };
     draw();
@@ -1172,6 +1189,7 @@ VIEWS.patterns = async (tab) => {
     const b = e.target.closest('button'); if (!b) return;
     const d = b.dataset;
     if (d.ptab) return VIEWS.patterns(d.ptab);
+    if (d.studio !== undefined) return go('studio');         // 4.20
     if (d.new !== undefined) return go('create', {});      // 4.0.1: the attribute has no value, so test that it's there
     if (d.bgroup) { S.bgroup = d.bgroup; return VIEWS.patterns('builtin'); }
     if (d.on) return busy(b, () => api('action', { body: { action: 'on', effect: d.on } })).then(() => toast('Turned on until the next scheduled change')).catch(() => {});
@@ -1207,6 +1225,13 @@ VIEWS.patterns = async (tab) => {
     if (d.comtry) return busy(b, async () => (await api('community/pattern?id=' + encodeURIComponent(d.comtry))).pattern)
       .then(def => tryDef(def, null)).catch(() => {});
     if (d.comadd) return busy(b, async () => addPattern((await api('community/pattern?id=' + encodeURIComponent(d.comadd))).pattern)).catch(() => {});
+    if (d.comshow) return busy(b, async () => { const r = await api(`community/item?kind=show&id=${encodeURIComponent(d.comshow)}`);   // 4.21
+      ST.show = { name: r.show.name, fade: r.show.fade, keyframes: r.show.keyframes }; stSave(); go('studio'); }).catch(() => {});
+    if (d.comauto) return busy(b, async () => { const r = await api(`community/item?kind=automation&id=${encodeURIComponent(d.comauto)}`);
+      if (!await confirmBox('Add this automation?', sharedPreview(r), 'Add it (turned off)')) return;
+      const done = await api('share/install', { body: { code: r.code } }); S.settings = await api('settings');
+      toast(`Added “${done.name}”, turned off: it’s under Alerts › Automations`); }).catch(() => {});
+    if (d.comkind !== undefined) { S.comKind = d.comkind || ''; return VIEWS.patterns('community'); }
     if (d.ctry) {
       const def = fromController(S.ctrlEffects[+d.ctry]);
       // Review #2 (4.7.1): a pattern known only by its name is shown by name,
@@ -1656,19 +1681,23 @@ function weatherDialog(idx) {
       <div class="chips">${WX.map(([k, l]) => `<label class="check" style="gap:6px"><input type="checkbox" name="when" value="${k}" ${when.includes(k) ? 'checked' : ''}>${l}</label>`).join('')}</div></div>
     <div class="row"><label class="field">Colder than (°F)<input type="number" name="below_f" value="${r.below_f ?? ''}" placeholder="optional"></label>
       <label class="field">Warmer than (°F)<input type="number" name="above_f" value="${r.above_f ?? ''}" placeholder="optional"></label></div>
-    ${patternPicker(r.effect, r.rotate_minutes, false, false, r.rotate_each)}
+    <label class="check"><input type="checkbox" name="tempcol" ${r.temperature_colors ? 'checked' : ''}> Show the temperature as a color instead of a pattern <span class="hint">(blue when it’s freezing, green when it’s mild, red when it’s hot; a new color every 5 °F)</span></label>
+    <div data-wxpick ${r.temperature_colors ? 'hidden' : ''}>${patternPicker(r.effect || Object.keys(S.settings.effects || {})[0], r.rotate_minutes, false, false, r.rotate_each)}</div>
     <label class="field">Priority <span class="hint">Weather only replaces a scheduled rule with a lower number. 150 beats everyday rules (100) but not holidays (200).</span>
       <input type="number" name="priority" min="0" max="999" value="${r.priority ?? 150}"></label>`,
   async f => {
     const out = { name: f.name.value.trim() || 'Weather', when: $$('input[name=when]:checked', f).map(x => x.value), priority: +f.priority.value || 150 };
     if (f.below_f.value !== '') out.below_f = +f.below_f.value;
     if (f.above_f.value !== '') out.above_f = +f.above_f.value;
-    if (!out.when.length && out.below_f === undefined && out.above_f === undefined) throw new Error('Pick a condition or a temperature.');
-    readPicker(f, out);
+    if (f.tempcol.checked) out.temperature_colors = true;
+    else {
+      if (!out.when.length && out.below_f === undefined && out.above_f === undefined) throw new Error('Pick a condition or a temperature.');
+      readPicker(f, out);
+    }
     const n = clone(S.settings); n.weather_rules = n.weather_rules || [];
     if (idx === undefined) n.weather_rules.push(out); else n.weather_rules[idx] = out;
     await saveSettings(n, 'Weather rule saved'); VIEWS.alerts();
-  }, { onOpen: wirePicker });
+  }, { onOpen: f => { wirePicker(f); f.tempcol.onchange = () => { $('[data-wxpick]', f).hidden = f.tempcol.checked; }; } });
 }
 
 async function importFromApp() {
@@ -1896,6 +1925,9 @@ async function gamePanel(box) {
       <p class="small muted" style="margin:0">On and Off are for game-day lights. ${gd.enabled ? '' : '<b>Game-day lights are off.</b>'}</p>
       <label class="check small"><input type="checkbox" data-gdcel="${i}" ${t.celebrate ? 'checked' : ''} ${ro ? 'disabled' : ''}> Celebrate this team\u2019s scores${party ? '' : ' <span class="muted">(Celebrate scores is off above)</span>'}${t.league === 'nfl' ? ' (field goals and touchdowns)' : t.league === 'nba' ? ' (3-pointers; baskets are too frequent)' : ''}</label>
       ${t.celebrate ? soundRow(t, i, ro) : ''}
+      ${t.celebrate ? `<label class="row small" style="gap:6px">Its own celebration length<select data-gdsec1="${i}" style="width:auto" ${ro ? 'disabled' : ''}><option value="">as for every team</option>${[10, 15, 20, 30, 45, 60, 90, 120].map(s => `<option value="${s}" ${t.seconds === s ? 'selected' : ''}>${s} seconds</option>`).join('')}</select></label>` : ''}
+      <div class="row small" style="gap:6px;flex-wrap:wrap"><label class="row" style="gap:6px">When they win, show<select data-gdwin="${i}" style="width:auto;max-width:100%" ${ro ? 'disabled' : ''}><option value="">nothing</option>${effs.map(([k, e]) => `<option value="${esc(k)}" ${t.win_effect === k ? 'selected' : ''}>${esc(e.label || k)}</option>`).join('')}</select></label>
+        ${t.win_effect ? `<label class="row" style="gap:6px">for<select data-gdwinmin="${i}" style="width:auto" ${ro ? 'disabled' : ''}>${[15, 30, 60, 120, 240].map(m => `<option value="${m}" ${(t.win_minutes || 30) === m ? 'selected' : ''}>${m < 60 ? m + ' minutes' : m / 60 + ' hour' + (m > 60 ? 's' : '')}</option>`).join('')}</select></label>` : ''}</div>
       ${inf.live && inf.live.state === 'missing' ? `<p class="small warn">Not on ESPN’s scoreboard today under “${esc(inf.live.code)}”, so scores can’t be followed. Check the team code (the letters in the team’s address on espn.com).</p>`
         : inf.live ? `<p class="small"><b>${inf.live.state === 'in' ? 'Live' : inf.live.state === 'post' ? 'Final' : 'Today'}</b>: ${esc(t.name || t.team.toUpperCase())} ${inf.live.score}${inf.live.vs ? ` – ${esc(inf.live.vs)} ${inf.live.them ?? ''}` : ''} ${inf.live.detail ? '· ' + esc(inf.live.detail) : ''}</p>` : ''}
       <p class="small ${inf.error && !inf.known ? 'warn' : 'muted'}">${inf.next && inf.next.length ? 'Next games: ' + inf.next.map(day).map(esc).join(', ') : inf.error ? 'Schedule not available yet: ' + esc(inf.error) : inf.known ? 'No more games this season.' : !gd.enabled && !(party && t.celebrate) ? 'Not checked while this team has neither game-day lights nor celebrations on.' : 'Schedule not checked yet (within a minute of turning it on).'}</p></div>`; }).join('')}
@@ -1944,6 +1976,13 @@ async function gamePanel(box) {
     if (ds.gdcel !== undefined) { n.gameday.teams[+ds.gdcel].celebrate = t.checked;
       if (t.checked && n.gameday.celebrate_enabled === undefined) n.gameday.celebrate_enabled = true;
       return busy(null, () => save(n, t.checked ? `Celebrations on for ${n.gameday.teams[+ds.gdcel].name}` : 'Celebrations off for that team')).catch(() => { t.checked = !t.checked; }); }
+    if (ds.gdsec1 !== undefined || ds.gdwin !== undefined || ds.gdwinmin !== undefined) {    // 4.21: per team
+      const tm = n.gameday.teams[+(ds.gdsec1 ?? ds.gdwin ?? ds.gdwinmin)];
+      if (ds.gdsec1 !== undefined) { if (t.value) tm.seconds = +t.value; else delete tm.seconds; }
+      if (ds.gdwin !== undefined) { if (t.value) { tm.win_effect = t.value; tm.win_minutes = tm.win_minutes || 30; } else { delete tm.win_effect; delete tm.win_minutes; } }
+      if (ds.gdwinmin !== undefined) tm.win_minutes = +t.value;
+      return busy(null, () => save(n, ds.gdwin !== undefined ? (t.value ? `${tm.name || 'The team'}: lights for a win` : 'No lights for a win') : 'Saved')).catch(() => {});
+    }
     const i = ds.gdeff ?? ds.gdon ?? ds.gdoff; if (i === undefined) return;
     const team = n.gameday.teams[+i];
     if (ds.gdeff !== undefined) team.effect = t.value;
@@ -1959,7 +1998,7 @@ async function gamePanel(box) {
     if (b.dataset.gdauto !== undefined) {
       // 4.11: this team's score celebration as an automation, to add conditions
       const tm = n.gameday.teams[+b.dataset.gdauto], key = `${tm.league}-${String(tm.team).toLowerCase()}`;
-      const then = [{ type: 'flash', effect: tm.effect, seconds: n.gameday.celebrate_seconds || 15 }];
+      const then = [{ type: 'flash', effect: tm.effect, seconds: tm.seconds || n.gameday.celebrate_seconds || 15 }];   // 4.21: its own length
       if (tm.sound && tm.sound.on !== false) then.push({ type: 'sound', team: key });
       n.automations = n.automations || [];
       n.automations.push({ id: 'a' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name: `${tm.name || tm.team.toUpperCase()} score`,
@@ -2270,6 +2309,7 @@ VIEWS.schedule = async () => {
       </div>
       ${fold('upcoming', 'Coming up', '<div class="panel" id="upcbox"><p class="muted small">Loading…</p></div>', wide())}
       ${fold('whowins', 'Who wins tonight', '<div class="panel stack" id="winbox"><p class="muted small">Loading…</p></div>')}
+      ${fold('fades', 'Fades between patterns', '<div class="panel stack" id="fadebox"></div>')}
     </div>
     <h3 class="secthead">Special days</h3>
     <div class="stack">
@@ -2291,6 +2331,7 @@ VIEWS.schedule = async () => {
   } }).catch(() => {});
   whenOpen('upcoming', () => upcomingPanel($('#upcbox')));
   whenOpen('whowins', () => winPanel($('#winbox')));
+  whenOpen('fades', () => fadePanel($('#fadebox')));
   m.onclick = async e => {
     const b = e.target.closest('button'); if (!b) return; const d = b.dataset;
     if (d.pausesched !== undefined) {
@@ -2371,7 +2412,7 @@ async function autoPanel(box) {
   try { hist = await api('automations/history'); } catch { /* shown empty */ }
   const tpls = typeof AUTO_TEMPLATES === 'object' ? AUTO_TEMPLATES : {};
   box.innerHTML = `<div class="panel-head"><h2>Automations</h2>${ro ? '' : '<button class="small" data-autoadd>Add an automation</button>'}</div>
-    ${ro ? '' : `<div class="row" style="flex-wrap:wrap">${Object.keys(tpls).length ? `<select data-autotpl style="width:auto;max-width:100%" aria-label="Start from a template"><option value="">Start from a template…</option>${Object.entries(tpls).map(([k, t]) => { const off = t.people && !((S.settings.presence || {}).people || []).length;
+    ${ro ? '' : `<div class="row" style="flex-wrap:wrap"><button class="small ghost" data-autoopen>Open a share code</button>${Object.keys(tpls).length ? `<select data-autotpl style="width:auto;max-width:100%" aria-label="Start from a template"><option value="">Start from a template…</option>${Object.entries(tpls).map(([k, t]) => { const off = t.people && !((S.settings.presence || {}).people || []).length;
           return `<option value="${esc(k)}" ${off ? 'disabled' : ''}>${esc(t.label)}${off ? ' (add people under Who’s home first)' : ''}</option>`; }).join('')}</select>` : ''}</div>`}
     <p class="note">When something happens, if everything you list is true, then the lights do what you say, and go back afterward. For example: when the Flyers score, if it’s dark, flash orange and black for 20 seconds. A higher priority goes first when two start at once.</p>
     <div class="list">${autoGroups(autos).map(([title, rows]) => (title ? `<h3 class="autogroup">${esc(title)} <span class="muted small">${rows.length}</span></h3>` : '') + rows.map(([a, i]) => `<div class="item"><div class="grow">
@@ -2379,7 +2420,7 @@ async function autoPanel(box) {
           <span class="badge ${(a.priority ?? 100) >= 200 ? 'hi' : ''}">${autoPrio(a.priority ?? 100)} · ${a.priority ?? 100}</span>${a.beats_manual ? '<span class="badge">beats a manual choice</span>' : ''}</div>
         <div class="sub">${esc(autoDescribe(a))}</div><div class="small" data-autoout="${i}"></div></div>
         <div class="row" style="gap:6px">${ro ? '' : `<button class="small ghost" data-autotry="${i}">Try it now</button>`}<button class="small ghost" data-autochk="${i}">Check it now</button>
-          ${ro ? '' : `<button class="small ghost" data-autoedit="${i}">Edit</button><button class="small ghost danger" data-autodel="${i}">Delete</button>`}</div></div>`).join('')).join('')
+          ${ro ? '' : `<button class="small ghost" data-autoedit="${i}">Edit</button><button class="small ghost" data-autoshare="${i}">Share</button><button class="small ghost danger" data-autodel="${i}">Delete</button>`}</div></div>`).join('')).join('')
       || '<p class="muted">No automations yet.</p>'}</div>
     ${hist.length ? `<h3 style="margin:10px 0 4px">Lately</h3><div class="small">${hist.slice(0, 8).map(h => `<div><span class="muted">${esc(h.at)}</span> ${esc(h.text)}</div>`).join('')}</div>` : ''}
     <p class="note">Webhooks can start one by name: <code>POST /api/hook/event</code> with <code>{"name": "doorbell"}</code> (Alerts › Webhooks has the address and token). A team’s score celebration under Schedule › Game-day lights can become an automation with <b>Make it an automation</b>.</p>`;
@@ -2393,6 +2434,9 @@ async function autoPanel(box) {
     const b = e.target.closest('button'); if (!b) return; const d = b.dataset;
     if (d.autoadd !== undefined) return autoDialog(null, () => autoPanel(box));
     if (d.autoedit) return autoDialog(+d.autoedit, () => autoPanel(box));
+    if (d.autoshare) return busy(b, () => api('share/automation', { body: { id: autos[+d.autoshare].id } }))       // 4.21
+      .then(r => codeDialog(`Share “${r.labels[0]}”`, r, 'The other person taps <b>Open a share code</b> (Patterns, or Alerts › Automations) and pastes it. The patterns it uses come along; your teams, people, controllers and sounds don’t. It’s added turned off, for them to check first.')).catch(() => {});
+    if (d.autoopen !== undefined) return openShareDialog();
     if (d.autodel) {
       if (!await confirmBox('Delete this automation?', esc(autos[+d.autodel].name), 'Delete')) return;
       const n = clone(S.settings); n.automations.splice(+d.autodel, 1); return save(n, 'Deleted');
@@ -2513,9 +2557,9 @@ VIEWS.alerts = async () => {
           <p class="note">Uses the US National Weather Service. Weather only changes the pattern while a rule has the lights on.</p>
           <div class="list">${(s.weather_rules || []).map((r, i) => { const pats = Array.isArray(r.effect) ? r.effect : [r.effect]; const w = Array.isArray(r.when) ? r.when : r.when ? [r.when] : [];
             return `<div class="item"><div class="grow"><div class="row" style="gap:8px"><span class="name">${esc(r.name)}</span><span class="badge">${r.priority ?? 150}</span></div>
-              <div class="sub">${esc([...w.map(x => (WX.find(y => y[0] === x) || [0, x])[1]), r.below_f !== undefined ? `below ${r.below_f}°F` : '', r.above_f !== undefined ? `above ${r.above_f}°F` : ''].filter(Boolean).join(', '))} → ${esc(pats.map(effLabel).join(' / '))}</div></div>
+              <div class="sub">${esc([...w.map(x => (WX.find(y => y[0] === x) || [0, x])[1]), r.below_f !== undefined ? `below ${r.below_f}°F` : '', r.above_f !== undefined ? `above ${r.above_f}°F` : ''].filter(Boolean).join(', '))} → ${r.temperature_colors ? 'the temperature as a color' : esc(pats.map(effLabel).join(' / '))}</div></div>
               ${ro ? '' : `<button class="small ghost" data-editwx="${i}">Edit</button><button class="small ghost danger" data-delwx="${i}">Delete</button>`}</div>`; }).join('') || '<p class="muted">No weather rules.</p>'}</div>
-          <div class="row">${ro ? '' : '<button class="small" data-addwx>Add a weather rule</button>'}
+          <div class="row">${ro ? '' : '<button class="small" data-addwx>Add a weather rule</button>'}${isAdmin() ? '<button class="small ghost" data-wxlooks>Add the weather looks</button>' : ''}
             <label class="row small">Check with<select id="wxuse" style="width:auto" ${ro}>${[['either', 'now or next hour'], ['observed', 'current conditions'], ['forecast', 'next-hour forecast']].map(([k, l]) => `<option value="${k}" ${(s.weather?.use || 'either') === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label></div>
         </div>
 `;
@@ -2543,6 +2587,10 @@ VIEWS.alerts = async () => {
     if (d.addwx !== undefined) weatherDialog();
     else if (d.editwx) weatherDialog(+d.editwx);
     else if (d.delwx) { const n = clone(S.settings); n.weather_rules.splice(+d.delwx, 1); await busy(b, () => saveSettings(n, 'Deleted')).catch(() => {}); VIEWS.alerts(); }
+    else if (d.wxlooks !== undefined) {   // 4.19: rain, snow, storm, wind, fog and the temperature as colors
+      if (!await confirmBox('Add the weather looks?', 'Patterns and weather rules for rain, snow, a thunderstorm, wind and fog, and the temperature as a color (blue when it’s freezing to red when it’s hot), and weather rules turned on. Nothing of yours is changed; change or delete them like your own.', 'Add them')) return;
+      await busy(b, () => api('weather/looks', { body: { temperature: true } })).then(async r => { S.settings = await api('settings'); toast(r.added.length ? `Added ${r.added.length}: ${r.added.join(', ')}` : 'They’re all there already'); VIEWS.alerts(); }).catch(() => {});
+    }
   };
   m.onchange = e => {
     if (ro) return;
@@ -2761,7 +2809,8 @@ function controllerCards(st) {
   const many = devs.length > 1;
   return `<div class="panel ctlcards"><h2>${many ? `Controllers (${devs.length})` : 'Controller'}</h2>
     ${lan.unassigned && admin ? `<p class="callout small">The home-network address saved before, <b class="num">${esc(lan.unassigned)}</b>, isn’t known to be any one controller’s yet. Choose which in <a href="#local">Setup › Local mode</a>.</p>` : ''}
-    <div class="list">${devs.map(card).join('') || '<p class="muted small">No controller reported yet.</p>'}</div></div>`;
+    <div class="list">${devs.map(card).join('') || '<p class="muted small">No controller reported yet.</p>'}</div>
+    ${devs.filter(d => !d.idle).length > 1 && role() !== 'viewer' ? `<div class="row"><button class="small ghost" data-syncnow>Start them together</button><span class="small muted">Restarts each one’s pattern at the same moment, so moving patterns line up across the house.</span></div>` : ''}</div>`;
 }
 
 /* Music › Music from this computer (4.1, experimental). This browser

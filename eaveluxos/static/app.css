@@ -488,3 +488,9 @@ pre.code{padding:10px;white-space:pre-wrap;margin:0}
 .checklist li.ok b { color: var(--ok, #3fb950); }
 .checklist li.warn b { color: var(--warn, #d29922); }
 .autogroup { margin: 14px 0 4px; font-size: 1rem; }
+/* 4.20: Studio */
+.stline { display: flex; height: 18px; border-radius: 9px; overflow: hidden; gap: 2px; }
+.stline span { min-width: 6px; }
+.studiokf .grow { min-width: 0; }
+.studiokf .strand { margin-top: 6px; }
+.stsched { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }

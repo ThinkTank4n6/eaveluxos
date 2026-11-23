@@ -343,3 +343,83 @@ VIEWS.phone = async () => {
       return busy(b, () => api('presence', { body: { person: who, state: b.dataset.phset } })).then(r => { S.presenceSeen = null; return r; }).then(r => toast(`${r.person}: ${r.state}`)).catch(() => {}); }
   };
 };
+
+/* ---------------------------------------------------------------- Schedule › Fades between patterns (4.19) */
+SUMS.fades = () => { const v = (S.settings.transitions || {}).fade_seconds || 0; return v ? `${v} seconds` : 'Off'; };
+function fadePanel(box) {
+  if (!box) return;
+  const v = (S.settings.transitions || {}).fade_seconds || 0, ro = role() === 'viewer';
+  const lan = !!(S.settings.lan || {}).commands;
+  box.innerHTML = `<h2>Fades between patterns</h2>
+    <p class="note">When the schedule changes the pattern, the lights blend from the old colors to the new ones instead of jumping, and fade in and out when the schedule turns them on and off. A pattern you choose, a flash or a restore after a power cut still changes at once.</p>
+    <label class="field">Fade<select id="fadesec" style="width:auto" ${ro ? 'disabled' : ''}>${[[0, 'Off'], [2, '2 seconds'], [3, '3 seconds'], [5, '5 seconds'], [8, '8 seconds']].map(([s, l]) => `<option value="${s}" ${s === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+    ${ro ? '' : `<div class="row"><select id="fadetry" style="width:auto;max-width:100%" aria-label="Pattern to fade to">${Object.entries(S.settings.effects || {}).filter(([, e]) => Array.isArray(e.colors)).map(([k, e]) => `<option value="${esc(k)}">${esc(e.label || k)}</option>`).join('')}</select>
+      <button class="small" data-fadetry>Try it</button></div><p class="note small">Fades from what’s showing to that pattern, which then shows for 15 minutes.</p>`}
+    <p class="note">Fades go over the home network (Setup › Local mode, with commands on), and only your own patterns fade: a built-in effect or a pattern saved on the controller has colors only the controller knows, so it changes at once. The cloud never gets a fade.${lan ? '' : ' <b>Local mode commands look off on this app.</b>'}</p>`;
+  box.onclick = e => {
+    const b = e.target.closest('[data-fadetry]'); if (!b) return;
+    const k = $('#fadetry', box).value; if (!k) return toast('Choose a pattern.', true);
+    busy(b, () => api('fade/try', { body: { effect: k, seconds: +$('#fadesec', box).value || 3 } }))
+      .then(() => toast(`Faded to “${effLabel(k)}” (15 minutes, then back to the schedule)`)).catch(() => {});
+  };
+  box.onchange = e => {
+    if (e.target.id !== 'fadesec') return;
+    const n = clone(S.settings), s = +e.target.value;
+    n.transitions = { ...(n.transitions || {}), fade_seconds: s };
+    busy(null, () => saveSettings(n, s ? `Fades of ${s} seconds` : 'Fades off')).then(foldSums).catch(() => fadePanel(box));
+  };
+}
+
+/* ---------------------------------------------------------------- energy estimates (4.21), in Lights usage */
+async function energyPanel(box) {
+  if (!box) return;
+  let r; try { r = await api('energy'); } catch (e) { box.innerHTML = `<p class="muted small">${esc(e.message)}</p>`; return; }
+  const u = S.settings.usage || {}, ro = role() === 'viewer';
+  const money = v => v == null ? '' : `, about <b>$${v.toFixed(2)}</b>`;
+  box.innerHTML = `<h3 style="margin:8px 0 0">Estimated from your patterns</h3>
+    ${r.bulbs ? `<p>${r.on ? `Now: about <b>${r.now_watts} W</b>. ` : ''}The next 30 nights on the schedule: <b>${r.month.hours} hours</b>, about <b>${r.month.kwh} kWh</b>${money(r.month.cost)}.</p>
+      ${r.hungriest.length ? `<p class="small muted">Your brightest patterns: ${r.hungriest.map(h => `${esc(h.label)} ${h.watts} W`).join(' · ')}</p>` : ''}`
+      : '<p class="small">Enter how many bulbs you have to see estimates.</p>'}
+    <details><summary class="small">How it’s estimated</summary><div class="stack" style="margin-top:8px">
+      <p class="note">Each bulb draws about in proportion to how brightly its red, green and blue are lit: full white the most, one deep color about a third, a dark bulb almost nothing. So: bulbs × watts of one bulb at full white × the pattern’s brightness × its colors, plus about 3 W for the controller. Weather, flashes and choices made by hand aren’t known ahead. A built-in effect counts as half of white.</p>
+      <div class="row"><label class="field">Bulbs<input type="number" id="enbulbs" min="0" max="10000" value="${u.bulbs ?? (r.bulbs || '')}" ${ro ? 'disabled' : ''} style="width:7em"></label>
+        <label class="field">Watts for one bulb at full white<input type="number" id="enwpb" min="0" max="5" step="0.01" value="${u.watts_per_bulb ?? r.watts_per_bulb}" ${ro ? 'disabled' : ''} style="width:7em"></label></div>
+      ${ro ? '' : '<div><button class="small ghost" data-ensave>Save</button></div>'}</div></details>`;
+  box.onclick = e => {
+    const b = e.target.closest('[data-ensave]'); if (!b) return;
+    e.stopPropagation();
+    const n = clone(S.settings), v = id => { const x = $(id, box).value.trim(); return x === '' ? null : Number(x); };
+    n.usage = { ...(n.usage || {}), bulbs: v('#enbulbs'), watts_per_bulb: v('#enwpb') };
+    Object.keys(n.usage).forEach(k => { if (n.usage[k] === null) delete n.usage[k]; });
+    busy(b, () => saveSettings(n, 'Saved')).then(() => energyPanel(box)).catch(() => {});
+  };
+}
+
+/* ---------------------------------------------------------------- sharing shows and automations (4.21) */
+function codeDialog(title, r, how) {
+  let qr = '';
+  try { qr = r.code.length <= 1800 ? QR.svg(r.code, r.code.length > 900 ? 'L' : 'M', 4) : ''; } catch { qr = ''; }
+  dialog(`<h2>${esc(title)}</h2><p class="note">${how}</p>
+    <textarea id="sharecode" readonly rows="4" style="width:100%;font-family:ui-monospace,monospace;font-size:12px">${esc(r.code)}</textarea>
+    <div class="row"><button type="button" class="small" data-sccopy>Copy the code</button>${navigator.share ? '<button type="button" class="small ghost" data-scsend>Send…</button>' : ''}<span class="small muted">${r.length} characters</span></div>
+    ${qr ? `<div class="qrbox" style="text-align:center;background:#fff;padding:8px;border-radius:8px">${qr}</div>` : '<p class="note">Too long for a QR code; send the code itself.</p>'}`, null);
+  $('#dlg form').addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.sccopy !== undefined) { const el = $('#sharecode'); el.select(); (navigator.clipboard?.writeText ? navigator.clipboard.writeText(el.value) : Promise.reject()).then(() => toast('Copied'), () => toast('Selected: copy it with Ctrl+C or ⌘C.')); }
+    if (b.dataset.scsend !== undefined) navigator.share({ title, text: r.code }).catch(() => {});
+  });
+}
+/* What a shared show or automation holds, before anything is added. */
+function sharedPreview(r) {
+  if (r.kind === 'show') {
+    const s = r.show;
+    return `<p><b>A Studio show: “${esc(s.name)}”</b>, ${plural(s.keyframes.length, 'look')}${s.fade ? `, fading ${s.fade} s` : ''}:</p>
+      ${s.keyframes.map(k => `<div class="small"><b>${esc(k.pattern.label)}</b>, ${k.minutes} min ${strand(k.pattern.colors, k.pattern.counts)}</div>`).join('')}
+      <p class="note">It opens in Studio, to play on your lights and approve. Nothing is added until you do.</p>`;
+  }
+  const a = r.automation, lbl = k => /^@\d$/.test(k || '') ? (r.patterns[+k.slice(1)] || {}).label || k : k;
+  const shown = { ...a, then: (a.then || []).map(x => x.effect ? { ...x, effect: lbl(x.effect) } : x), if: (a.if || []).map(c => c.effect ? { ...c, effect: lbl(c.effect) } : c) };
+  return `<p><b>An automation: “${esc(a.name)}”</b></p><p class="small">${esc(autoDescribe(shown))}</p>
+    ${r.patterns.length ? `<p class="small">With ${plural(r.patterns.length, 'pattern')}: ${r.patterns.map(p => `<b>${esc(p.label)}</b> ${p.colors ? strand(p.colors, p.counts) : ''}`).join(' ')}</p>` : ''}
+    <p class="note">The patterns become yours, and the automation is added <b>turned off</b>, to check (and point at your own teams, people or zones) before you turn it on.</p>`;
+}

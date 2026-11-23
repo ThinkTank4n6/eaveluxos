@@ -33,7 +33,7 @@ class Index(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         # 4.18.2: views and panels in the later page scripts count too
-        cls.app = "\n".join((STATIC / f).read_text(encoding="utf-8") for f in ("app.js", "security.js", "triggers.js"))
+        cls.app = "\n".join((STATIC / f).read_text(encoding="utf-8") for f in ("app.js", "security.js", "triggers.js", "studio.js"))
         cls.index = (STATIC / "index.html").read_text(encoding="utf-8")
 
     @unittest.skipUnless(shutil.which("node"), "Node.js isn't installed")

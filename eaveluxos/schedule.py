@@ -767,6 +767,7 @@ class WeatherRule:
     levels: dict
     nightly: bool = False
     rotate_each: tuple | None = None
+    temperature: bool = False         # 4.19: show the temperature as a color (weatherlook.py)
 
     @property
     def effect_label(self) -> str:
@@ -796,6 +797,11 @@ class WeatherRule:
             raise ConfigError(f"{where}: unknown condition {sorted(bad)}; use {sorted(WEATHER_TAGS)}")
         below = float(c["below_f"]) if "below_f" in c else None
         above = float(c["above_f"]) if "above_f" in c else None
+        if c.get("temperature_colors"):
+            # 4.19: the temperature as a color, worked out at each reading
+            from .weatherlook import temperature_effect
+            return cls(name, frozenset(tags), below, above, [temperature_effect(None)], 0,
+                       int(c.get("priority", DEFAULT_PRIORITY_WEATHER)), i, _levels(c, where), temperature=True)
         if not tags and below is None and above is None:
             raise ConfigError(f"{where}: give 'when' and/or below_f / above_f")
         effs = _effect_list(c, effects, where)
@@ -805,6 +811,8 @@ class WeatherRule:
                    rotate_each=_rotate_each(c, len(effs), where))
 
     def matches(self, tags: set, temp_f: float | None) -> bool:
+        if self.temperature and temp_f is None:
+            return False                  # no reading, no color to show
         if self.tags and not (self.tags & tags):
             return False
         if self.below_f is not None and (temp_f is None or temp_f > self.below_f):
@@ -841,6 +849,7 @@ class Config:
     watch: dict = field(default_factory=dict)          # 4.11: teams automations follow, celebrations off or not
     gamma: float | None = None
     people: list = field(default_factory=list)          # 4.18: who's home (presence.py)
+    fade_seconds: int = 0                               # 4.19: fades between the schedule's patterns (transitions.py)
     paused: dict | None = None                         # 4.16.6: {"since": iso}: this app leaves the lights alone
 
 
@@ -909,8 +918,9 @@ def _celebrations(gd, effects: dict) -> dict:
     "effect", "seconds", "min_points"} for teams with celebrations on."""
     from .gameday import GameDayError, celebrations_on, check_team, team_key
     # 4.3.5: their own switch, apart from game-night colors.
-    if not isinstance(gd, dict) or not celebrations_on(gd) or not isinstance(gd.get("teams"), list):
+    if not isinstance(gd, dict) or not isinstance(gd.get("teams"), list):
         return {}
+    party = celebrations_on(gd)       # 4.21: lights for a win don't need score celebrations on
     try:
         seconds = int(gd.get("celebrate_seconds", 15))
     except (TypeError, ValueError):
@@ -919,12 +929,29 @@ def _celebrations(gd, effects: dict) -> dict:
         raise ConfigError("Celebrations last 5 to 120 seconds.")
     out = {}
     for t in gd["teams"]:
-        if not isinstance(t, dict) or not t.get("celebrate"):
+        # 4.21: a team with lights for a win is followed too, even without score celebrations
+        if not isinstance(t, dict) or not ((t.get("celebrate") and party) or t.get("win_effect")):
             continue
         try:
             c = check_team(t)
         except GameDayError as e:
             raise ConfigError(str(e)) from None
+        win = None
+        if t.get("win_effect"):
+            if t["win_effect"] not in effects:
+                raise ConfigError(f"{c['name']}: the pattern for a win is gone; choose another.")
+            wm = t.get("win_minutes", 30)
+            if isinstance(wm, bool) or not isinstance(wm, int) or not 5 <= wm <= 240:
+                raise ConfigError(f"{c['name']}: a win shows 5 to 240 minutes.")
+            win = {"win_effect": t["win_effect"], "win_minutes": wm}
+        if not (t.get("celebrate") and party):
+            out[team_key(c["league"], c["team"])] = {**c, "effect": None, "seconds": 0, "min_points": 1,
+                                                     "only_when_on": bool(gd.get("celebrate_only_when_on", True)),
+                                                     "sound": None, "automation_only": True, **win}
+            continue
+        own = t.get("seconds")
+        if own is not None and (isinstance(own, bool) or not isinstance(own, int) or not 5 <= own <= 120):
+            raise ConfigError(f"{c['name']}: its own celebration lasts 5 to 120 seconds.")
         eff = t.get("effect")
         if eff not in effects:
             # Review #5 (4.3.6): with game-day lights off, _game_rules doesn't
@@ -945,9 +972,9 @@ def _celebrations(gd, effects: dict) -> dict:
                 raise ConfigError(f"{c['name']}: a celebration sound plays from a start in the file for 1 to {CLIP_MAX} seconds.")
             snd = {"start": float(snd["start"]), "seconds": float(snd["seconds"]), "kind": snd["kind"],
                    "on": snd.get("on", True) is not False, "name": snd.get("name", "")}
-        out[team_key(c["league"], c["team"])] = {**c, "effect": eff, "seconds": seconds, "min_points": mp,
+        out[team_key(c["league"], c["team"])] = {**c, "effect": eff, "seconds": own or seconds, "min_points": mp,
                                                  "only_when_on": bool(gd.get("celebrate_only_when_on", True)),
-                                                 "sound": snd}
+                                                 "sound": snd, **(win or {})}
     return out
 
 
@@ -1079,6 +1106,11 @@ def _personal_rules(pc, effects: dict, order0: int, taken_names=()) -> list:
     return out
 
 
+def _fade_check(raw) -> int:
+    from .transitions import check
+    return check(raw)
+
+
 def build_config(raw: dict, secrets: dict, need_secrets: bool = True, gamedates: dict | None = None,
                  country_dates: dict | None = None) -> Config:
     """raw: the settings document (same shape as config.toml).
@@ -1137,7 +1169,8 @@ def build_config(raw: dict, secrets: dict, need_secrets: bool = True, gamedates:
     us = raw.get("usage") or {}
     if not isinstance(us, dict):
         raise ConfigError("Usage settings must be an object.")
-    for k, hi, what in (("watts", 5000, "Watts"), ("rate", 5, "Price per kWh")):
+    for k, hi, what in (("watts", 5000, "Watts"), ("rate", 5, "Price per kWh"),
+                        ("bulbs", 10000, "Bulbs"), ("watts_per_bulb", 5, "Watts for one bulb")):   # 4.21: energy estimates
         v = us.get(k)
         if v is not None and (isinstance(v, bool) or not isinstance(v, (int, float)) or not 0 <= v <= hi):
             raise ConfigError(f"{what} must be a number from 0 to {hi}.")
@@ -1207,6 +1240,7 @@ def build_config(raw: dict, secrets: dict, need_secrets: bool = True, gamedates:
         weather_alerts=wx_alerts, zones=zones, total_bulbs=total_bulbs,
         celebrate=_celebrations(raw.get("gameday"), effects), gamma=gamma,
         automations=autos, watch=_aw(raw.get("gameday"), autos), paused=pz, people=people,
+        fade_seconds=_fade_check(raw.get("transitions")),
     )
 
 

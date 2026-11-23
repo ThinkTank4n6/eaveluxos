@@ -584,6 +584,73 @@ class Commands:
                      payload.get("brightness"), payload.get("speed"))
         return done
 
+    def fade(self, dev, frames: list, every: float, sleep=None, cancel=None) -> bool:
+        """4.19: still frames, one every `every` seconds, on one connection
+        (transitions.py); the caller sends the real pattern after them.
+        False when it can't go this way: the change is then sent at once."""
+        import time as _t
+        sleep = sleep or _t.sleep
+        try:
+            for f in frames:
+                L.preview_message(f)
+        except (ValueError, TypeError, KeyError):
+            return False
+
+        def run(link):
+            for i, f in enumerate(frames):
+                if cancel is not None and cancel():
+                    return True           # Review #1 (4.19): a button was pressed: stop now
+                link.preview(f)
+                if i < len(frames) - 1:
+                    sleep(every)
+            return True
+        done = self._do(dev, run) is True
+        if done:
+            log.info("Over the home network (%s): faded in %d steps.", self.host(dev), len(frames))
+        return done
+
+    def preview_many(self, items: list) -> list:
+        """4.21: several controllers' patterns started together: every
+        connection opened and answered first, then the patterns sent one
+        right after another, so their motion starts within a moment of each
+        other. items: [(dev, payload)]. Returns the devs it reached."""
+        if not items or not self.io.acquire(timeout=3):
+            return []
+        links, done = [], []
+        try:
+            if self.blocked():
+                return []
+            for dev, payload in items:
+                if not self.usable(dev):
+                    continue
+                try:
+                    L.preview_message(payload)
+                    link = self.link_factory(self.host(dev)).open()
+                    link.ping()
+                    links.append((dev, payload, link))
+                except (L.LinkError, OSError, ValueError, TypeError, KeyError) as e:
+                    self._failed(dev, e)
+            for dev, payload, link in links:            # back to back
+                try:
+                    link.preview(payload)
+                    done.append(dev)
+                except (L.LinkError, OSError) as e:
+                    self._failed(dev, e)
+            for dev, _, link in links:
+                try:
+                    if dev in done:
+                        link.ping()
+                        self._worked(dev)
+                except (L.LinkError, OSError):
+                    pass
+        finally:
+            for _, _, link in links:
+                link.close()
+            self.io.release()
+        if done:
+            log.info("Over the home network: started %d controllers together.", len(done))
+        return done
+
     def switch(self, dev):
         """1 on, 0 off, as the controller itself says; None if unknown."""
         st = self._do(dev, lambda link: link.state(self.now()))
