@@ -143,10 +143,23 @@ class Review(Fades):
         self.assertTrue(T.frames(pat([0xFF0000], bright=60), pat([0xFF0000], bright=200), 3), "a brightness change still does")
 
     def test_try_a_fade(self):
+        # 4.21.2: what the lights show before is set here, not left to the
+        # time of day. On GitHub at 5:44 PM the schedule already showed this
+        # pattern, and a fade to the same colors (rightly) sends nothing.
+        a = self.custom_key()
+        b = next(k for k, e in self.c.cfg.effects.items()
+                 if e.kind == "custom" and e.payload.get("pixels") != self.c.cfg.effects[a].payload.get("pixels"))
+        self.c.known_on = True
+        self.c.sent_effect = {DEV: dict(self.c.cfg.effects[a].payload)}
         got = []
         with mock.patch.object(self.c.lan, "fade", lambda dev, fr, every, cancel=None: got.append(len(fr))):
-            self.app.ctrl.try_fade(self.custom_key(), 2)
+            self.app.ctrl.try_fade(b, 2)
         self.assertTrue(got)
+        got.clear()
+        self.c.sent_effect = {DEV: dict(self.c.cfg.effects[b].payload)}
+        with mock.patch.object(self.c.lan, "fade", lambda dev, fr, every, cancel=None: got.append(len(fr))):
+            self.app.ctrl.try_fade(b, 2)
+        self.assertEqual(got, [], "already showing: nothing to fade")
         self.assertTrue(self.c.override and self.c.override.get("on"))
         with self.assertRaises(ValueError):
             self.c.try_fade("nope", 2)

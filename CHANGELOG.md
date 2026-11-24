@@ -1,5 +1,18 @@
 # Changelog
 
+## 4.21.2: a test that depended on the time of day
+
+Only a test changed; the app is the same as 4.21.1.
+
+- GitHub's run of 4.21.1 failed one test on all three systems: *Try a fade*
+  (tests/test_show419.py). It ran at 5:44 PM Eastern, when the test's
+  schedule was already showing the very pattern the test faded to, and a
+  fade to the same colors (rightly) sends nothing. Earlier in the day it
+  passed. The test now sets what the lights show first, and also checks
+  that trying the pattern already showing sends no fade.
+- Checked: the newer test files (4.18 to 4.21.1) now pass at 6:30 AM, noon,
+  5:44 PM, 7:30 PM and 11:30 PM.
+
 ## 4.21.1: the Off button always turns the lights off
 
 Reported from an Intel Mac: "Off doesn't turn the lights off". Nothing in
