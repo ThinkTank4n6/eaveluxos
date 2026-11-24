@@ -35,9 +35,25 @@ from .trust import client_context
 
 log = logging.getLogger("eaveluxos.gameday")
 LEAGUES = {"nfl": ("football/nfl", "NFL"), "mlb": ("baseball/mlb", "MLB"),
-           "nba": ("basketball/nba", "NBA"), "nhl": ("hockey/nhl", "NHL")}
+           "nba": ("basketball/nba", "NBA"), "nhl": ("hockey/nhl", "NHL"),
+           # 4.24: the WNBA and college sports, on the same ESPN feed
+           "wnba": ("basketball/wnba", "WNBA"),
+           "cfb": ("football/college-football", "NCAA football"),
+           "mcbb": ("basketball/mens-college-basketball", "NCAA men's basketball"),
+           "wcbb": ("basketball/womens-college-basketball", "NCAA women's basketball"),
+           "mchk": ("hockey/mens-college-hockey", "NCAA men's hockey"),
+           "wchk": ("hockey/womens-college-hockey", "NCAA women's hockey")}
+COLLEGE = ("cfb", "mcbb", "wcbb", "mchk", "wchk")
+# College scoreboards list only ranked or featured games unless asked for a
+# division (ESPN's groups: 80 FBS, 81 FCS, 50 Division I basketball); each is
+# tried in turn until the team is found. Hockey's boards are short anyway.
+BOARD_QUERIES = {"cfb": ("groups=80&limit=500", "groups=81&limit=500"),
+                 "mcbb": ("groups=50&limit=500",), "wcbb": ("groups=50&limit=500",),
+                 "mchk": ("limit=500",), "wchk": ("limit=500",)}
 HOST = "https://site.api.espn.com/apis/site/v2/sports/"
-TEAM_RE = re.compile(r"[a-z]{2,5}")
+# ESPN's short team code (pro leagues), or its team number (4.24: colleges,
+# whose codes can hold "-" or "&", like M-OH or TA&M)
+TEAM_RE = re.compile(r"[a-z]{2,6}|\d{1,7}")
 MAX_BYTES = 6_000_000
 EVERY = 6 * 3600
 SEASONS = (2, 3)            # regular season, playoffs (1 would be the preseason)
@@ -79,9 +95,9 @@ def check_team(t) -> dict:
         raise GameDayError("Each game-day team must be an object.")
     league, team = str(t.get("league", "")).lower(), str(t.get("team", "")).lower()
     if league not in LEAGUES:
-        raise GameDayError("Game-day league must be nfl, mlb, nba or nhl.")
+        raise GameDayError("Game-day league must be one of: " + ", ".join(LEAGUES) + ".")
     if not TEAM_RE.fullmatch(team):
-        raise GameDayError("Game-day team must be ESPN's short team code, like phi.")
+        raise GameDayError("Game-day team must be ESPN's short team code, like phi, or its team number.")
     name = str(t.get("name") or team.upper()).strip()[:30]
     return {"league": league, "team": team, "name": name}
 
@@ -133,6 +149,42 @@ def parse_dates(raw: bytes, tz) -> list[str]:
             loc -= timedelta(days=1)                       # after midnight: that evening's game
         out.add(loc.date().isoformat())
     return sorted(out)
+
+
+def teams_url(league: str) -> str:
+    return f"{HOST}{LEAGUES[league][0]}/teams?limit=1000"
+
+
+def _hex(c) -> str | None:
+    c = str(c or "").strip().lstrip("#")
+    return "#" + c.upper() if re.fullmatch(r"[0-9a-fA-F]{6}", c) else None
+
+
+def parse_teams(raw: bytes, league: str) -> list[dict]:
+    """4.24: a league's teams from ESPN, for the team picker:
+    [{"team": code to save, "id", "abbr", "name", "colors": [...]}], by name.
+    Colleges are saved by team number, pro teams by their short code."""
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        raise GameDayError("The team list wasn't readable.") from None
+    try:
+        rows = data["sports"][0]["leagues"][0]["teams"]
+    except (KeyError, IndexError, TypeError):
+        raise GameDayError("The team list had no teams.") from None
+    out = []
+    for r in rows[:1500] if isinstance(rows, list) else []:
+        t = r.get("team") if isinstance(r, dict) else None
+        if not isinstance(t, dict):
+            continue
+        tid, abbr = str(t.get("id") or "").strip(), str(t.get("abbreviation") or "").strip()
+        name = str(t.get("displayName") or t.get("name") or abbr).strip()[:40]
+        code = tid if league in COLLEGE or not TEAM_RE.fullmatch(abbr.lower()) else abbr.lower()
+        if not TEAM_RE.fullmatch(code) or not name:
+            continue
+        cols = [c for c in (_hex(t.get("color")), _hex(t.get("alternateColor"))) if c]
+        out.append({"team": code, "id": tid, "abbr": abbr[:8], "name": name, "colors": cols or ["#FFFFFF"]})
+    return sorted(out, key=lambda x: x["name"].lower())
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):

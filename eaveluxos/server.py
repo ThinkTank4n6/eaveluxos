@@ -1094,6 +1094,23 @@ class App:
             raise ApiError(st["error"], 502)
         return st
 
+    def gameday_teams(self, league: str) -> dict:
+        """4.24: a league's teams from ESPN, with their colors, for the team
+        picker. Kept for a day; ESPN is asked at most once a minute a league."""
+        if league not in gameday.LEAGUES:
+            raise ApiError("Choose a league.")
+        cache = self.__dict__.setdefault("_gd_teams", {})
+        got = cache.get(league)
+        now = time.time()
+        if got and now - got[0] < (86400 if got[1] else 60):
+            return {"league": league, "teams": got[1], "error": got[2]}
+        try:
+            teams, err = gameday.parse_teams(gameday._fetch(gameday.teams_url(league)), league), None
+        except gameday.GameDayError as e:
+            teams, err = (got[1] if got else []), str(e)
+        cache[league] = (now, teams, err)
+        return {"league": league, "teams": teams, "error": err}
+
     def gameday_status(self) -> dict:
         today = self.cfg.loc.now().date() if self.cfg else date.today()
         live = self.scores.summary()
@@ -3813,6 +3830,8 @@ def make_server(app: App, host: str, port: int):
                         "bulbs": app.cfg.total_bulbs if app.cfg and app.cfg.total_bulbs else app._bulbs}
             if path == "/api/gameday":
                 return app.gameday_status()
+            if path == "/api/gameday/teams":          # 4.24: the team picker
+                return app.gameday_teams(q.get("league", ""))
             if path == "/api/holidays":             # the holiday calendar (3.19)
                 return app.holidays_status()
             if path == "/api/backups":                 # controller backups to restore patterns from (3.15)

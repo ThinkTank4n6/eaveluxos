@@ -1,7 +1,7 @@
 # EaveLuxOS: User Manual
 ### The Intelligent Lighting Control Platform
 
-Version 4.23.2 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
+Version 4.24.0 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
 
 > [!TIP]
 > **Quick start: you probably don't need Python.**
@@ -94,7 +94,7 @@ settings.*
 
 ## What's new
 
-**4.23 and 4.22: animations, Lightning and Snowflake**
+**4.24, 4.23 and 4.22: college game days, animations, Lightning and Snowflake**
 - **Lightning and Snowflake** on any pattern saved on your controller, the
   same two effects as the Trimlight Edge app's Pattern Library: see
   [Lightning and Snowflake](#lightning-and-snowflake-422).
@@ -107,6 +107,9 @@ settings.*
   Inside out, Dissolve and Juggle are new, and Stars and Breath now use the
   Trimlight app's names, Twinkle fade and Fade:
   [Animations](#animations-423).
+- **College sports and the WNBA on game day** (4.24): NCAA football, men's
+  and women's basketball and hockey, with a team picker in each team's own
+  colors: [Game-day lights](#game-day-lights).
 - **Badges for Lightning and Snowflake** (4.22.5) on Patterns › In the
   Trimlight app and My patterns.
 - **The right one of two look-alike patterns** (4.22.3): when two saved
@@ -1814,10 +1817,20 @@ Your team's colors on the nights they play, instead of the usual pattern.
 
 1. Under **Game-day lights**, choose a team in **Add a team…** and tap
    **Add**. The Eagles, Phillies, 76ers and Flyers come with a team-color
-   pattern made for you. For any other NFL, MLB, NBA or NHL team, choose
-   **Another team…**, pick the league and enter ESPN's short team code (the
-   letters in the team's address on espn.com, for example `nyg` for the
-   Giants).
+   pattern made for you. For any other team, choose **Another team…**, pick
+   the league, start typing the team's name and choose it from the list
+   (4.24). It gets a pattern in its own colors, from ESPN. If the list can't
+   be loaded, type ESPN's short team code instead (the letters in the team's
+   address on espn.com, for example `nyg` for the Giants) or, for a college,
+   its team number (the number in its espn.com address, for example `213`
+   for Penn State).
+
+| League | In the list as |
+|---|---|
+| NFL, MLB, NBA, NHL, WNBA (4.24) | the pro leagues |
+| College football (4.24) | NCAA football (FBS and FCS) |
+| College basketball (4.24) | NCAA men's basketball, NCAA women's basketball |
+| College ice hockey (4.24) | NCAA men's hockey, NCAA women's hockey |
 2. Change the **Pattern** or the **On** and **Off** times if you like (sunset
    to 11:00 PM to start).
 3. Tick **Use game-day lights**. Nothing is checked while it's off (the
@@ -1865,9 +1878,13 @@ when one switch ran both, keep working as they were.
   is followed. A game that runs past midnight is followed until it ends (until
   4 AM at the latest), and a score ESPN takes back after a review and then
   restores isn't celebrated twice.
-- What counts as a score: NFL field goals and touchdowns (not the extra
-  point), every MLB run and NHL goal, and NBA 3-pointers (ordinary baskets are
-  too frequent).
+- What counts as a score: NFL and college football field goals and
+  touchdowns (not the extra point), every MLB run and every NHL or college
+  hockey goal, and NBA, WNBA and college basketball 3-pointers (ordinary
+  baskets are too frequent).
+- College scoreboards on ESPN show only ranked games unless asked for a
+  division, so EaveLuxOS asks for Division I (football: FBS, then FCS if the
+  team isn't there). Smaller divisions may not be listed live.
 - The panel shows the live score during the game.
 
 #### A sound when they score (4.9)

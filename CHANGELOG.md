@@ -1,5 +1,34 @@
 # Changelog
 
+## 4.24.0: college sports and the WNBA on game day
+
+Asked for: NCAA football, basketball and ice hockey (men's and women's) and
+the WNBA, alongside the NFL, MLB, NBA and NHL.
+
+- **Six new leagues** for game-day lights and score celebrations, on the
+  same ESPN feed: WNBA, NCAA football, NCAA men's and women's basketball,
+  NCAA men's and women's hockey.
+- **A team picker.** Choose the league, type a few letters of the name and
+  pick the team from ESPN's list; it gets a pattern in its own colors.
+  Typing ESPN's code (or a college's team number) still works.
+- **Colleges are saved by ESPN's team number**, since their codes can hold
+  "-" or "&" (M-OH, TA&M) and aren't always unique.
+- **College scoreboards** are asked for by division (ESPN lists only ranked
+  games otherwise): Division I basketball; football FBS, then FCS only if
+  the team wasn't found.
+- What counts as a score: football as the NFL, basketball 3-pointers as the
+  NBA, every hockey goal.
+
+Review (tests/repro_min_college_by_number.py is #1):
+
+1. **A college saved by number wasn't found on the scoreboard**, which lists
+   teams by their letters. The board now carries each team's number too, and
+   the game is matched either way.
+2. The team list is kept for a day and ESPN is asked at most once a minute
+   per league if it fails; the last list is kept on an error.
+3. Women's college hockey is the least covered on ESPN; if its schedule
+   can't be found, the panel says so, as for any team.
+
 ## 4.23.2: the newer firmware, confirmed
 
 The Mac owner set Snowflake on "snowflake test" (#16) and Lightning on

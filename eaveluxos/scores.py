@@ -23,7 +23,7 @@ import time
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from .gameday import HOST, LEAGUES, GameDayError, _fetch
+from .gameday import BOARD_QUERIES, HOST, LEAGUES, GameDayError, _fetch
 
 log = logging.getLogger("eaveluxos.scores")
 LIVE_EVERY = 20          # seconds between checks while a game is on
@@ -37,15 +37,29 @@ ESPN_TZ = ZoneInfo("America/New_York")    # ESPN's scoreboard days
 _ORDER = {"in": 0, "pre": 1, "post": 2}
 
 
-def scoreboard_url(league: str, day: date | None = None) -> str:
-    """Today's board, or a given day's (ESPN's dates=YYYYMMDD)."""
-    return f"{HOST}{LEAGUES[league][0]}/scoreboard" + (f"?dates={day:%Y%m%d}" if day else "")
+def scoreboard_url(league: str, day: date | None = None, query: str = "") -> str:
+    """Today's board, or a given day's (ESPN's dates=YYYYMMDD); query: a
+    college division (BOARD_QUERIES, 4.24)."""
+    q = "&".join(x for x in (f"dates={day:%Y%m%d}" if day else "", query) if x)
+    return f"{HOST}{LEAGUES[league][0]}/scoreboard" + (f"?{q}" if q else "")
+
+
+def _as_code(g: dict, team: str):
+    """The game with the team under the code it was saved as (4.24: a college
+    saved by ESPN's team number appears on the board by its letters)."""
+    if team in g["teams"]:
+        return g
+    abbr = (g.get("ids") or {}).get(team)
+    if abbr is None or abbr not in g["teams"]:
+        return None
+    return {**g, "teams": {(team if a == abbr else a): s for a, s in g["teams"].items()},
+            "home": team if g.get("home") == abbr else g.get("home")}
 
 
 def pick_game(games: list, team: str):
     """The team's game to follow: one being played, else the next, else the
     last one over (an MLB doubleheader lists both games all day)."""
-    mine = [g for g in games if team in g["teams"]]
+    mine = [x for x in (_as_code(g, team) for g in games) if x is not None]
     return min(mine, key=lambda g: _ORDER[g["state"]]) if mine else None
 
 
@@ -70,7 +84,7 @@ def parse_games(raw: bytes) -> list[dict]:
         state = str((typ or {}).get("state") or "").lower()
         if state not in ("pre", "in", "post"):
             continue
-        teams, home = {}, None
+        teams, home, ids = {}, None, {}
         for c in comp.get("competitors") or []:
             if not isinstance(c, dict):
                 continue
@@ -81,6 +95,9 @@ def parse_games(raw: bytes) -> list[dict]:
                 continue
             if abbr:
                 teams[abbr] = score
+                tid = str(((c.get("team") or {}).get("id")) or c.get("id") or "").strip()
+                if tid.isdigit():
+                    ids[tid] = abbr                 # 4.24: colleges are saved by team number
                 if c.get("homeAway") == "home":
                     home = abbr                 # 4.11: for automations' home and away
         start = None
@@ -93,7 +110,8 @@ def parse_games(raw: bytes) -> list[dict]:
             except ValueError:
                 start = None
         out.append({"id": str(ev.get("id") or ""), "state": state, "start": start,
-                    "detail": str((typ or {}).get("shortDetail") or "")[:40], "teams": teams, "home": home})
+                    "detail": str((typ or {}).get("shortDetail") or "")[:40], "teams": teams, "home": home,
+                    "ids": ids})
     return out
 
 
@@ -137,7 +155,7 @@ class ScoreWatch:
             if not force and now < self.next_at.get(league, 0):
                 continue
             try:
-                games = parse_games(self.fetch(scoreboard_url(league)))
+                games = self._board(league, None, ts)
                 self.errors.pop(league, None)
             except GameDayError as e:
                 self.errors[league] = str(e)
@@ -152,14 +170,14 @@ class ScoreWatch:
                     # The game was being played at the last look but today's
                     # board no longer lists it (past midnight): ask for its day.
                     try:
-                        g = pick_game(parse_games(self.fetch(scoreboard_url(league, lg["day"]))), t["team"]) or g
+                        g = pick_game(self._board(league, lg["day"], [t]), t["team"]) or g
                     except GameDayError:
                         pass
                 if g is None and today in (dates.get(t["key"]) or ()):
                     # 4.3.3: a game after midnight counts for this evening
                     # (gameday.py), but ESPN lists it on tomorrow's board.
                     try:
-                        later = pick_game(parse_games(self.fetch(scoreboard_url(league, today + timedelta(days=1)))), t["team"])
+                        later = pick_game(self._board(league, today + timedelta(days=1), [t]), t["team"])
                     except GameDayError:
                         later = None
                     if later and later["state"] != "post" and later["start"] is not None \
@@ -179,6 +197,25 @@ class ScoreWatch:
                     self.live_game.pop(t["key"], None)
                 wait = min(wait, self._see(t, g, now))
             self.next_at[league] = now + wait
+
+    def _board(self, league: str, day, ts) -> list:
+        """A day's games. 4.24: a college league's board is asked for by
+        division, the next division only if a team is still missing."""
+        games, seen = [], set()
+        for i, q in enumerate(BOARD_QUERIES.get(league, ("",))):
+            if i and all(pick_game(games, t["team"]) for t in ts):
+                break
+            try:
+                more = parse_games(self.fetch(scoreboard_url(league, day, q)))
+            except GameDayError:
+                if i == 0:
+                    raise
+                continue
+            for g in more:
+                if g["id"] not in seen:
+                    seen.add(g["id"])
+                    games.append(g)
+        return games
 
     def _see(self, t: dict, g: dict, now: float) -> float:
         """Record a game's score for a team; celebrate a new score. Returns

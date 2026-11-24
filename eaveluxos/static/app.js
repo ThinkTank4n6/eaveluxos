@@ -1952,7 +1952,7 @@ async function gamePanel(box) {
         <label class="field" style="flex:1;min-width:110px">On<input type="text" data-gdon="${i}" value="${esc(t.on || 'sunset')}" ${ro ? 'disabled' : ''}></label>
         <label class="field" style="flex:1;min-width:110px">Off<input type="text" data-gdoff="${i}" value="${esc(t.off || '23:00')}" ${ro ? 'disabled' : ''}></label></div>
       <p class="small muted" style="margin:0">On and Off are for game-day lights. ${gd.enabled ? '' : '<b>Game-day lights are off.</b>'}</p>
-      <label class="check small"><input type="checkbox" data-gdcel="${i}" ${t.celebrate ? 'checked' : ''} ${ro ? 'disabled' : ''}> Celebrate this team\u2019s scores${party ? '' : ' <span class="muted">(Celebrate scores is off above)</span>'}${t.league === 'nfl' ? ' (field goals and touchdowns)' : t.league === 'nba' ? ' (3-pointers; baskets are too frequent)' : ''}</label>
+      <label class="check small"><input type="checkbox" data-gdcel="${i}" ${t.celebrate ? 'checked' : ''} ${ro ? 'disabled' : ''}> Celebrate this team\u2019s scores${party ? '' : ' <span class="muted">(Celebrate scores is off above)</span>'}${['nfl', 'cfb'].includes(t.league) ? ' (field goals and touchdowns)' : ['nba', 'wnba', 'mcbb', 'wcbb'].includes(t.league) ? ' (3-pointers; baskets are too frequent)' : ''}</label>
       ${t.celebrate ? soundRow(t, i, ro) : ''}
       ${t.celebrate ? `<label class="row small" style="gap:6px">Its own celebration length<select data-gdsec1="${i}" style="width:auto" ${ro ? 'disabled' : ''}><option value="">as for every team</option>${[10, 15, 20, 30, 45, 60, 90, 120].map(s => `<option value="${s}" ${t.seconds === s ? 'selected' : ''}>${s} seconds</option>`).join('')}</select></label>` : ''}
       <div class="row small" style="gap:6px;flex-wrap:wrap"><label class="row" style="gap:6px">When they win, show<select data-gdwin="${i}" style="width:auto;max-width:100%" ${ro ? 'disabled' : ''}><option value="">nothing</option>${effs.map(([k, e]) => `<option value="${esc(k)}" ${t.win_effect === k ? 'selected' : ''}>${esc(e.label || k)}</option>`).join('')}</select></label>
@@ -1964,8 +1964,8 @@ async function gamePanel(box) {
       <label class="check small"><input type="checkbox" id="gdonly" ${gd.celebrate_only_when_on !== false ? 'checked' : ''} ${ro ? 'disabled' : ''}> Only while the lights are on</label></div>
       <p class="note">Live scores come from ESPN’s free scoreboard, checked every 20 seconds during the game. It runs a little behind live TV, so the lights celebrate shortly after you see the score.</p>` : ''}
     ${ro ? '' : `<div class="row"><select id="gdpick"><option value="">Add a team\u2026</option>${g.presets.map(p => `<option value="${esc(p.id)}">${esc(p.name)} (${esc(g.leagues[p.league])})</option>`).join('')}<option value="other">Another team\u2026</option></select>
-      <span id="gdother" hidden><select id="gdleague">${Object.entries(g.leagues).map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select>
-        <input type="text" id="gdteam" placeholder="ESPN team code, e.g. nyg" maxlength="5" style="width:12em"></span>
+      <span id="gdother" hidden><select id="gdleague"><option value="">League\u2026</option>${Object.entries(g.leagues).map(([k, l]) => `<option value="${k}">${esc(l)}</option>`).join('')}</select>
+        <input type="text" id="gdteam" list="gdteams" placeholder="Choose a league first" maxlength="60" style="width:16em" aria-label="Team" disabled><datalist id="gdteams"></datalist></span>
       <button class="small" data-gdadd>Add</button>
       ${(gd.teams || []).length && isAdmin() ? '<button class="small ghost" data-gdrefresh>Check schedules now</button>' : ''}</div>`}
     ${(gd.teams || []).length ? '<p class="note">Times work like rules: sunset, sunset + 30, 18:00. The Month view under Coming up shows game nights.</p>' : ''}`;
@@ -2000,6 +2000,19 @@ async function gamePanel(box) {
     }
     if (t.id === 'gdparty') { n.gameday.celebrate_enabled = t.checked; return busy(null, () => save(n, t.checked ? 'Score celebrations on' : 'Score celebrations off')).catch(() => { t.checked = !t.checked; }); }
     if (t.id === 'gdpick') { $('#gdother').hidden = t.value !== 'other'; return; }
+    if (t.id === 'gdleague') {                     // 4.24: load that league's teams for the picker
+      const inp = $('#gdteam'), dl = $('#gdteams'), lg = t.value;
+      inp.value = ''; dl.innerHTML = ''; inp.disabled = !lg;
+      if (!lg) { inp.placeholder = 'Choose a league first'; return; }
+      inp.placeholder = 'Loading teams\u2026';
+      return api('gameday/teams?league=' + encodeURIComponent(lg)).then(r => {
+        if ($('#gdleague').value !== lg) return;
+        S.gdTeams = { ...(S.gdTeams || {}), [lg]: r.teams };
+        dl.innerHTML = r.teams.map(x => `<option value="${esc(`${x.name} (${x.abbr})`)}"></option>`).join('');
+        inp.placeholder = r.teams.length ? `Type a team name (${r.teams.length} teams)` : 'ESPN team code or number';
+        if (r.error && !r.teams.length) toast(`Couldn\u2019t load the team list: ${r.error}`, true);
+      }).catch(() => { inp.placeholder = 'ESPN team code or number'; });
+    }
     if (t.id === 'gdsec') { n.gameday.celebrate_seconds = +t.value; return busy(null, () => save(n)).catch(() => {}); }
     if (t.id === 'gdonly') { n.gameday.celebrate_only_when_on = t.checked; return busy(null, () => save(n)).catch(() => {}); }
     if (ds.gdcel !== undefined) { n.gameday.teams[+ds.gdcel].celebrate = t.checked;
@@ -2062,9 +2075,18 @@ async function gamePanel(box) {
     const pick = $('#gdpick').value; if (!pick) return toast('Choose a team.', true);
     let team;
     if (pick === 'other') {
-      const code = $('#gdteam').value.trim().toLowerCase();
-      if (!/^[a-z]{2,5}$/.test(code)) return toast('Enter ESPN\u2019s short team code, like nyg.', true);
-      team = { league: $('#gdleague').value, team: code, name: `${code.toUpperCase()} (${g.leagues[$('#gdleague').value]})` };
+      // 4.24: a team from the league's list (with its colors), or ESPN's code or team number typed in
+      const lg = $('#gdleague').value; if (!lg) return toast('Choose a league.', true);
+      const typed = $('#gdteam').value.trim(), list = S.gdTeams?.[lg] || [];
+      const hit = list.find(x => `${x.name} (${x.abbr})` === typed || x.name.toLowerCase() === typed.toLowerCase());
+      const code = hit ? hit.team : typed.toLowerCase();
+      if (!/^([a-z]{2,6}|\d{1,7})$/.test(code)) return toast('Choose a team from the list, or type ESPN\u2019s team code (like nyg) or team number.', true);
+      team = { league: lg, team: code, name: hit ? hit.name : `${code.toUpperCase()} (${g.leagues[lg]})` };
+      if (hit) {
+        const key = `team_${lg}_${code}`.replace(/[^a-z0-9_]/g, '_');
+        if (!n.effects[key]) n.effects[key] = { label: `${hit.name} colors`, colors: hit.colors, counts: hit.colors.map(() => 4), custom_mode: 0, brightness: 220 };
+        team.effect = key;
+      }
     } else {
       const p = g.presets.find(x => x.id === pick);
       team = { league: p.league, team: p.team, name: p.name };

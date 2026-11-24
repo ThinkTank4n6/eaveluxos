@@ -910,7 +910,9 @@ class SetupNeeded(ConfigError):
     """Settings are valid so far but something essential isn't filled in."""
 
 
-CELEBRATE_POINTS = {"nfl": 3, "mlb": 1, "nhl": 1, "nba": 3}
+CELEBRATE_POINTS = {"nfl": 3, "mlb": 1, "nhl": 1, "nba": 3,
+                    # 4.24: football as the NFL, basketball as the NBA (3-pointers), hockey every goal
+                    "wnba": 3, "cfb": 3, "mcbb": 3, "wcbb": 3, "mchk": 1, "wchk": 1}
 
 
 def _celebrations(gd, effects: dict) -> dict:
