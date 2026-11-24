@@ -35,9 +35,9 @@ class RecreateTests(unittest.TestCase):
 
     def test_closest_motion(self):
         for name, motion in (("Red Green Wave", "Wave forward"), ("Blue Comet", "Comet forward"),
-                             ("Green Meteor", "Comet forward"), ("Red Stars", "Stars"), ("White Breath", "Breath"),
-                             ("Purple Strobe", "Strobe"), ("Red Yellow Fire", "Stars"), ("Red Green Gradual Snake", "Chase forward"),
-                             ("Rainbow Wave", "Wave forward"), ("Rainbow Fade In Out", "Breath"),
+                             ("Green Meteor", "Comet forward"), ("Red Stars", "Twinkle fade"), ("White Breath", "Fade"),
+                             ("Purple Strobe", "Strobe"), ("Red Yellow Fire", "Twinkle fade"), ("Red Green Gradual Snake", "Chase forward"),
+                             ("Rainbow Wave", "Wave forward"), ("Rainbow Fade In Out", "Fade"),
                              ("Rainbow Gradual", "Solid fade"), ("Rainbow Gradual Chase", "Chase forward")):
             self.assertEqual(self.motion(name), motion, name)
 

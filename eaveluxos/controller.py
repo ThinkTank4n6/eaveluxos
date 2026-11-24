@@ -694,6 +694,8 @@ class Controller:
                     self._sent(dev, "pattern", True)
                     self.sent_effect[dev] = payload
                     continue
+                # 4.23: the cloud lists animations 0-16 only; api.py shows a
+                # newer one as its closest older one until the home network answers
                 self.api.preview_effect(dev, payload)
                 self._sent(dev, "pattern", False)       # this one went through the cloud
                 self.sent_effect[dev] = payload

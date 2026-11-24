@@ -886,7 +886,11 @@ function fromController(e) {
   if (e.category === 0) return { ...base, builtin: e.mode, speed: e.speed ?? 100, brightness: e.brightness ?? 200, pixel_len: e.pixelLen || 30, reverse: !!e.reverse };
   const px = (e.pixels || []).filter(p => p.count > 0).sort((a, b) => a.index - b.index);
   // exact_colors: these values were tuned on the lights in the Trimlight app; don't gamma-correct them again
-  if (e.category === 1 && px.length) return { ...base, colors: px.map(p => p.disable ? 'off' : hex(p.color)), counts: px.map(p => Math.min(90, p.count)), custom_mode: Math.min(16, e.mode || 0), speed: e.speed ?? 100, brightness: e.brightness ?? 200, exact_colors: true };
+  // 4.23: animations 0-22 (the newer Trimlight ones too); one this app doesn't
+  // know yet is kept as the saved pattern itself, shown by its number, never changed
+  const known = S.catalog ? S.catalog.custom_modes.length : 23;
+  if (e.category === 1 && px.length && (e.mode || 0) >= known && e.name) return { ...base, saved: e.name, saved_id: e.id };
+  if (e.category === 1 && px.length) return { ...base, colors: px.map(p => p.disable ? 'off' : hex(p.color)), counts: px.map(p => Math.min(90, p.count)), custom_mode: e.mode || 0, speed: e.speed ?? 100, brightness: e.brightness ?? 200, exact_colors: true };
   return { ...base, saved: e.name };
 }
 function devBulbs(d) {
@@ -1346,6 +1350,7 @@ VIEWS.create = async (opts = {}) => {
           </div>
           <div class="panel stack">
             <label class="field">Animation<select id="dmode">${S.catalog.custom_modes.map((n, i) => `<option value="${i}" ${i === D.mode ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></label>
+            ${D.mode >= 17 ? '<p class="note small">A newer Trimlight Edge animation: shown over your home network (Setup \u203a Local mode). If the app has to use Trimlight\u2019s cloud, it shows the closest older animation instead.</p>' : ''}
             ${D.mode >= 7 && D.mode <= 14 && D.segs.some(g => g.c !== 'off' && g.n <= 5) ? '<p class="callout small">Comet and Wave only run when each color covers more than 5 bulbs (Trimlight guide). Raise the colors set to 5 or fewer.</p>' : ''}
             ${(D.mode === 1 || D.mode === 2) && D.segs.filter(g => g.c !== 'off').every(g => g.n === 1) ? '<p class="note">Tip: a chase with 1 bulb per color runs very fast. Add black spaces or larger counts to slow it down.</p>' : ''}
             <label class="field">Speed<input type="range" id="dspeed" min="0" max="255" value="${D.speed}"></label>

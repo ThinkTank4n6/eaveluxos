@@ -30,7 +30,7 @@ class BuiltInGeneratorTests(unittest.TestCase):
     def test_themes_colors_and_motion_words(self):
         p = textpattern.generate("slow candy cane twinkle")
         self.assertEqual(p["colors"], ["#FF0000", "#FFFFFF"])
-        self.assertEqual(CUSTOM_MODES[p["custom_mode"]], "Stars")
+        self.assertEqual(CUSTOM_MODES[p["custom_mode"]], "Twinkle fade")      # "Stars" before 4.23
         self.assertLessEqual(p["speed"], 40)
         self.assertEqual(p["label"], "Slow Candy Cane Twinkle")
         p = textpattern.generate("purple and gold sparkle")

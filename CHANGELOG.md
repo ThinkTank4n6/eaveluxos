@@ -1,5 +1,45 @@
 # Changelog
 
+## 4.23.0: all 23 Trimlight animations
+
+From Chris's patterns A1-A8, backup and capture (Nov 24, 2026), each
+animation's number on the controller, confirmed both ways (the saved
+pattern and the Trimlight app's preview):
+
+| Trimlight app | Number | Before 4.23 |
+|---|---|---|
+| Twinkle fade | 5 | "Stars" |
+| Fade | 6 | "Breath" |
+| Full strobe | 17 | missing |
+| Twinkle | 18 | missing |
+| Firework | 19 | missing |
+| Inside out | 20 | missing |
+| Dissolve | 21 | missing |
+| Juggle | 22 | missing |
+
+- **Create, Studio, Combine and words** offer all 23, named and ordered as
+  in the Trimlight Edge app. Old names (Stars, Breath) in saved Studio looks,
+  share codes and words still work.
+- **Previews** draw the six new ones (close approximations).
+- **Over the home network** they're sent as they are. **Trimlight's cloud**
+  documents 0-16 only, so the cloud is never sent 17-22: a pattern shown
+  through the cloud (when the home network can't be used) uses the closest
+  older animation until it can (Full strobe as Strobe, Twinkle and Firework
+  as Twinkle fade, Inside out as Chase middle to out, Dissolve as Solid
+  fade, Juggle as Chase forward).
+- Words: "fireworks", "juggle" and "dissolve" pick those animations.
+
+Review (tests/repro_min_new_animation_clamped.py is #1):
+
+1. **Copies were clamped to Solid fade.** Patterns › In the Trimlight app ›
+   Add to my patterns on *A8 Juggle* (22) gave a copy with animation 16, Solid
+   fade, because the app knew 0-16. Now the copy keeps its number. A number
+   beyond those known is kept as the saved pattern itself, shown by its
+   number and never changed.
+2. Create says when an animation is one of the newer ones and what happens
+   through the cloud.
+3. The manual has a table of all 23 (section 11, Animations).
+
 ## 4.22.7: the Windows test run
 
 GitHub's Windows tests failed on 4.22.6 (the app itself was fine): the

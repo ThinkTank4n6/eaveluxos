@@ -276,8 +276,8 @@ class Effect:
             if len(counts) != len(colors):
                 raise ConfigError(f"effects.{key}: counts must have one number per color")
             mode = int(c.get("custom_mode", 0))
-            if not 0 <= mode <= 16:
-                raise ConfigError(f"effects.{key}: custom_mode must be 0-16")
+            if not 0 <= mode <= 22:               # 4.23: 17-22, the newer Trimlight Edge animations
+                raise ConfigError(f"effects.{key}: custom_mode must be 0-22")
             pixels = []
             for i, (col, n) in enumerate(zip(colors, counts)):
                 # Trimlight's user guide: each of the 30 slots holds up to 90 bulbs.

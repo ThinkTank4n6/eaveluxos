@@ -19,7 +19,7 @@ import re
 import urllib.error
 import urllib.request
 
-from .catalog import CUSTOM_MODES
+from .catalog import CUSTOM_MODES, mode_index
 from .trust import client_context
 
 MAX_PROMPT = 200
@@ -29,40 +29,40 @@ MAX_COLORS = 8
 THEMES = [
     (("christmas", "xmas", "noel", "santa"), ["#FF0000", "#00C000", "#FFFFFF"], "Chase forward", 60),
     (("candy cane", "peppermint"), ["#FF0000", "#FFFFFF"], "Chase forward", 50),
-    (("halloween", "spooky", "haunted", "pumpkin", "jack-o"), ["#FF5000", "#8000FF", "#30FF00"], "Stars", 90),
+    (("halloween", "spooky", "haunted", "pumpkin", "jack-o"), ["#FF5000", "#8000FF", "#30FF00"], "Twinkle fade", 90),
     (("zombie", "toxic", "slime"), ["#30FF00", "#80FF00", "#000000"], "Wave forward", 80),
     (("thanksgiving", "harvest", "autumn", "fall leaves", "fall"), ["#FF4000", "#FF8000", "#C02000", "#FFC040"], "Solid fade", 40),
-    (("valentine", "romantic", "love", "hearts"), ["#FF0040", "#FF60A0", "#FFFFFF"], "Breath", 50),
+    (("valentine", "romantic", "love", "hearts"), ["#FF0040", "#FF60A0", "#FFFFFF"], "Fade", 50),
     (("st patrick", "st. patrick", "irish", "shamrock", "clover"), ["#00C000", "#80FF40", "#FFFFFF"], "Chase forward", 60),
     (("easter", "pastel", "spring"), ["#FFB0D0", "#B0E0FF", "#FFF0A0", "#C0FFC0"], "Solid fade", 40),
     (("independence", "4th of july", "fourth of july", "july 4", "patriotic", "america", "usa", "memorial day", "veterans"),
      ["#FF0000", "#FFFFFF", "#0030FF"], "Chase forward", 70),
-    (("hanukkah", "chanukah"), ["#0040FF", "#FFFFFF", "#80C0FF"], "Stars", 50),
-    (("diwali", "festival of lights"), ["#FF8000", "#FFC000", "#FF0060", "#FFE0A0"], "Stars", 60),
-    (("new year", "new years", "nye", "celebration", "champagne"), ["#FFD700", "#FFFFFF", "#C0C0C0"], "Stars", 140),
+    (("hanukkah", "chanukah"), ["#0040FF", "#FFFFFF", "#80C0FF"], "Twinkle fade", 50),
+    (("diwali", "festival of lights"), ["#FF8000", "#FFC000", "#FF0060", "#FFE0A0"], "Twinkle fade", 60),
+    (("new year", "new years", "nye", "celebration", "champagne"), ["#FFD700", "#FFFFFF", "#C0C0C0"], "Twinkle fade", 140),
     (("mardi gras", "carnival"), ["#8000FF", "#00C000", "#FFD700"], "Chase forward", 110),
     (("cinco de mayo", "mexico", "fiesta"), ["#00A040", "#FFFFFF", "#FF0000"], "Chase forward", 90),
     (("pride", "rainbow"), ["#FF0000", "#FF8000", "#FFFF00", "#00C000", "#0040FF", "#8000FF"], "Chase forward", 80),
-    (("winter", "snow", "ice", "frozen", "icicle", "frost"), ["#FFFFFF", "#A0D8FF", "#4080FF"], "Stars", 50),
+    (("winter", "snow", "ice", "frozen", "icicle", "frost"), ["#FFFFFF", "#A0D8FF", "#4080FF"], "Twinkle fade", 50),
     (("summer", "sunny", "lemonade"), ["#FFD000", "#FF8000", "#00C0FF"], "Wave forward", 70),
     (("beach", "ocean", "sea", "wave", "waves", "nautical", "underwater"), ["#0040FF", "#00C0FF", "#00FFC0", "#FFFFFF"], "Wave forward", 50),
     (("tropical", "luau", "hawaii", "island"), ["#FF4080", "#FFA000", "#00E0A0", "#00A0FF"], "Wave forward", 70),
-    (("forest", "woods", "jungle", "nature"), ["#00A030", "#40C000", "#806020"], "Breath", 30),
+    (("forest", "woods", "jungle", "nature"), ["#00A030", "#40C000", "#806020"], "Fade", 30),
     (("sunset", "dusk", "golden hour"), ["#FF3000", "#FF7000", "#FFB040", "#C00060"], "Solid fade", 30),
     (("sunrise", "dawn", "morning"), ["#FFB080", "#FFE0A0", "#80C0FF"], "Solid fade", 30),
-    (("fire", "flame", "lava", "inferno", "volcano", "campfire", "fireplace"), ["#FF2000", "#FF6000", "#FFA000"], "Stars", 150),
+    (("fire", "flame", "lava", "inferno", "volcano", "campfire", "fireplace"), ["#FF2000", "#FF6000", "#FFA000"], "Twinkle fade", 150),
     (("cyberpunk", "blade runner", "neon city"), ["#FF00C0", "#00FFFF", "#8000FF", "#FF0060"], "Wave forward", 110),
     (("neon",), ["#FF00FF", "#00FFFF", "#80FF00", "#FF4000"], "Chase forward", 120),
     (("synthwave", "retrowave", "outrun", "80s", "1980s", "eighties", "retro", "arcade"), ["#FF00A0", "#8000FF", "#00C0FF", "#FFD000"], "Chase forward", 140),
     (("vaporwave",), ["#FF80C0", "#80E0FF", "#C080FF"], "Solid fade", 40),
-    (("galaxy", "space", "nebula", "cosmic", "stars", "starry"), ["#2000A0", "#8000FF", "#FF40C0", "#FFFFFF"], "Stars", 40),
+    (("galaxy", "space", "nebula", "cosmic", "stars", "starry"), ["#2000A0", "#8000FF", "#FF40C0", "#FFFFFF"], "Twinkle fade", 40),
     (("aurora", "northern lights", "borealis"), ["#00FF80", "#00C0FF", "#8000FF"], "Wave forward", 30),
     (("rain", "rainy", "storm", "stormy", "thunder", "drizzle"), ["#203080", "#4060FF", "#A0C0FF"], "Comet forward", 120),
-    (("elegant", "gold", "luxury", "classy", "wedding"), ["#FFD070", "#FFFFFF", "#E0A060"], "Breath", 30),
-    (("cozy", "warm", "candle", "candlelight", "fireside", "hygge"), ["#FFB060", "#FF9040", "#FFD0A0"], "Breath", 25),
-    (("unicorn", "fairy", "magic", "magical"), ["#FF80E0", "#C080FF", "#80E0FF", "#FFFFFF"], "Stars", 60),
+    (("elegant", "gold", "luxury", "classy", "wedding"), ["#FFD070", "#FFFFFF", "#E0A060"], "Fade", 30),
+    (("cozy", "warm", "candle", "candlelight", "fireside", "hygge"), ["#FFB060", "#FF9040", "#FFD0A0"], "Fade", 25),
+    (("unicorn", "fairy", "magic", "magical"), ["#FF80E0", "#C080FF", "#80E0FF", "#FFFFFF"], "Twinkle fade", 60),
     (("party", "disco", "dance", "rave"), ["#FF0000", "#00FF00", "#0000FF", "#FF00FF", "#FFFF00"], "Strobe", 200),
-    (("mint", "fresh"), ["#80FFC0", "#FFFFFF", "#40E0A0"], "Breath", 40),
+    (("mint", "fresh"), ["#80FFC0", "#FFFFFF", "#40E0A0"], "Fade", 40),
     (("security", "bright white", "daylight"), ["#FFFFFF"], "Static", 0),
     (("eagles", "philadelphia football"), ["#004C54", "#FFFFFF", "#A5ACAF"], "Chase forward", 80),
     (("phillies",), ["#E81828", "#FFFFFF", "#002D72"], "Chase forward", 80),
@@ -97,11 +97,14 @@ MOTIONS = {
     "Static": ("static", "still", "solid", "steady", "constant"),
     "Chase forward": ("chase", "chasing", "running", "marquee", "march", "train"),
     "Chase middle to out": ("burst", "outward", "explode"),
-    "Stars": ("twinkle", "twinkling", "sparkle", "sparkling", "glitter", "shimmer", "starlight", "fireflies"),
-    "Breath": ("breathe", "breathing", "pulse", "pulsing", "calm", "glow", "glowing", "relaxing"),
+    "Twinkle fade": ("twinkle", "twinkling", "sparkle", "sparkling", "glitter", "shimmer", "starlight", "fireflies"),
+    "Fade": ("breathe", "breathing", "pulse", "pulsing", "calm", "glow", "glowing", "relaxing"),
     "Comet forward": ("comet", "meteor", "shooting", "streak", "falling"),
     "Wave forward": ("wave", "flow", "flowing", "ripple"),
     "Strobe": ("strobe", "flashing", "blink", "blinking", "lightning"),
+    "Firework": ("firework", "fireworks", "pyrotechnic"),                   # 4.23: the newer animations
+    "Juggle": ("juggle", "juggling", "bounce", "bouncing"),
+    "Dissolve": ("dissolve", "dissolving", "speckle", "speckled"),
     "Solid fade": ("fade", "fading", "morph", "smooth", "gradient", "cycle"),
 }
 SLOW = ("slow", "gentle", "calm", "relaxing", "lazy", "peaceful", "soft", "quiet", "sleepy")
@@ -220,7 +223,7 @@ def check_pattern(p) -> dict:
               for n in (list(counts) + [3] * len(out))[:len(out)]]
     mode = p.get("custom_mode", 0)
     if isinstance(mode, str):
-        mode = next((i for i, m in enumerate(CUSTOM_MODES) if m.lower() == mode.strip().lower()), 0)
+        mode = mode_index(mode) or 0                     # 4.23: old names (Stars, Breath) too
     mode = mode if isinstance(mode, int) and not isinstance(mode, bool) and 0 <= mode < len(CUSTOM_MODES) else 0
 
     def num(v, d):

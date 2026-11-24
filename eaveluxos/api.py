@@ -16,6 +16,7 @@ import time
 import urllib.error
 import urllib.request
 
+from .catalog import cloud_safe
 from .trust import CERT_HELP, client_context, is_cert_failure
 from .version import VERSION
 
@@ -269,7 +270,8 @@ class TrimlightAPI:
             return r
 
     def preview_effect(self, device_id: str, payload: dict):
-        return self._with_slot_fallback("/v1/oauth/resources/device/effect/preview", device_id, payload)
+        # 4.23: never an animation number the cloud doesn't list (17-22 go over the home network)
+        return self._with_slot_fallback("/v1/oauth/resources/device/effect/preview", device_id, cloud_safe(payload))
 
     def run_saved_effect(self, device_id: str, effect_id: int):
         body = {"deviceId": device_id, "payload": {"id": effect_id}}
@@ -284,7 +286,7 @@ class TrimlightAPI:
     def save_effect(self, device_id: str, payload: dict):
         """Adds (id -1) or updates a pattern in the controller's own library.
         Returns {"id": n}."""
-        return self._with_slot_fallback("/v1/oauth/resources/device/effect/save", device_id, payload)
+        return self._with_slot_fallback("/v1/oauth/resources/device/effect/save", device_id, cloud_safe(payload))
 
     def set_clock(self, device_id: str, now_local):
         """Sends the current time (plus offset) to the controller."""

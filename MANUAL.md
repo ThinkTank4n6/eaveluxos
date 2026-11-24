@@ -1,7 +1,7 @@
 # EaveLuxOS: User Manual
 ### The Intelligent Lighting Control Platform
 
-Version 4.22.7 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
+Version 4.23.0 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
 
 > [!TIP]
 > **Quick start: you probably don't need Python.**
@@ -65,6 +65,7 @@ settings.*
 10. [Patterns](#10-patterns)
     - [Lightning and Snowflake](#lightning-and-snowflake-422)
 11. [Create a pattern](#11-create-a-pattern)
+    - [Animations](#animations-423)
     - [Studio: layers, gradients and shows](#studio-layers-gradients-and-shows-420)
 12. [House](#12-house)
 13. [Schedule](#13-schedule)
@@ -93,7 +94,7 @@ settings.*
 
 ## What's new
 
-**4.22: Lightning and Snowflake**
+**4.23 and 4.22: animations, Lightning and Snowflake**
 - **Lightning and Snowflake** on any pattern saved on your controller, the
   same two effects as the Trimlight Edge app's Pattern Library: see
   [Lightning and Snowflake](#lightning-and-snowflake-422).
@@ -102,6 +103,10 @@ settings.*
   [Starting it again after Quit](#starting-it-again-after-quit-4222).
 - **Macs come back after a restart** (4.22.1): the app tells you if it's
   running from Downloads or the disk image, where it can't start by itself.
+- **All 23 Trimlight animations** (4.23): Full strobe, Twinkle, Firework,
+  Inside out, Dissolve and Juggle are new, and Stars and Breath now use the
+  Trimlight app's names, Twinkle fade and Fade:
+  [Animations](#animations-423).
 - **Badges for Lightning and Snowflake** (4.22.5) on Patterns › In the
   Trimlight app and My patterns.
 - **The right one of two look-alike patterns** (4.22.3): when two saved
@@ -839,7 +844,7 @@ on).
   pattern length.
 - **Recreate with my colors** opens it in Create as a new pattern with the
   same colors and the closest animation (a Wave stays a Wave, a Meteor becomes
-  a Comet, Fire becomes Stars), ready for you to change the colors. Built-in
+  a Comet, Fire becomes Twinkle fade), ready for you to change the colors. Built-in
   effects' colors are fixed in the controller, so this is a copy that moves a
   little differently from the original, not an edit of it.
 
@@ -999,8 +1004,8 @@ This works like the color circles in the Trimlight app.
      dark and are **skipped by every movement**. Use it to keep lights over a
      bedroom window dark, or to leave out part of the roofline (see the
      example below).
-4. Choose an **Animation** (Static, Chase, Stars, Breath, Comet, Wave, Strobe or
-   Solid fade) and set **Speed** and **Brightness**.
+4. Choose an **Animation** and set **Speed** and **Brightness**. The list is
+   the Trimlight Edge app's, in its order (see **Animations** below).
 5. Watch the **Preview**. It's drawn with your real number of bulbs, and the
    animation is a close approximation of the controller's.
 6. Tap **Try on my lights** to see it on the house. A preview lasts 15
@@ -1009,6 +1014,38 @@ This works like the color circles in the Trimlight app.
    want it in the Trimlight Edge app's list too. Since 4.3 this goes over your
    home network (see **Local mode** in section 18), so the controller's address
    must be set there.
+
+### Animations (4.23)
+
+The same 23 animations as the Trimlight Edge app, in its order:
+
+| Animation | What it does |
+|---|---|
+| Static | Stays still. |
+| Chase forward, backward, middle to out, out to middle | The colors move along the roofline. |
+| Twinkle fade | Bulbs twinkle and fade (called **Stars** before 4.23). |
+| Fade | The whole pattern fades in and out (called **Breath** before 4.23). |
+| Comet forward, backward, middle to out, out to middle | Comets with tails run along. |
+| Wave forward, backward, middle to out, out to middle | Waves of brightness roll along. |
+| Strobe | Flashes. |
+| Solid fade | The whole roofline fades from one color to the next. |
+| Full strobe | Every bulb flashes on and off together. |
+| Twinkle | Bulbs glow up and out on their own. |
+| Firework | Bursts of color spread from random spots. |
+| Inside out | Colors grow from the middle outward. |
+| Dissolve | Bulbs change to the next color one by one. |
+| Juggle | Dots of color bounce back and forth at different speeds. |
+
+The previews are close approximations; **Try on my lights** shows the real
+thing.
+
+> [!NOTE]
+> The last six (Full strobe to Juggle) came with newer Trimlight Edge apps,
+> and Trimlight's cloud doesn't list them. EaveLuxOS shows them over your home
+> network (Setup › Local mode). If it ever has to use the cloud instead, it
+> shows the closest older animation (Juggle as Chase forward, for example)
+> until the home network answers again. Patterns saved on the controller keep
+> their own animation, whichever it is.
 
 When **color correction** is on (see
 [Setup › Lights & controller](#18-setup--lights--controller)), the lights get adjusted
@@ -2175,7 +2212,7 @@ or delete them like your own.
 | Weather | Look |
 |---|---|
 | Rain | blue drops falling (Comet) |
-| Snow | white and ice-blue twinkles (Stars) |
+| Snow | white and ice-blue twinkles (Twinkle fade) |
 | Thunderstorm | dark blue with white lightning flashes (Strobe) |
 | Windy | teal and white waves, fast |
 | Fog | soft grays breathing, dimmed |

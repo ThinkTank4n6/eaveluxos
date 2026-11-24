@@ -125,6 +125,25 @@
         const cols = segs.filter(s => s.c !== 'off').map(s => rgb(s.c)), k = (t * rate / 20) % cols.length, j = Math.floor(k), f = k - j;
         const A = cols[j], B = cols[(j + 1) % cols.length]; c = [0, 1, 2].map(m => A[m] + (B[m] - A[m]) * f);
       }
+      // 4.23: the newer Trimlight Edge animations (17-22), approximated
+      else if (mode === 17) a = Math.floor(t * rate / 1.5) % 2 ? 1 : 0;                          // Full strobe: all on, all off, fast
+      else if (mode === 18) { const ph = Math.sin(i * 7.31) * 1000; a = Math.max(0, Math.sin(t * rate / 6 + ph)) ** 3; }   // Twinkle: bulbs glow up and out on their own
+      else if (mode === 19) {                                                                    // Firework: bursts spreading from random spots
+        const beat = Math.floor(t * rate / 25), r0 = Math.sin(beat * 91.7) * 43758.5453, at = (r0 - Math.floor(r0)) * N;
+        const age = (t * rate / 25) % 1, dist = Math.abs(i - at);
+        c = idx(beat); a = dist <= age * 18 ? (1 - age) * (1 - dist / (age * 18 + 1) * .5) : .02;
+      } else if (mode === 20) {                                                                  // Inside out: colors grow from the middle out, then again
+        const grow = (pos * .6) % (half + 2); c = idx(Math.floor(pos / (half + 2))); a = d <= grow ? 1 : .05;
+      } else if (mode === 21) {                                                                  // Dissolve: bulbs change color one by one
+        const r = Math.sin(i * 12.9898) * 43758.5453, when = (r - Math.floor(r)), k = pos / 12;
+        c = idx(Math.floor(k) + (k - Math.floor(k) > when ? 1 : 0));
+      } else if (mode === 22) {                                                                  // Juggle: dots bouncing at different speeds
+        a = .04;
+        for (let j = 0; j < 4; j++) {
+          const x = half + half * Math.sin(t * rate / 12 * (j + 1) * .37 + j);
+          if (Math.abs(i - x) < 2.2) { a = 1 - Math.abs(i - x) / 2.2; c = idx(j); }
+        }
+      }
       out[i] = { c, a: a * bright, off: false };
     }
     return out;

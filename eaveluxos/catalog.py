@@ -50,10 +50,38 @@ GROUPS = [("Rainbow", 0, 9), ("Stacking", 10, 23), ("Comet", 24, 30), ("Meteor",
           ("Pulse", 66, 84), ("Spin", 85, 105), ("Snake", 106, 137), ("Stars", 138, 157),
           ("Breath", 158, 164), ("Fire", 165, 170), ("Strobe", 171, 179)]
 
+# The animations, by the number the controller stores, named as the
+# Trimlight Edge app names them. 4.23: 5 and 6 were "Stars" and "Breath"
+# (Trimlight's API names), and 17-22 came with newer Trimlight Edge apps
+# (Chris's backup and capture, Nov 24, 2026: patterns A1-A8 read back as
+# 5, 6, 17-22, and the app previewed them with the same numbers).
 CUSTOM_MODES = ["Static", "Chase forward", "Chase backward", "Chase middle to out", "Chase out to middle",
-                "Stars", "Breath", "Comet forward", "Comet backward", "Comet middle to out",
+                "Twinkle fade", "Fade", "Comet forward", "Comet backward", "Comet middle to out",
                 "Comet out to middle", "Wave forward", "Wave backward", "Wave middle to out",
-                "Wave out to middle", "Strobe", "Solid fade"]
+                "Wave out to middle", "Strobe", "Solid fade",
+                "Full strobe", "Twinkle", "Firework", "Inside out", "Dissolve", "Juggle"]
+# Trimlight's cloud API documents 0-16 only; 17-22 go over the home network.
+CLOUD_MAX_MODE = 16
+# Shown live through the cloud (when the home network can't be used), the
+# closest of 0-16 instead, so the cloud is never sent a number it doesn't list.
+CLOUD_STANDIN = {17: 15, 18: 5, 19: 5, 20: 3, 21: 16, 22: 1}
+# Older names still understood (share codes, Studio, words)
+MODE_ALIASES = {"stars": "Twinkle fade", "breath": "Fade"}
+
+
+def mode_index(name) -> int | None:
+    """The animation's number from its name (any case, old names too), or None."""
+    n = str(name or "").strip().lower()
+    n = MODE_ALIASES.get(n, n).lower()
+    return next((i for i, m in enumerate(CUSTOM_MODES) if m.lower() == n), None)
+
+
+def cloud_safe(payload: dict) -> dict:
+    """The payload as Trimlight's cloud can take it (4.23)."""
+    m = payload.get("mode")
+    if isinstance(m, int) and m > CLOUD_MAX_MODE and payload.get("category", 2) == 2:
+        return {**payload, "mode": CLOUD_STANDIN.get(m, 0)}
+    return payload
 
 # The Trimlight app's quick palette (R, G, B, Y, PU, O, W, WW, PI, C, BK)
 PALETTE = [("Red", "#FF0000"), ("Green", "#00FF00"), ("Blue", "#0000FF"), ("Yellow", "#FFFF00"),
@@ -76,13 +104,13 @@ _LED = {"red": "#FF0000", "green": "#00FF00", "blue": "#0000FF", "yellow": "#FFF
 _RAINBOW = ["#FF0000", "#FFFF00", "#00FF00", "#0000FF", "#8000FF"]
 _MODE = {name: i for i, name in enumerate(CUSTOM_MODES)}
 _GROUP_MOTION = {"Stacking": "Chase forward", "Comet": "Comet forward", "Meteor": "Comet forward",
-                 "Wave": "Wave forward", "Pulse": "Breath", "Spin": "Chase forward", "Snake": "Chase forward",
-                 "Stars": "Stars", "Breath": "Breath", "Fire": "Stars", "Strobe": "Strobe"}
-_RAINBOW_MOTION = [("fade", "Breath"), ("gradual chase", "Chase forward"), ("comet", "Comet forward"),
-                   ("meteor", "Comet forward"), ("wave", "Wave forward"), ("stars", "Stars"),
+                 "Wave": "Wave forward", "Pulse": "Fade", "Spin": "Chase forward", "Snake": "Chase forward",
+                 "Stars": "Twinkle fade", "Breath": "Fade", "Fire": "Twinkle fade", "Strobe": "Strobe"}
+_RAINBOW_MOTION = [("fade", "Fade"), ("gradual chase", "Chase forward"), ("comet", "Comet forward"),
+                   ("meteor", "Comet forward"), ("wave", "Wave forward"), ("stars", "Twinkle fade"),
                    ("gradual", "Solid fade"), ("jump", "Solid fade"), ("segment", "Chase forward"),
                    ("spin", "Chase forward")]
-_COUNTS = {"Comet forward": 4, "Stars": 3, "Breath": 6, "Strobe": 6, "Solid fade": 6, "Wave forward": 5}
+_COUNTS = {"Comet forward": 4, "Twinkle fade": 3, "Fade": 6, "Strobe": 6, "Solid fade": 6, "Wave forward": 5}
 
 
 def recreate(mode: int) -> dict:

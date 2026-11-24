@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import re
 
-from .catalog import CUSTOM_MODES
+from .catalog import CUSTOM_MODES, mode_index
 
 MAX_SLOTS = 30
 MAX_PER_SLOT = 90
@@ -157,15 +157,15 @@ def compose(spec: dict) -> dict:
                 bulbs[i] = col
         else:
             raise ValueError(f"Layer {k} is an accent or a band.")
-    motion = spec.get("motion", "Static")
-    if motion not in CUSTOM_MODES:
+    mi = mode_index(spec.get("motion", "Static"))        # 4.23: old names (Stars, Breath) too
+    if mi is None:
         raise ValueError("Choose one of the controller's motions.")
     speed = _int(spec.get("speed", 100), 0, 255, "Speed")
     bright = _int(spec.get("brightness", 200), 1, 255, "Brightness")
     runs = _fit(_runs(bulbs))
     label = str(spec.get("label") or "Studio look").strip()[:40] or "Studio look"
     return {"label": label, "colors": [r[0] for r in runs], "counts": [r[1] for r in runs],
-            "custom_mode": CUSTOM_MODES.index(motion), "speed": speed, "brightness": bright,
+            "custom_mode": mi, "speed": speed, "brightness": bright,
             "bulbs": [c for r in runs for c in [r[0]] * r[1]]}
 
 
