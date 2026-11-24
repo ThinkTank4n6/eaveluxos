@@ -252,7 +252,7 @@ AUDIT_NAMES = {"/api/settings": "Changed settings", "/api/import": "Imported set
                "/api/quit": "Quit EaveLuxOS", "/api/update/install": "Installed an update", "/api/update/rollback": "Went back a version",
                "/api/tokens": "Created an API token", "/api/tokens/revoke": "Revoked an API token",
                "/api/backup/encrypted": "Downloaded an encrypted backup", "/api/backup/restore": "Restored an encrypted backup",
-               "/api/local/delete": "Deleted patterns on a controller", "/api/backups/restore": "Put patterns back on a controller",
+               "/api/local/delete": "Deleted patterns on a controller", "/api/local/effect": "Set a pattern's effect on a controller", "/api/backups/restore": "Put patterns back on a controller",
                "/api/local/ports": "Changed a controller's ports", "/api/sessions/end_all": "Signed out everywhere",
                "/api/presence": "Marked someone home or away", "/api/weather/looks": "Added the weather looks",
                "/api/studio/play": "Played a Studio show", "/api/studio/save": "Saved a Studio show",
@@ -1273,7 +1273,12 @@ class App:
                               "brightness": p["brightness"],
                               "colors": [[c, col] for c, col, on in p["slots"] if c and on],
                               # 4.7.1: in the cloud's layout, for Patterns › In the Trimlight app
-                              "effect": localmode.cloud_effect(p)} for p in st["patterns"]]}
+                              "effect": localmode.cloud_effect(p),
+                              # 4.22: Lightning / Snowflake (None: the list wasn't readable)
+                              "extra": (None if st.get("effects") is None else
+                                        next((lanlink.EFFECT_KINDS[k] for k, n in st["effects"] if n == p["id"]), ""))}
+                             for p in st["patterns"]],
+                "effects_readable": st.get("effects") is not None}
 
     def _local_read(self, fresh: bool = False, dev: str | None = None):
         """(Local, device, what the controller holds), read now or a read from
@@ -1336,6 +1341,22 @@ class App:
         if self.ctrl:
             self.ctrl.refresh_devices()
         return {"ok": True, "changed": changed}
+
+    def local_effect(self, pid, effect, dev: str | None = None) -> dict:
+        """4.22: Lightning, Snowflake or none on a pattern saved on the controller."""
+        if isinstance(pid, bool) or not isinstance(pid, int):
+            raise ApiError("Choose a pattern.")
+        kind = None if effect in (None, "", "none") else effect
+        if kind is not None and kind not in lanlink.EFFECT_CODES:
+            raise ApiError("The effect is Lightning, Snowflake or none.")
+        loc, dev = self.local(dev=dev)
+        try:
+            new = loc.set_effect(pid, kind)
+        except localmode.LocalError as e:
+            raise ApiError(str(e), 502) from None
+        log.info("Pattern %s's effect over the home network: %s.", pid, kind or "none")
+        self._after_local_write(dev)
+        return {"ok": True, "effects": [{"pattern": n, "effect": lanlink.EFFECT_KINDS[k]} for k, n in new]}
 
     def local_delete(self, pid, name, dev: str | None = None) -> dict:
         if isinstance(pid, bool) or not isinstance(pid, int) or not isinstance(name, str) or not name.strip():
@@ -3908,6 +3929,8 @@ def make_server(app: App, host: str, port: int):
                 return app.resync_cloud()
             if path == "/api/local/backup":         # Administrators (4.3.6)
                 return app.local_backup(b.get("device"))
+            if path == "/api/local/effect":         # Administrators (4.22): Lightning / Snowflake
+                return app.local_effect(b.get("id"), b.get("effect"), b.get("device"))
             if path == "/api/local/delete":         # Administrators (4.3)
                 return app.local_delete(b.get("id"), b.get("name"), b.get("device"))
             if path == "/api/local/address":        # Administrators (4.5): one controller's address

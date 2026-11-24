@@ -97,7 +97,7 @@ def look_of(payload: dict):
         return None
 
 
-def _check(before: dict, after: dict, *, added=None, removed=None, port=None):
+def _check(before: dict, after: dict, *, added=None, removed=None, port=None, effects=None):
     """Raise LocalError unless `after` is `before` with exactly this change.
     port: (index, start, end, on)."""
     ids = [p["id"] for p in after["patterns"]]
@@ -123,6 +123,8 @@ def _check(before: dict, after: dict, *, added=None, removed=None, port=None):
             want[i] = got[i]
     if want != got:
         raise LocalError("the controller's ports didn't read back as expected")
+    if effects is not None and after.get("effects") != effects:
+        raise LocalError("the controller's effects didn't read back as expected")
 
 
 # 4.6: after a read the controller ignored, wait this long before a new
@@ -382,11 +384,53 @@ class Local:
                 raise LocalError(f"Pattern {pid} on the controller isn't “{name}” any more, so nothing was "
                                  "deleted. Read the controller again.")
             try:
-                self._change(link, st, lambda: link.delete_pattern(pid), removed=pid)
+                after = self._change(link, st, lambda: link.delete_pattern(pid), removed=pid)
             except LocalError as x:
                 raise LocalError(f"Deleting “{name}”: {x}. Check your patterns in the Trimlight Edge app.") from None
+            # Review #1 (4.22): a deleted pattern's Lightning or Snowflake
+            # stays in the controller's effects list unless it is taken out,
+            # and the next pattern saved under that number would flash or
+            # snow. Only when the read-back still lists it (if the controller
+            # drops it itself, nothing more is sent).
+            left = (after or {}).get("effects")
+            if left and any(n == pid for _, n in left):
+                new = [x for x in left if x[1] != pid]
+                try:
+                    self._change(link, after, lambda: link.set_effects(new), effects=new)
+                except LocalError as x:
+                    log.warning("Deleted pattern %s, but its effect is still listed on the controller: %s", pid, x)
         finally:
             self._close(link)
+
+    # ------------------------------------------------------------ effects (4.22)
+    def set_effect(self, pid: int, kind: str | None) -> list:
+        """Lightning, Snowflake or no effect on saved pattern `pid`, as the
+        Trimlight app's Pattern Library sets it. The other patterns' effects
+        are kept as they are; read back to check. Returns the new list."""
+        if isinstance(pid, bool) or not isinstance(pid, int) or not 1 <= pid <= L.MAX_PATTERN_ID:
+            raise LocalError("That isn't one of the controller's patterns, so nothing was changed.")
+        if kind is not None and kind not in L.EFFECT_CODES:
+            raise LocalError("The effect is Lightning, Snowflake or none.")
+        with self._job():
+            link = self._open()
+            try:
+                st = self._start(link)
+                if not any(p["id"] == pid for p in st["patterns"]):
+                    raise LocalError(f"There's no pattern {pid} on the controller any more. Read it again.")
+                cur = st.get("effects")
+                if cur is None:
+                    raise LocalError("This controller's effects list isn't laid out as this app knows it, so nothing "
+                                     "was changed. Set the effect in the Trimlight Edge app.")
+                have = {p["id"] for p in st["patterns"]}
+                # entries for numbers with no pattern (left by a delete before 4.22) go too
+                new = sorted([x for x in cur if x[1] != pid and x[1] in have]
+                             + ([(L.EFFECT_CODES[kind], pid)] if kind else []), key=lambda x: (x[1], x[0]))
+                if new == cur:
+                    return new
+                self._change(link, st, lambda: link.set_effects(new), effects=new)
+                return new
+            finally:
+                self._close(link)
 
     # ------------------------------------------------------------ ports
     def ports(self, ports) -> list[str]:

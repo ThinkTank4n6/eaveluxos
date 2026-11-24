@@ -3472,7 +3472,10 @@ async function localPanel(box, fresh = false) {
         <h3 style="margin:8px 0 4px">On ${many ? esc((devs.find(d => d.id === S.lcDev) || {}).name || 'the controller') : 'the controller'} now (${st.patterns.length})</h3>
         ${st.unreadable ? `<p class="note small">The controller also sent ${st.unreadable} slot${st.unreadable === 1 ? '' : 's'} that ${st.unreadable === 1 ? 'isn\u2019t a pattern' : 'aren\u2019t patterns'} (numbered 0 or past 60, usually without a name). They\u2019re left out here and never changed by this app.</p>` : ''}
         <div class="list">${st.patterns.map(p => `<div class="item"><div class="grow"><b>${esc(p.name)}</b> <span class="small muted">#${p.id}</span>
-          <div>${swatches(p.colors.map(c => c[1]), 10)}</div></div><button class="small ghost danger" data-lcdel="${p.id}" data-name="${esc(p.name)}">Delete</button></div>`).join('') || '<p class="muted small">No saved patterns.</p>'}</div>
+          <div>${swatches(p.colors.map(c => c[1]), 10)}</div></div>
+          ${p.extra === null || p.extra === undefined ? '' : `<label class="row small" style="gap:4px">Effect<select data-lceff="${p.id}" style="width:auto" aria-label="Effect for ${esc(p.name)}">${[['', 'None'], ['lightning', 'Lightning'], ['snowflake', 'Snowflake']].map(([v, l]) => `<option value="${v}" ${p.extra === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>`}
+          <button class="small ghost danger" data-lcdel="${p.id}" data-name="${esc(p.name)}">Delete</button></div>`).join('') || '<p class="muted small">No saved patterns.</p>'}</div>
+        ${st.patterns.length && st.effects_readable ? '<p class="note small">Effect: the Trimlight app\u2019s Pattern Library effects. Lightning adds flashes and Snowflake falling white over that saved pattern whenever it shows (from the Trimlight app, its timers, or this app showing it by number). Set over the home network and read back.</p>' : ''}
         ${st.daily ? `<h3 style="margin:12px 0 4px">Daily timers on the controller</h3>
           <p class="small muted">The controller\u2019s own two daily timers (the Trimlight app\u2019s), as it holds them now. Shown only; change them in the Trimlight app for now. This app\u2019s schedule doesn\u2019t use them.</p>
           <div class="list">${st.daily.map(t => `<div class="item"><div class="grow"><b>Timer ${t.id + 1}</b> <span class="small ${t.enable ? 'ok' : 'muted'}">${t.enable ? 'on' : 'off'}</span>
@@ -3491,6 +3494,13 @@ async function localPanel(box, fresh = false) {
   };
   box.onchange = e => {
     if (e.target.id === 'lcdev') { S.lcDev = e.target.value; return localPanel(box); }
+    if (e.target.dataset.lceff !== undefined) {          // 4.22: Lightning / Snowflake
+      const sel = e.target, was = [...sel.options].find(o => o.defaultSelected)?.value ?? '';
+      sel.disabled = true;
+      return api('local/effect', { body: { id: +sel.dataset.lceff, effect: sel.value || 'none', device: S.lcDev || undefined } })
+        .then(() => { toast(sel.value ? `${sel.value === 'lightning' ? 'Lightning' : 'Snowflake'} on, checked on the controller` : 'No effect, checked on the controller'); localPanel(box, true); })
+        .catch(() => { sel.value = was; sel.disabled = false; });
+    }
     if (e.target.id === 'lctimer') {
       const on = e.target.checked;
       return api('local/timer_on_quit', { body: { on } }).then(async () => { S.settings = await api('settings'); toast(on ? 'On Quit, the controller\u2019s own timers take over' : 'On Quit, the lights stay as they are'); })

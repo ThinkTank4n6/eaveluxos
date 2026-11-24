@@ -1,5 +1,37 @@
 # Changelog
 
+## 4.22.0: Lightning and Snowflake
+
+From Chris's backups A to D and the phone capture of Nov 23, 2026: the
+Trimlight Edge app's Pattern Library sets Lightning and Snowflake with one
+request (sub 0x1b) carrying the whole list of (effect, pattern number)
+pairs, and the controller reports the same list at the end of its state.
+
+- **New: Setup › Local mode › Effect** on each saved pattern: None,
+  Lightning or Snowflake. Backed up first, sent over the home network,
+  read back and checked, like every other change on that page. It plays
+  whenever the pattern is shown by number, from this app, the Trimlight
+  app or the controller's timers.
+- Nothing is guessed: if the controller's list isn't laid out exactly as
+  seen (a valid clock after it, and its Lightning list agreeing with the
+  pairs), the choice isn't shown and nothing is sent.
+- Firework isn't offered; it wasn't in the capture.
+
+Review (tests/repro_min_effect_outlives_pattern.py is #1):
+
+1. **A deleted pattern's effect stayed behind.** The list is kept by
+   pattern number, so the next pattern saved under that number would
+   have flashed or snowed. Deleting a pattern now also takes its entry
+   off the list (only if the controller still lists it), checked by
+   reading back; a failure there is logged and doesn't undo the delete.
+2. Entries left on numbers with no pattern are tidied the next time an
+   effect is chosen.
+3. Choosing what's already set sends nothing.
+4. A write the controller ignores is caught by the read-back and reported.
+5. Usability: the choice is a small select beside Delete, disabled while
+   it's sent, and goes back to what it was if the send fails; it fits a
+   phone without sideways scrolling.
+
 ## 4.21.3: a music-zones frame sent twice on a slow computer
 
 GitHub's Mac run of 4.21.2 failed one test (Music zones: "the same frame

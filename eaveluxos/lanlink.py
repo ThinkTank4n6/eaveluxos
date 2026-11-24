@@ -73,6 +73,13 @@ POWER_OFF, POWER_MANUAL, POWER_TIMER = 0, 1, 2
 SUB_SHOW, SUB_DELETE, SUB_PORT = 0x04, 0x05, 0x0A      # show / delete saved pattern N; port pixels
 SUB_PATTERN_NEW, SUB_PATTERN_SAVE, SUB_PREVIEW = 0x0F, 0x0E, 0x0D
 SUB_LIVE = 0x03                 # a built-in effect, shown live (seen Nov 17, 2026, 4.6)
+# 4.22: the Pattern Library's effects (Lightning, Snowflake) on saved patterns.
+# The Trimlight app sends the whole list with sub 0x1b, as (kind, pattern
+# number) pairs, kind 0 Lightning and 1 Snowflake (seen Nov 23, 2026: backups
+# A to D and the capture, Chris's controller).
+SUB_EFFECTS = 0x1B
+EFFECT_KINDS = {0: "lightning", 1: "snowflake"}
+EFFECT_CODES = {v: k for k, v in EFFECT_KINDS.items()}
 GREETING_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
 BANDS = 16
 SOURCE_LEVELS, SOURCE_CONTROLLER = 1, 2   # who listens: this app (sends levels) or the controller
@@ -414,7 +421,35 @@ def read_state(body: bytes) -> dict:
     # decoded yet (its timers) can be looked at.
     # switch: the first byte, 1 with the lights on and 0 off (seen Nov 15-16, 2026).
     return {"head": d[:3].hex(" "), "switch": d[0], "ports": ports, "patterns": pats, "raw": body.hex(),
-            "unreadable": len(every) - len(pats), "daily": read_daily(d[HEAD + RECORD * n:])}
+            "unreadable": len(every) - len(pats), "daily": read_daily(d[HEAD + RECORD * n:]),
+            "effects": read_effects(d[HEAD + RECORD * n:])}
+
+
+def read_effects(d: bytes):
+    """The Pattern Library's effects, from the end of the controller's state
+    (4.22): [(kind, pattern number)], or None when it isn't laid out as seen
+    (then nothing is written). Laid out, as seen Nov 23, 2026:
+        03 | n, the Lightning patterns' numbers | m, m pairs (kind, number) | 00 | clock (7 bytes)
+    The first list is the pairs' kind-0 numbers again, which is what makes a
+    match certain; the clock is year-2000, month, day, hour, minute, second,
+    weekday."""
+    if len(d) < 13:
+        return None
+    y, mo, dy, hh, mi, ss, wd = d[-7:]
+    if not (1 <= mo <= 12 and 1 <= dy <= 31 and hh <= 23 and mi <= 59 and ss <= 59 and wd <= 7):
+        return None
+    end = len(d) - 8                       # the 00 before the clock
+    for m in range(0, 31):
+        p = end - 2 * m - 1
+        if p < 2 or d[p] != m:
+            continue
+        pairs = [(d[p + 1 + 2 * i], d[p + 2 + 2 * i]) for i in range(m)]
+        light = [n for k, n in pairs if k == 0]
+        q = p - len(light) - 1
+        if q >= 1 and d[q] == len(light) and list(d[q + 1:p]) == light and d[q - 1] == 0x03 \
+                and all(k in EFFECT_KINDS and 1 <= n <= MAX_PATTERN_ID for k, n in pairs):
+            return pairs
+    return None
 
 
 REPEAT = {0: "today only", 1: "every day", 2: "weekdays", 3: "weekends"}
@@ -661,6 +696,13 @@ class Link:
 
     def delete_pattern(self, pid: int):
         self._write(SUB_DELETE, bytes([pid]))
+
+    def set_effects(self, pairs):
+        """4.22: the whole Pattern Library effects list, as the Trimlight app
+        sends it: (kind, pattern number) pairs."""
+        if len(pairs) > 30 or any(k not in EFFECT_KINDS or not 1 <= n <= MAX_PATTERN_ID for k, n in pairs):
+            raise ValueError("effects: kind 0 or 1, patterns 1-60, at most 30")
+        self._write(SUB_EFFECTS, bytes(b for k, n in pairs for b in (k, n)))
 
     def set_port(self, port: int, start: int, end: int, on: bool):
         """port 0-3; start and end 1-2048. A port can really be off here."""

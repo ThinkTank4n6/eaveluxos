@@ -15,6 +15,17 @@ DUMP = (b"\x01\x00\x00\x00\x01\x00S\x00T\x00\x8a" + b"VALENTINE'S DAY" + b"\x00"
         + b"American Flag" + b"\x00\x02\x7f\xff")
 
 
+CLOCK = bytes([0x1A, 0x0B, 0x17, 0x15, 0x1F, 0x28, 0x01])     # Nov 23, 2026 21:31:40, as in backup A
+
+
+def effects_tail(pairs, clock=CLOCK) -> bytes:
+    """The end of the state answer as the real controller sent it on Nov 23,
+    2026: 03, the Lightning patterns, the (kind, pattern) pairs, 00, the clock."""
+    light = [n for k, n in pairs if k == 0]
+    return (b"\x03" + bytes([len(light)] + light) + bytes([len(pairs)] + [b for p in pairs for b in p])
+            + b"\x00" + clock)
+
+
 class FakeController:
     # Something a newer firmware might send that this app doesn't know: an
     # unknown short reply, a damaged frame and stray bytes (4.1.4 tests).
@@ -147,9 +158,11 @@ class FakeController:
                 with self.lock:
                     h = self.holds
                     pats = [h["patterns"][k] for k in sorted(h["patterns"])]
+                    tail = h.get("tail") or b"\x00" * 37            # its timers (4.6)
+                    if h.get("effects") is not None:                 # 4.22: Lightning / Snowflake, then the clock
+                        tail = tail + effects_tail(h["effects"])
                     payload = L.state_payload([(0, 0) if self.off_reads_zero and not on else (a, b)
-                                               for a, b, on in h["ports"]], pats,
-                                              **({"tail": h["tail"]} if h.get("tail") else {}))   # its timers (4.6)
+                                               for a, b, on in h["ports"]], pats, tail=tail)
                     if self._late_left and self._shown is not None:
                         self._late_left -= 1
                         payload = self._shown
@@ -175,6 +188,8 @@ class FakeController:
                             if rec[32 + 5 * i] == 0:
                                 rec[32 + 5 * i:37 + 5 * i] = b"\0\0\0\0\x01"
                     self.holds["patterns"][d[0]] = bytes(rec)
+                elif sub == L.SUB_EFFECTS and len(d) % 2 == 0:           # 4.22
+                    self.holds["effects"] = [(d[i], d[i + 1]) for i in range(0, len(d), 2)]
                 elif sub == L.SUB_DELETE and len(d) == 1:
                     self.holds["patterns"].pop(d[0], None)
                 elif sub == L.SUB_PORT and len(d) == 6:

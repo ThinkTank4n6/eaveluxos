@@ -1,7 +1,7 @@
 # EaveLuxOS: User Manual
 ### The Intelligent Lighting Control Platform
 
-Version 4.21.3 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
+Version 4.22.0 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
 
 > **Quick start: you probably don't need Python.** Download the ready-made
 > app from the project's GitHub **Releases** page
@@ -2701,6 +2701,31 @@ What goes over the home network:
   still holds the pattern of that name; otherwise nothing is deleted and you
   are asked to read the controller again.
 - **Ports** saved on this page.
+- **Effect** (4.22): Lightning or Snowflake on a saved pattern (below).
+
+**Lightning and Snowflake (4.22).** Each pattern in the Local mode list
+has an **Effect** choice: **None**, **Lightning** or **Snowflake**, the same
+two effects the Trimlight Edge app's Pattern Library adds to a saved pattern.
+Lightning adds flashes over the pattern; Snowflake adds falling white. The
+effect is kept on the controller with that pattern, so it plays whenever the
+pattern is shown by its number: from the Trimlight app, the controller's own
+timers, or this app (the schedule, a press on Home, a rule) when it shows a
+saved pattern over the home network.
+
+- Choosing one sends the controller's whole effects list, as the Trimlight
+  app does, with only that pattern changed, then reads it back to check.
+  The controller is backed up first, like any other change here.
+- The choice appears only when the controller's effects list is laid out as
+  seen from a real controller on Nov 23, 2026. If it isn't (another firmware,
+  say), nothing is shown or sent; set the effect in the Trimlight Edge app.
+- Deleting a pattern here also takes its effect off the list (if the
+  controller didn't already), so a pattern saved later under the same number
+  doesn't flash or snow by surprise. An effect left on a number with no
+  pattern (deleted in an earlier version, or elsewhere) is tidied away the
+  next time you choose an effect.
+- Firework isn't offered: it hasn't been seen from the Trimlight app yet.
+- Only for patterns saved on the controller. This app's own patterns and the
+  built-in effects, shown live, don't carry it.
 
 How it stays safe: the controller is read first and that is kept as a backup
 (listed under Pattern backups). Changes go one at a time; the controller
