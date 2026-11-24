@@ -1,5 +1,30 @@
 # Changelog
 
+## 4.22.4: the Effect choice is back
+
+Reported: Lightning and Snowflake didn't show in Setup › Local mode.
+
+Review (tests/repro_min_effects_lists_disagree.py is #1):
+
+1. **The Effect choice was hidden on Chris's controller.** The controller
+   keeps two effects lists. While the Trimlight app set Lightning and
+   Snowflake, the first always repeated the second's Lightning numbers, and
+   4.22 required that before showing the choice. After the test patterns
+   were deleted (Nov 23, 11:35 PM), the first list still named #20 and the
+   second didn't, so the app refused to read them and hid the choice. The
+   lists are now read for what they are, without requiring them to agree.
+2. **Deleting a pattern takes its effect off first.** 4.22.0 took it off
+   after the delete; the controller then kept the number in its first list.
+   Now the effect is removed while the pattern is still there, checked, and
+   only then is the pattern deleted. If taking the effect off doesn't work,
+   nothing is deleted.
+3. **Leftovers.** Your controller still lists #20 (Lightning) and #21
+   (Snowflake) for patterns that are gone. Local mode now says so, and new
+   patterns are saved under other numbers first so they don't pick the
+   effect up. Putting a pattern back from a backup still uses its old number.
+4. The stricter checks stay: a valid clock after the lists, the 03 before
+   them, kinds 0 or 1, numbers 1 to 60, and exactly one way to read it.
+
 ## 4.22.3: the manual, refreshed
 
 **The manual**

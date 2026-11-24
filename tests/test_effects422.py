@@ -34,8 +34,9 @@ class Layout(unittest.TestCase):
     def test_anything_else_is_not_guessed(self):
         self.assertIsNone(L.read_effects(b"\x00" * 37))                       # no clock
         bad = bytearray(TAIL_B)
-        bad[-17] = 0x15                                                     # Lightning list doesn't match the pairs
+        bad[-19] = 0x04                                                     # not 03 before the first list
         self.assertIsNone(L.read_effects(bytes(bad)))
+        self.assertIsNone(L.read_effects(TAIL_A[:-8] + b"\x01" + TAIL_A[-7:]), "something after the pairs")
         self.assertIsNone(L.read_effects(TAIL_A[:-1] + b"\x09"))           # weekday 9
         self.assertIsNone(L.read_effects(bytes.fromhex("0302140203001401150216001a0b17151f2801")))   # kind 2
 
@@ -79,9 +80,14 @@ class Local(WithController):
             self.loc.set_effect(9, "lightning")
 
     def test_1_delete_takes_the_effect_too(self):
+        self.ctl.holds["lightning"] = [5]                            # the controller's first list, kept on its own
+        n = len(self.ctl.frames(L.CMD_REQUEST))
         self.loc.delete(5, self.loc.read()["patterns"][4]["name"])
         self.assertNotIn(5, self.ids())
         self.assertEqual(self.ctl.holds["effects"], [], "a pattern saved later under #5 won't flash")
+        self.assertEqual(self.ctl.holds["lightning"], [], "taken off while the pattern was still there (4.22.4)")
+        subs = [b[0] for _, _, b in self.ctl.frames(L.CMD_REQUEST)[n:] if b[0] in (L.SUB_EFFECTS, L.SUB_DELETE)]
+        self.assertEqual(subs, [L.SUB_EFFECTS, L.SUB_DELETE])
 
     def test_stale_entries_are_tidied(self):
         self.ctl.holds["effects"] = [(0, 5), (1, 44)]                # 44: deleted before 4.22

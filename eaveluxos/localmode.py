@@ -85,6 +85,14 @@ def _look(p: dict) -> tuple:
             tuple((c, col, on) for c, col, on in p["slots"] if c))
 
 
+def leftover_effects(st: dict) -> set:
+    """4.22.4: pattern numbers with no pattern that the controller's effects
+    lists still name (left by deleting a pattern that had one)."""
+    have = {p["id"] for p in st.get("patterns") or []}
+    named = {n for _, n in st.get("effects") or []} | set(st.get("effects_lightning") or [])
+    return {n for n in named if n not in have}
+
+
 def pick_same_look(same: list, name, effects) -> int | None:
     """4.22.3: which of the controller's patterns that look exactly alike to
     show. Since Lightning and Snowflake (4.22), two can look alike and still
@@ -308,7 +316,10 @@ class Local:
         used = {p["id"] for p in st["patterns"]}
         if isinstance(want, int) and 1 <= want <= L.MAX_PATTERN_ID and want not in used:
             return want              # its old number: timers made in the Trimlight app still find it
-        for i in range(1, L.MAX_PATTERN_ID + 1):
+        # 4.22.4: a number that still carries a deleted pattern's Lightning or
+        # Snowflake would give it to a new pattern; those come last
+        left = leftover_effects(st)
+        for i in [i for i in range(1, L.MAX_PATTERN_ID + 1) if i not in left] + sorted(left):
             if i not in used:
                 return i
         raise LocalError(f"The controller's pattern library is full ({L.MAX_PATTERN_ID}).")
@@ -401,22 +412,22 @@ class Local:
             if not cur or cur["name"].strip().lower() != str(name).strip().lower():
                 raise LocalError(f"Pattern {pid} on the controller isn't “{name}” any more, so nothing was "
                                  "deleted. Read the controller again.")
+            # 4.22 review #1, reordered in 4.22.4: a pattern's Lightning or
+            # Snowflake is taken off first, while the pattern is still there,
+            # as the Trimlight app does. Taken off after the delete (4.22.0),
+            # the controller kept the number in its first list (Nov 23, 23:35).
+            cur = st.get("effects")
+            if cur and any(n == pid for _, n in cur):
+                new = [x for x in cur if x[1] != pid]
+                try:
+                    st = self._change(link, st, lambda: link.set_effects(new), effects=new)
+                except LocalError as x:
+                    raise LocalError(f"Deleting “{name}”: taking its effect off first didn't work ({x}), so it "
+                                     "wasn't deleted. Set its effect to None, then delete it.") from None
             try:
-                after = self._change(link, st, lambda: link.delete_pattern(pid), removed=pid)
+                self._change(link, st, lambda: link.delete_pattern(pid), removed=pid)
             except LocalError as x:
                 raise LocalError(f"Deleting “{name}”: {x}. Check your patterns in the Trimlight Edge app.") from None
-            # Review #1 (4.22): a deleted pattern's Lightning or Snowflake
-            # stays in the controller's effects list unless it is taken out,
-            # and the next pattern saved under that number would flash or
-            # snow. Only when the read-back still lists it (if the controller
-            # drops it itself, nothing more is sent).
-            left = (after or {}).get("effects")
-            if left and any(n == pid for _, n in left):
-                new = [x for x in left if x[1] != pid]
-                try:
-                    self._change(link, after, lambda: link.set_effects(new), effects=new)
-                except LocalError as x:
-                    log.warning("Deleted pattern %s, but its effect is still listed on the controller: %s", pid, x)
         finally:
             self._close(link)
 

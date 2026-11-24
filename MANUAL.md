@@ -1,7 +1,7 @@
 # EaveLuxOS: User Manual
 ### The Intelligent Lighting Control Platform
 
-Version 4.22.3 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
+Version 4.22.4 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
 
 > [!TIP]
 > **Quick start: you probably don't need Python.**
@@ -888,8 +888,12 @@ patterns don't carry the effect.
 **Good to know**
 
 - One effect per pattern. Choosing another replaces it.
-- Deleting a pattern in Local mode also removes its effect, so a pattern
-  saved later under the same number doesn't flash or snow by surprise.
+- Deleting a pattern in Local mode takes its effect off first, then deletes
+  it, so a pattern saved later under the same number doesn't flash or snow
+  by surprise.
+- If the controller still lists an effect for a number with no pattern (a
+  pattern deleted in the Trimlight app, or before 4.22.4), Local mode says
+  which numbers, and EaveLuxOS saves new patterns under other numbers first.
 - The **Effect** choice appears only when the controller reports its effects
   list the way it did on a real controller in November 2026. If it doesn't
   (another firmware, say), nothing is shown or sent; set the effect in the

@@ -1278,7 +1278,9 @@ class App:
                               "extra": (None if st.get("effects") is None else
                                         next((lanlink.EFFECT_KINDS[k] for k, n in st["effects"] if n == p["id"]), ""))}
                              for p in st["patterns"]],
-                "effects_readable": st.get("effects") is not None}
+                "effects_readable": st.get("effects") is not None,
+                # 4.22.4: numbers whose deleted pattern's effect the controller still lists
+                "effects_leftover": sorted(localmode.leftover_effects(st)) if st.get("effects") is not None else []}
 
     def _local_read(self, fresh: bool = False, dev: str | None = None):
         """(Local, device, what the controller holds), read now or a read from

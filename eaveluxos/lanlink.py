@@ -422,34 +422,50 @@ def read_state(body: bytes) -> dict:
     # switch: the first byte, 1 with the lights on and 0 off (seen Nov 15-16, 2026).
     return {"head": d[:3].hex(" "), "switch": d[0], "ports": ports, "patterns": pats, "raw": body.hex(),
             "unreadable": len(every) - len(pats), "daily": read_daily(d[HEAD + RECORD * n:]),
-            "effects": read_effects(d[HEAD + RECORD * n:])}
+            **_effects_fields(d[HEAD + RECORD * n:])}
 
 
-def read_effects(d: bytes):
+def _effects_fields(tail: bytes) -> dict:
+    full = read_effects_full(tail)
+    return {"effects": None if full is None else full[1], "effects_lightning": None if full is None else full[0]}
+
+
+def read_effects_full(d: bytes):
     """The Pattern Library's effects, from the end of the controller's state
-    (4.22): [(kind, pattern number)], or None when it isn't laid out as seen
-    (then nothing is written). Laid out, as seen Nov 23, 2026:
-        03 | n, the Lightning patterns' numbers | m, m pairs (kind, number) | 00 | clock (7 bytes)
-    The first list is the pairs' kind-0 numbers again, which is what makes a
-    match certain; the clock is year-2000, month, day, hour, minute, second,
-    weekday."""
-    if len(d) < 13:
+    (4.22): (lightning, pairs), or None when it isn't laid out as seen (then
+    nothing is written). Laid out, as seen Nov 21-23, 2026:
+        03 | n, n pattern numbers | m, m pairs (kind, number) | 00 | clock (7 bytes)
+    pairs: what the Trimlight app sends with sub 0x1b, kind 0 Lightning and 1
+    Snowflake. The first list held the Lightning numbers again while the
+    Trimlight app set them; 4.22.4: after patterns were deleted it kept a
+    number the pairs no longer had (Chris's controller, Nov 23 23:35), so it
+    is read but not required to agree. The clock is year-2000, month, day,
+    hour, minute, second, weekday. Exactly one way to read it, or None."""
+    if len(d) < 13 or d[-8] != 0:
         return None
     y, mo, dy, hh, mi, ss, wd = d[-7:]
     if not (1 <= mo <= 12 and 1 <= dy <= 31 and hh <= 23 and mi <= 59 and ss <= 59 and wd <= 7):
         return None
     end = len(d) - 8                       # the 00 before the clock
+    found = []
     for m in range(0, 31):
         p = end - 2 * m - 1
         if p < 2 or d[p] != m:
             continue
         pairs = [(d[p + 1 + 2 * i], d[p + 2 + 2 * i]) for i in range(m)]
-        light = [n for k, n in pairs if k == 0]
-        q = p - len(light) - 1
-        if q >= 1 and d[q] == len(light) and list(d[q + 1:p]) == light and d[q - 1] == 0x03 \
-                and all(k in EFFECT_KINDS and 1 <= n <= MAX_PATTERN_ID for k, n in pairs):
-            return pairs
-    return None
+        if not all(k in EFFECT_KINDS and 1 <= n <= MAX_PATTERN_ID for k, n in pairs):
+            continue
+        for n in range(0, 31):
+            q = p - n - 1
+            if q >= 1 and d[q] == n and d[q - 1] == 0x03 and all(1 <= x <= MAX_PATTERN_ID for x in d[q + 1:p]):
+                found.append((list(d[q + 1:p]), pairs))
+    return found[0] if len(found) == 1 else None
+
+
+def read_effects(d: bytes):
+    """Just the (kind, pattern number) pairs, or None (see read_effects_full)."""
+    full = read_effects_full(d)
+    return None if full is None else full[1]
 
 
 REPEAT = {0: "today only", 1: "every day", 2: "weekdays", 3: "weekends"}

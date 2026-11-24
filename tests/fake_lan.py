@@ -18,10 +18,10 @@ DUMP = (b"\x01\x00\x00\x00\x01\x00S\x00T\x00\x8a" + b"VALENTINE'S DAY" + b"\x00"
 CLOCK = bytes([0x1A, 0x0B, 0x17, 0x15, 0x1F, 0x28, 0x01])     # Nov 23, 2026 21:31:40, as in backup A
 
 
-def effects_tail(pairs, clock=CLOCK) -> bytes:
+def effects_tail(pairs, clock=CLOCK, light=None) -> bytes:
     """The end of the state answer as the real controller sent it on Nov 23,
     2026: 03, the Lightning patterns, the (kind, pattern) pairs, 00, the clock."""
-    light = [n for k, n in pairs if k == 0]
+    light = [n for k, n in pairs if k == 0] if light is None else light
     return (b"\x03" + bytes([len(light)] + light) + bytes([len(pairs)] + [b for p in pairs for b in p])
             + b"\x00" + clock)
 
@@ -160,7 +160,7 @@ class FakeController:
                     pats = [h["patterns"][k] for k in sorted(h["patterns"])]
                     tail = h.get("tail") or b"\x00" * 37            # its timers (4.6)
                     if h.get("effects") is not None:                 # 4.22: Lightning / Snowflake, then the clock
-                        tail = tail + effects_tail(h["effects"])
+                        tail = tail + effects_tail(h["effects"], light=h.get("lightning"))
                     payload = L.state_payload([(0, 0) if self.off_reads_zero and not on else (a, b)
                                                for a, b, on in h["ports"]], pats, tail=tail)
                     if self._late_left and self._shown is not None:
@@ -190,6 +190,11 @@ class FakeController:
                     self.holds["patterns"][d[0]] = bytes(rec)
                 elif sub == L.SUB_EFFECTS and len(d) % 2 == 0:           # 4.22
                     self.holds["effects"] = [(d[i], d[i + 1]) for i in range(0, len(d), 2)]
+                    if self.holds.get("lightning") is not None:
+                        # 4.22.4, as Chris's controller did on Nov 23: the first
+                        # list keeps a number whose pattern is already deleted
+                        gone = [n for n in self.holds["lightning"] if n not in self.holds["patterns"]]
+                        self.holds["lightning"] = sorted(set(gone) | {n for k, n in self.holds["effects"] if k == 0})
                 elif sub == L.SUB_DELETE and len(d) == 1:
                     self.holds["patterns"].pop(d[0], None)
                 elif sub == L.SUB_PORT and len(d) == 6:
