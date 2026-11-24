@@ -72,7 +72,7 @@ class Source(unittest.TestCase):
             self.assertIn(c, CSS)
 
     def test_manual_matches(self):
-        self.assertIn("### Where things are (version 4.0)", MANUAL)
+        self.assertIn("## Where things are", MANUAL)        # 4.22.3: kept up to date (was "(version 4.0)")
         self.assertIsNone(re.search(r"(?<!System )(?<!Windows )Settings ›", MANUAL), "the app's own Settings tab is gone")
         self.assertNotIn("Lights tab", MANUAL)
         self.assertIn("## 17. Backup timer (safety net)", MANUAL)

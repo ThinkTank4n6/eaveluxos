@@ -1,41 +1,55 @@
 # EaveLuxOS: User Manual
 ### The Intelligent Lighting Control Platform
 
-Version 4.22.2 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
+Version 4.22.3 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
 
-> **Quick start: you probably don't need Python.** Download the ready-made
-> app from the project's GitHub **Releases** page
-> (https://github.com/ThinkTank4n6/eaveluxos/releases/latest): it already
-> includes Python and everything else. Section 4 walks through it. Python
-> (section 3) is only needed to run EaveLuxOS from its source code, for
-> example on 32-bit Raspberry Pi OS.
+> [!TIP]
+> **Quick start: you probably don't need Python.**
+> 1. Download the ready-made app for your computer from the project's GitHub
+>    **Releases** page (https://github.com/ThinkTank4n6/eaveluxos/releases/latest).
+>    It already includes Python and everything else (section 4).
+> 2. Have your Trimlight **Client ID** and **Client Secret** ready (section 2).
+> 3. Follow the setup assistant (section 5).
+> 4. Put the app on your phones and tablets (section 8).
 >
-> Then: your Trimlight **Client ID** and **Client Secret** (section 2), the
-> setup assistant (section 5), and the app on your phones and tablets
-> (section 8). Where this manual shows a command as `python3 main.py …`, use
-> `EaveLuxOS-cli.exe …` on Windows and `eaveluxos …` on Linux or a Pi.
+> Python (section 3) is only needed to run EaveLuxOS from its source code,
+> for example on 32-bit Raspberry Pi OS. Where this manual shows a command as
+> `python3 main.py …`, use `EaveLuxOS-cli.exe …` on Windows and
+> `eaveluxos …` on Linux or a Pi.
 
 EaveLuxOS is a free, community-made lighting control platform. Today it runs
-**Trimlight Edge** permanent lights. It is not made, sold, endorsed or
-supported by Trimlight; Trimlight and Trimlight Edge are trademarks of their
-owner and appear here only to say which hardware EaveLuxOS works with. EaveLuxOS was
-previously called "LumaOS", and before that "Trimlight Scheduler". Updating
-keeps all your settings.
+**Trimlight Edge** permanent lights. It runs on a computer that stays on at
+home (Windows, Mac, Linux or a Raspberry Pi), and you use it from that
+computer's browser or from your phones and tablets.
 
 This manual takes you from nothing installed to a working schedule, then
 explains every screen. You never need to type commands.
-Inside the app, the **Manual** button (**?** on a phone) at the top of every
-screen opens it, with a search box. The bottom of every screen shows the app's version, the
-copyright notice and a link to the MIT License.
+
+- **In the app:** the **Manual** button (**?** on a phone) at the top of every
+  screen opens this manual, with a search box.
+- **Version tags:** a small number after a heading, like **4.22**, is the
+  version that added it.
+- **Colored boxes:** green **Tip** boxes save you time; red **Important** boxes
+  keep your lights and settings safe.
+- **The bottom of every screen** shows the app's version, the copyright notice
+  and a link to the MIT License.
 
 It complements Trimlight's own **Trimlight Select EDGE Wi-Fi V2 User's Guide**.
-That guide covers the hardware, pairing and the Trimlight Edge app, and you
-can find it and Trimlight's videos at **trimlight.com/edge**. Where this
-manual refers to "Trimlight's guide", that's the document it means.
+That guide covers the hardware, pairing and the Trimlight Edge app; you can
+find it and Trimlight's videos at **trimlight.com/edge**. Where this manual
+refers to "Trimlight's guide", that's the document it means.
+
+*EaveLuxOS is not made, sold, endorsed or supported by Trimlight. Trimlight
+and Trimlight Edge are trademarks of their owner and appear here only to say
+which hardware EaveLuxOS works with. EaveLuxOS was previously called
+"LumaOS", and before that "Trimlight Scheduler"; updating keeps all your
+settings.*
 
 ---
 
 ## Contents
+
+**Start here:** [What's new](#whats-new) · [Where things are](#where-things-are)
 
 1. [What you need](#1-what-you-need)
 2. [Get your Trimlight API credentials](#2-get-your-trimlight-api-credentials)
@@ -44,17 +58,27 @@ manual refers to "Trimlight's guide", that's the document it means.
 5. [The setup assistant](#5-the-setup-assistant)
 6. [Prepare the Trimlight Edge app](#6-prepare-the-trimlight-edge-app)
 7. [Make it start automatically](#7-make-it-start-automatically)
+   - [Starting it again after Quit](#starting-it-again-after-quit-4222)
 8. [Phones and tablets: iPhone, iPad, Android](#8-phones-and-tablets-iphone-ipad-android)
+   - [Set up a phone, step by step](#the-quick-way-set-up-a-phone-4182)
 9. [Home](#9-home)
 10. [Patterns](#10-patterns)
+    - [Lightning and Snowflake](#lightning-and-snowflake-422)
 11. [Create a pattern](#11-create-a-pattern)
+    - [Studio: layers, gradients and shows](#studio-layers-gradients-and-shows-420)
 12. [House](#12-house)
 13. [Schedule](#13-schedule)
+    - [Birthdays and anniversaries](#birthdays-and-anniversaries-418)
+    - [Game-day lights](#game-day-lights)
+    - [Fades between patterns](#fades-between-patterns-419)
 14. [Alerts: automations and weather rules](#14-alerts-automations-and-weather-rules)
+    - [Who's home: arriving and leaving](#whos-home-arriving-and-leaving-418)
+    - [The weather on the lights](#the-weather-on-the-lights-419)
 15. [Alerts: security flash](#15-alerts-security-flash)
 16. [Music shows](#16-music-shows)
 17. [Backup timer (safety net)](#17-backup-timer-safety-net)
 18. [Setup › Lights & controller](#18-setup--lights--controller)
+    - [Local mode (home network)](#local-mode-home-network)
 19. [Setup › Location & time](#19-setup--location--time)
 20. [Setup › Accounts & access, and App](#20-setup--accounts--access-and-app)
 21. [Alerts: webhooks and Home Assistant](#21-alerts-webhooks-and-home-assistant)
@@ -65,38 +89,90 @@ manual refers to "Trimlight's guide", that's the document it means.
 26. [Questions and answers](#26-questions-and-answers)
 27. [License](#27-license)
 
+---
 
-### Where things are (version 4.0)
+## What's new
 
-Version 4.0 reorganized the app into seven tabs. Nothing was removed; some
-things moved:
+**4.22: Lightning and Snowflake**
+- **Lightning and Snowflake** on any pattern saved on your controller, the
+  same two effects as the Trimlight Edge app's Pattern Library: see
+  [Lightning and Snowflake](#lightning-and-snowflake-422).
+- **Start EaveLuxOS from its icon** (4.22.2): after **Quit**, the desktop icon
+  your browser made shows a **Start EaveLuxOS** button. See
+  [Starting it again after Quit](#starting-it-again-after-quit-4222).
+- **Macs come back after a restart** (4.22.1): the app tells you if it's
+  running from Downloads or the disk image, where it can't start by itself.
+- **The right one of two look-alike patterns** (4.22.3): when two saved
+  patterns look the same but only one has Lightning or Snowflake, the app
+  shows the one you meant.
+
+**4.21: game day, sharing and energy**
+- **Lights for a win** and a celebration length for each team:
+  [Game-day lights](#game-day-lights).
+- **Share Studio shows and automations** as codes, and add them from the
+  Community list: [Share Studio shows and automations](#share-studio-shows-and-automations-421).
+- **Energy estimate:** about how many watts, kilowatt-hours and dollars your
+  schedule uses (**Setup › App › Lights usage**, section 20).
+- **Start the controllers together**, so two or more controllers' patterns
+  move in step: [Start the controllers together](#start-the-controllers-together-421).
+- **On and Off always work** (4.21.1), even when the app thinks the lights
+  are already that way (section 9).
+
+**4.20: Studio**
+- Layers, gradients and timed shows with fades between looks:
+  [Studio](#studio-layers-gradients-and-shows-420).
+
+**4.19: fades and weather looks**
+- **Fades between patterns** instead of a sudden switch:
+  [Fades between patterns](#fades-between-patterns-419).
+- **Weather looks** (rain, snow, storm, wind, fog) and **temperature colors**:
+  [The weather on the lights](#the-weather-on-the-lights-419).
+
+**4.18: people and dates**
+- **Who's home:** lights that welcome you when you arrive and change when the
+  last person leaves: [Who's home](#whos-home-arriving-and-leaving-418).
+- **Birthdays and anniversaries** with their own patterns:
+  [Birthdays and anniversaries](#birthdays-and-anniversaries-418).
+- **Templates** for common automations (motion lights, welcome home, doorbell):
+  [Templates and motion lights](#templates-and-motion-lights-418).
+- **Siri, Alexa and Google:** [Siri, Alexa and Google](#siri-alexa-and-google-418).
+- **Set up a phone, step by step**, from a code on the app computer:
+  [Set up a phone](#the-quick-way-set-up-a-phone-4182).
+
+Every change, version by version, is in **CHANGELOG.md** in the download.
+
+---
+
+## Where things are
+
+The app has seven tabs. On a phone they're along the **bottom** of the
+screen (they step aside while you type, so they never cover the keyboard).
 
 | Tab | What's there |
 |---|---|
-| **Home** | What the lights are doing, turn on and off, favorites, brightness and speed, the week ahead. |
-| **Patterns** | Your patterns, Community, built-in effects and patterns in the Trimlight app. **New pattern** opens the designer (it used to be the **Create** tab). |
-| **Schedule** | **Every night:** rules and Coming up. **Special days:** holidays, game-day lights and away mode. |
-| **Alerts** | Everything that reacts: weather rules, severe weather alerts, the security flash, webhooks and phone alerts (they were on Schedule and Settings). |
-| **Music** | Music shows (the controller's music mode) and mood follow. |
-| **House** | The house map: photos, rooflines, landmarks, zones, the bulb finder and bulb numbering. |
-| **Setup** | **Lights & controller** (ports, controller, the backup timer), **Color correction**, **Local mode** and **Pattern backups** (their own sections since 4.9.2), **Location & time** (was Date & Time), **Accounts & access** and **App** (were Settings). |
+| **Home** | What the lights are doing and why, **On** and **Off**, favorites, brightness and speed, tonight and the week ahead, who's home, each controller, and Activity. |
+| **Patterns** | **My patterns** (with folders), **In the Trimlight app**, **Built-in** effects and **Community**. **New pattern** opens the designer; **Studio** builds layered looks and timed shows. |
+| **Schedule** | **Every night:** rules, night curves and fades. **Special days:** holidays, birthdays and anniversaries, game-day lights and away mode. **Who wins tonight** shows how a night is decided. |
+| **Alerts** | Automations (When · If · Then) and templates, who's home, weather rules and weather looks, severe weather alerts, the security flash, webhooks, Home Assistant, Siri, Alexa and Google. |
+| **Music** | Music shows (the controller's music mode), music from this computer, music zones and mood follow. |
+| **House** | The house map: photos, rooflines, camera calibration, landmarks, zones, the bulb finder, bulb numbering, house view and scenes. |
+| **Setup** | **Lights & controller** (ports, the backup timer, start the controllers together), **Color correction**, **Local mode** (including **Lightning and Snowflake**), **Pattern backups**, **Controller health**, **Location & time**, **Accounts & access** and **App** (set up a phone, lights usage and energy, updates, start automatically). |
 
-- On a phone, the tabs are along the **bottom** of the screen. They step
-  aside while you type in a field, so they don't sit on top of the keyboard.
-- The browser's **Back** button returns to the tab you were on before.
+Getting around:
+
+- **Search features**, at the top of every page: type a few letters of what
+  you're after ("backup", "eagles", "ports", "snowflake") and choose a result,
+  or press **Enter** for the first. The app opens that page and panel and
+  outlines it for a moment. Press **/** to jump to the search box from
+  anywhere; **Esc** clears it.
 - Panels that fold show a one-line summary, such as "Holidays · next:
-  Thanksgiving, Thu, Nov 26".
-  Tap one to open it; the app remembers which ones you keep open.
+  Thanksgiving, Thu, Nov 26". Tap one to open it; the app remembers which
+  ones you keep open.
+- The browser's **Back** button returns to the tab you were on before.
 - The **Manual** is the **?** button at the top.
-- **Search features** (4.2.1), at the top of every page: type a few letters
-  of what you're after ("backup", "eagles", "ports", "sunset") and choose a
-  result, or press **Enter** for the first. The app goes to that page, opens
-  the panel, scrolls to it and outlines it for a moment. Press **/** to jump
-  to the search box from anywhere; **Esc** clears it.
-- Renamed: the **backup timer** is now the **backup timer**, and **Address space**
-  is now **Bulb numbering**.
-- Old bookmarks still work: `#settings`, `#lights`, `#time` and `#create`
-  open the right place.
+- Old names and bookmarks still work: the backup timer was called the
+  **safety net**, **Bulb numbering** was **Address space**, and `#settings`,
+  `#lights`, `#time` and `#create` open the right place.
 
 ---
 
@@ -115,7 +191,8 @@ The computer does **not** need to be near the lights. It controls them
 through Trimlight's cloud service, the same way the Trimlight app does when
 you're away from home.
 
-> **Important:** In blue-light mode ("Wifi Broadcasting"), the controller only
+> [!IMPORTANT]
+> In blue-light mode ("Wifi Broadcasting"), the controller only
 > talks to a phone connected to its own Trimlight network and never reaches
 > the internet. **This app can't control a controller in blue-light mode.**
 > Trimlight notes that the controller needs a strong 2.4 GHz Wi-Fi signal. If
@@ -193,6 +270,7 @@ install it with your system's software installer (the package is `python3`).
 | Linux PC | `eaveluxos_…_amd64.deb` (or `EaveLuxOS-Linux-x86_64.tar.gz`) | `sudo apt install ./eaveluxos_…_amd64.deb`, then start **EaveLuxOS** from the app menu. For the `.tar.gz`, unpack it and run `./eaveluxos`. |
 | Raspberry Pi (64-bit Raspberry Pi OS) | `eaveluxos_…_arm64.deb` | `sudo apt install ./eaveluxos_…_arm64.deb`, then `eaveluxos run`. |
 
+> [!IMPORTANT]
 > **Mac: run it from Applications.** Don't open EaveLuxOS from the
 > **Downloads** folder or straight from the open .dmg window. macOS then runs a
 > temporary copy that's gone after a restart, so the app can't start on its
@@ -276,11 +354,14 @@ phone connection (Setup › Phones and tablets) waits.
    assistant. If the browser doesn't open, open it yourself and go to that
    address.
 
-> **Tip:** Launching it twice is safe. A second launch only opens the browser
+> [!TIP]
+> Launching it twice is safe. A second launch only opens the browser
 > to the copy that's already running.
 
+> [!NOTE]
 > **If it doesn't start:** on Windows a message box explains why.
 
+> [!NOTE]
 > **Where your data is kept:** on **Windows**, always in
 > `%LOCALAPPDATA%\EaveLuxOS` (for example `C:\Users\you\AppData\Local\EaveLuxOS`),
 > whichever version you run, so you never copy it between versions. On a Mac,
@@ -338,7 +419,8 @@ The app and the Trimlight Edge app shouldn't both be scheduling the lights.
 You can keep using the Trimlight Edge app to design patterns. EaveLuxOS
 can use them (see section 10).
 
-> **Good to know:** Every 5 minutes EaveLuxOS checks that the lights
+> [!NOTE]
+> Every 5 minutes EaveLuxOS checks that the lights
 > are doing what the schedule says: on, off or Timer mode, and the pattern
 > showing. If someone turns them off or picks another pattern in the Trimlight
 > app, or the controller restarts after a power blip, the scheduler restores
@@ -609,9 +691,11 @@ app's exact address, including the port, so other web apps on the same
 computer never see it. If you change the app's port (section 20), or update
 from a version before 2.3.2, each phone signs in once more.
 
+> [!NOTE]
 > **HTTPS:** see step 2 above. With HTTPS on, an old `http://` address or
 > bookmark forwards to `https://` by itself (4.16.5).
 
+> [!NOTE]
 > **Away from home:** The app only works on your home network, which is
 > deliberate. Never "port forward" it on your router. For remote access, use a
 > VPN that connects you to your home network (many routers include one).
@@ -640,8 +724,9 @@ door, and the tabs are along the bottom of the screen.
   coming week, it uses the last pattern you turned on by hand, or Warm white.
 - **Off** turns the lights off.
 - Both last until the next scheduled change, like **Turn on** and **Turn off**
-  below. The one that matches what the lights are already doing is grayed out.
-  Viewers don't see them.
+  below. The one that matches what the app wants right now is dimmed, but
+  still works (see **On and Off at the top always work**, below). Viewers
+  don't see them.
 - **Theme (auto, light or dark):** the look of the app's screens, not the
   lights. Tap to switch. **Auto** follows the
   phone's or computer's own setting; **Light** and **Dark** stay that way. The
@@ -755,6 +840,61 @@ on).
   a Comet, Fire becomes Stars), ready for you to change the colors. Built-in
   effects' colors are fixed in the controller, so this is a copy that moves a
   little differently from the original, not an edit of it.
+
+### Lightning and Snowflake (4.22)
+
+The Trimlight Edge app's **Pattern Library** can add one of two effects to a
+pattern saved on the controller. EaveLuxOS sets them too, over your home
+network:
+
+| Effect | What it adds |
+|---|---|
+| **Lightning** | Sudden bright flashes over the pattern, like a storm. |
+| **Snowflake** | White sparkles falling over the pattern, like snow. |
+| **None** | The pattern exactly as designed. |
+
+**Add one**
+
+1. Open **Setup › Local mode** (Administrators). The controller's address
+   must be set there (section 18).
+2. Under **On the controller now**, find the pattern. Each one has an
+   **Effect** choice next to **Delete**.
+3. Choose **Lightning**, **Snowflake** or **None**. The app backs the
+   controller up, sends the change, and reads the controller back to check
+   it. A message says when it's done.
+
+**See it on the lights**
+
+The effect belongs to that saved pattern, so it plays whenever the
+controller shows that pattern **by its number**:
+
+- from the Trimlight Edge app or the controller's own timers;
+- from EaveLuxOS (the schedule, a press on Home, an automation), when Local
+  mode's **Send on/off and saved patterns over the home network** is on and
+  your pattern is that saved pattern or an exact copy of it (**Patterns › In
+  the Trimlight app › Add to my patterns**, without changing its colors,
+  speed or brightness).
+
+A copy you change (another brightness, say) is shown live instead, and live
+patterns don't carry the effect.
+
+> [!TIP]
+> To have a pattern both ways, save it twice in the Trimlight Edge app (for
+> example *Candy cane* and *Candy cane storm*) and add Lightning to one. When
+> two saved patterns look exactly alike, EaveLuxOS shows the one whose name
+> matches your pattern's name (4.22.3); if neither name matches, the one
+> without an effect.
+
+**Good to know**
+
+- One effect per pattern. Choosing another replaces it.
+- Deleting a pattern in Local mode also removes its effect, so a pattern
+  saved later under the same number doesn't flash or snow by surprise.
+- The **Effect** choice appears only when the controller reports its effects
+  list the way it did on a real controller in November 2026. If it doesn't
+  (another firmware, say), nothing is shown or sent; set the effect in the
+  Trimlight Edge app instead.
+- Firework isn't offered yet.
 
 ## 11. Create a pattern
 
@@ -2744,29 +2884,10 @@ What goes over the home network:
 - **Ports** saved on this page.
 - **Effect** (4.22): Lightning or Snowflake on a saved pattern (below).
 
-**Lightning and Snowflake (4.22).** Each pattern in the Local mode list
-has an **Effect** choice: **None**, **Lightning** or **Snowflake**, the same
-two effects the Trimlight Edge app's Pattern Library adds to a saved pattern.
-Lightning adds flashes over the pattern; Snowflake adds falling white. The
-effect is kept on the controller with that pattern, so it plays whenever the
-pattern is shown by its number: from the Trimlight app, the controller's own
-timers, or this app (the schedule, a press on Home, a rule) when it shows a
-saved pattern over the home network.
-
-- Choosing one sends the controller's whole effects list, as the Trimlight
-  app does, with only that pattern changed, then reads it back to check.
-  The controller is backed up first, like any other change here.
-- The choice appears only when the controller's effects list is laid out as
-  seen from a real controller on Nov 23, 2026. If it isn't (another firmware,
-  say), nothing is shown or sent; set the effect in the Trimlight Edge app.
-- Deleting a pattern here also takes its effect off the list (if the
-  controller didn't already), so a pattern saved later under the same number
-  doesn't flash or snow by surprise. An effect left on a number with no
-  pattern (deleted in an earlier version, or elsewhere) is tidied away the
-  next time you choose an effect.
-- Firework isn't offered: it hasn't been seen from the Trimlight app yet.
-- Only for patterns saved on the controller. This app's own patterns and the
-  built-in effects, shown live, don't carry it.
+**Lightning and Snowflake (4.22).** Each pattern in the list has an
+**Effect** choice: None, Lightning or Snowflake. See [Lightning and
+Snowflake](#lightning-and-snowflake-422) in section 10 for how they work and
+when they play.
 
 How it stays safe: the controller is read first and that is kept as a backup
 (listed under Pattern backups). Changes go one at a time; the controller

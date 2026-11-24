@@ -94,6 +94,7 @@
     { t: 'Resync with Trimlight\u2019s cloud', w: 'Setup › Lights & controller', v: 'lights', h: 'Controller', k: 'resync sync 12006 cannot read cloud fix parsed' },
     { t: 'Send commands over the home network', w: 'Setup › Local mode', v: 'local', k: 'local commands on off faster lan without cloud' },
     { t: 'Controlled by this app', w: 'Setup › Lights & controller', v: 'lights', h: 'Controlled by this app', k: 'which controllers several devices' },
+    { t: 'Lightning and Snowflake', w: 'Setup › Local mode', v: 'local', h: 'Local mode', k: 'lightning snowflake effect pattern library storm snow flashes' },
     { t: 'Backup timer', w: 'Setup › Lights & controller', v: 'lights', f: 'safety', k: 'safety net offline timers calendar internet down fallback' },
     { t: 'Color correction', w: 'Setup › Color correction', v: 'color', k: 'gamma color accuracy calibrate white balance' },
     { t: 'Pattern backups', w: 'Setup › Pattern backups', v: 'backups', k: 'restore lost patterns reset backup put back' },

@@ -85,6 +85,8 @@
     return { html: html + (ordered ? '</ol>' : '</ul>'), i };
   }
 
+  const ALERTS = { note: 'Note', tip: 'Tip', important: 'Important', warning: 'Warning', caution: 'Caution' };
+
   function render(md) {
     const lines = String(md).replace(/\r\n?/g, '\n').split('\n');
     let out = '', i = 0;
@@ -97,7 +99,13 @@
         i++; out += `<pre class="code"><code>${esc(body.join('\n'))}</code></pre>`; continue;
       }
       const h = /^(#{1,6})\s+(.*?)\s*#*\s*$/.exec(l);
-      if (h) { const n = h[1].length; out += `<h${n} id="${esc(slug(h[2]))}">${inline(h[2])}</h${n}>`; i++; continue; }
+      if (h) {
+        const n = h[1].length;
+        // 4.22.3: "(4.18)" at the end of a section heading shows as a small version tag
+        let t = inline(h[2]);
+        if (n >= 2) t = t.replace(/\s*\((\d+\.\d+(?:\.\d+)?)\)$/, (m, v) => ` <span class="ver" title="Added in version ${v}">${v}</span>`);
+        out += `<h${n} id="${esc(slug(h[2]))}">${t}</h${n}>`; i++; continue;
+      }
       if (/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(l)) { out += '<hr>'; i++; continue; }
       if (/^\s*\|/.test(l) && i + 1 < lines.length && /^\s*\|?\s*:?-{2,}/.test(lines[i + 1])) {
         const head = cells(l); i += 2;
@@ -109,6 +117,13 @@
       if (/^\s*>/.test(l)) {
         const body = [];
         while (i < lines.length && /^\s*>/.test(lines[i])) body.push(lines[i++].replace(/^\s*>\s?/, ''));
+        // 4.22.3: GitHub's alert boxes (> [!TIP] and the like), shown the same here
+        const al = /^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*$/i.exec(body[0] || '');
+        if (al) {
+          const k = al[1].toLowerCase();
+          out += `<blockquote class="alert alert-${k}"><p class="alert-title">${ALERTS[k]}</p>${render(body.slice(1).join('\n'))}</blockquote>`;
+          continue;
+        }
         out += `<blockquote>${render(body.join('\n'))}</blockquote>`; continue;
       }
       if (isList(l)) { const r = list(lines, i, indentOf(l)); out += r.html; i = r.i; continue; }

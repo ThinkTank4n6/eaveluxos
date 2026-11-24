@@ -11,7 +11,7 @@ from tests.test_controller import ControllerTests
 t = ControllerTests("test_schedule_on_off_and_levels"); t.setUp()
 c, api = t.c, t.api
 c.devices = [{"deviceId": "D1", "name": "House"}]
-c.lan = type("Lan", (), {"power": lambda s, d, on: True, "show": lambda s, d, p: True, "show_like": lambda s, d, p: None, "preview": lambda s, d, p: False, "switch": lambda s, d: 1})()
+c.lan = type("Lan", (), {"power": lambda s, d, on: True, "show": lambda s, d, p: True, "show_like": lambda s, d, p, **k: None, "preview": lambda s, d, p: False, "switch": lambda s, d: 1})()
 warnings = []; c.note = lambda msg, *a, **k: warnings.append(msg)
 t.at(19)                                     # lights on: "on" went over the home network, the pattern via the cloud
 for m in (5, 11, 17, 23):                    # four regular checks; the cloud still says off (0)

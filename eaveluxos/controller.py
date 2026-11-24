@@ -682,7 +682,8 @@ class Controller:
                     self._fade(dev, prev if was_on else None, payload, fade)
                 # 4.4.2: the same as a pattern saved on the controller? Show
                 # that one over the home network, by its number.
-                pid = self.lan.show_like(dev, payload) if self.lan is not None and effect.kind != "split" else None
+                pid = (self.lan.show_like(dev, payload, name=getattr(effect_d, "label", None))
+                       if self.lan is not None and effect.kind != "split" else None)
                 if pid:
                     self._sent(dev, "pattern", True)
                     self.sent_effect[dev] = {**payload, "id": pid}

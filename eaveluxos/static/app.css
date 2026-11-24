@@ -352,6 +352,16 @@ pre.code{padding:10px;white-space:pre-wrap;margin:0}
 .md .tablewrap{overflow-x:auto}.md table{border-collapse:collapse;width:100%;font-size:.92rem}
 .md th,.md td{border:1px solid var(--line);padding:6px 9px;text-align:left;vertical-align:top}.md th{background:var(--surface2)}
 .md a{color:var(--lamp)}
+/* 4.22.3: the manual's alert boxes, version tags and contents */
+.md blockquote.alert{border-left-width:4px}
+.md .alert-title{font-weight:700;margin:0 0 .2em;font-size:.82rem;text-transform:uppercase;letter-spacing:.04em}
+.md .alert-tip{border-left-color:var(--ok);background:var(--ok-soft)}.md .alert-tip .alert-title{color:var(--ok)}
+.md .alert-note .alert-title{color:var(--lamp)}
+.md .alert-important,.md .alert-warning,.md .alert-caution{border-left-color:var(--warn);background:var(--warn-soft)}
+.md .alert-important .alert-title,.md .alert-warning .alert-title,.md .alert-caution .alert-title{color:var(--warn)}
+.md .ver{font-size:.7rem;font-weight:600;padding:1px 7px;border-radius:999px;background:var(--surface2);color:var(--muted);border:1px solid var(--line);vertical-align:3px;white-space:nowrap}
+.md h2#contents + ol{columns:2 260px;column-gap:28px}.md h2#contents + ol > li{break-inside:avoid}
+.md h2#contents + ol ul{font-size:.9rem;margin:.1em 0 .3em}
 /* ---------- bulb painter (3.5) ---------- */
 .painter .strip{display:block;width:100%;background:var(--night);border-radius:var(--radius-m);cursor:crosshair}
 .painter .paintgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;align-items:end}

@@ -1,7 +1,7 @@
 # EaveLuxOS
 ### The Intelligent Lighting Control Platform
 
-By **Christopher A. Tankelewicz (ThinkTank4n6)** · MIT License · version 4.22.2
+By **Christopher A. Tankelewicz (ThinkTank4n6)** · MIT License · version 4.22.3
 
 EaveLuxOS currently works with **Trimlight Edge** permanent-lighting controllers.
 Its scheduling, mapping and design tools are built to grow to other brands.
@@ -109,6 +109,9 @@ owner and are used here only to say which hardware EaveLuxOS works with.*
   checked. Nothing about patterns goes through Trimlight's cloud.
   Optionally, on/off and saved patterns go that way too, and a **Resync with
   Trimlight's cloud** button replaces the Trimlight app's sync.
+- **Lightning and Snowflake (4.22):** add the Trimlight Pattern Library's
+  storm flashes or falling snow to any pattern saved on the controller, set
+  over the home network and checked on the controller.
 - **Search features** from the top of every page: type "backup" or "eagles"
   and it opens that panel.
 - **Stores everything in a local SQLite database,** with version history and

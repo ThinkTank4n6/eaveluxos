@@ -1,5 +1,36 @@
 # Changelog
 
+## 4.22.3: the manual, refreshed
+
+**The manual**
+- **What's new** at the top: every feature from 4.18 to 4.22, each linked
+  to its section.
+- **Where things are** brought up to date for all seven tabs (it described
+  version 4.0), and a sentence that read "the backup timer is now the backup
+  timer" now says it was called the safety net.
+- **Lightning and Snowflake** have their own section under Patterns: what
+  each does, how to add one, when it plays on the lights, and tips. Local
+  mode links to it.
+- The **Contents** lists the main new sections under their chapters, and
+  shows in two columns on a wide screen.
+- **Tip**, **Note** and **Important** boxes, in color in the app and on
+  GitHub (GitHub's own `> [!TIP]` boxes, now shown the same way in the
+  app's manual).
+- Headings ending in a version, like *Studio (4.20)*, show it as a small tag.
+- Home: On and Off were described as grayed out; since 4.21.1 the matching
+  one is dimmed but still works.
+- Search features finds **Lightning and Snowflake**.
+
+Review (tests/repro_min_same_look_wrong_effect.py is #1):
+
+1. **The wrong one of two look-alike patterns.** Found while writing the
+   manual. EaveLuxOS shows its own copy of a controller pattern by that
+   pattern's number. Two saved patterns can now look exactly alike and still
+   differ on the house (one with Lightning), and the app always showed the
+   lower number: a copy of *Test w/o lightning* (#22) showed *Test
+   Lightning* (#20), with Lightning. Now the one with the same name wins;
+   otherwise the one without an effect; otherwise the lowest number.
+
 ## 4.22.2: Start EaveLuxOS from its icon
 
 Reported on Windows: after Quit, the EaveLuxOS icon on the desktop (the

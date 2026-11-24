@@ -85,6 +85,24 @@ def _look(p: dict) -> tuple:
             tuple((c, col, on) for c, col, on in p["slots"] if c))
 
 
+def pick_same_look(same: list, name, effects) -> int | None:
+    """4.22.3: which of the controller's patterns that look exactly alike to
+    show. Since Lightning and Snowflake (4.22), two can look alike and still
+    differ on the house ("Test Lightning" and "Test w/o lightning"), and the
+    first by number used to be shown whichever was meant. The one of the same
+    name wins; else one with no effect (exactly what was designed); else the
+    lowest number."""
+    if not same:
+        return None
+    want = str(name or "").strip().lower()
+    for p in same:
+        if want and p["name"].strip().lower() == want:
+            return p["id"]
+    with_effect = {n for _, n in (effects or [])}
+    plain = [p for p in same if p["id"] not in with_effect]
+    return min(p["id"] for p in (plain or same))
+
+
 def look_of(payload: dict):
     """The look of a pattern as sent to Trimlight's cloud (this app's own
     pattern, with any brightness or speed already in it); None when it can't
@@ -488,7 +506,7 @@ class Commands:
         self.enabled, self.host = enabled, host
         self.io, self.blocked, self.now, self.link_factory = io, blocked, now, link_factory
         self.failed_at = {}                 # dev -> after a failure, the cloud for a while
-        self.looks = {}                     # dev -> (time, {look: pattern number}) of the last read, 4.4.2
+        self.looks = {}                     # dev -> (time, {look: [patterns]}) of the last read, 4.4.2
         self.trouble = {}                   # dev -> (since, last said): a stretch of failures, said once an hour (4.4.3)
 
     RETRY_AFTER = 300
@@ -581,7 +599,7 @@ class Commands:
             log.info("Over the home network (%s): showed saved pattern %d.", self.host(dev), pid)
         return done
 
-    def show_like(self, dev, payload: dict):
+    def show_like(self, dev, payload: dict, name: str | None = None):
         """Show the pattern saved on the controller that looks exactly like
         this one, by its number (4.4.2), so this app's own copies of the
         controller's patterns don't need the cloud. The controller is read
@@ -598,9 +616,9 @@ class Commands:
             st = link.state(self.now())
             known = {}
             for p in st["patterns"]:
-                known.setdefault(_look(p), p["id"])
+                known.setdefault(_look(p), []).append(p)
             self.looks[dev] = (time.monotonic(), known)
-            pid = known.get(want)
+            pid = pick_same_look(known.get(want) or [], name, st.get("effects"))
             if pid:
                 link.show_saved(pid)
             return pid or 0

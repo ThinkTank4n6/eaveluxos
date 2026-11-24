@@ -26,6 +26,11 @@ assert(html.includes('<pre class="code"><code>a &lt; b</code></pre>'));
 // text; it used to freeze the page.
 assert(M.render('| a | b |\n\n> note\n| c | d |\n').includes('<p>| c | d |</p>'));
 
+// 4.22.3: GitHub's alert boxes and version tags in headings
+const al = M.render('> [!TIP]\n> Do **this**.\n\n## Studio (4.20)');
+assert(al.includes('<blockquote class="alert alert-tip"><p class="alert-title">Tip</p><p>Do <b>this</b>.</p></blockquote>'), al);
+assert(al.includes('<h2 id="studio-420">Studio <span class="ver" title="Added in version 4.20">4.20</span></h2>'), al);
+
 // The real manual: every table-of-contents link has a matching heading.
 const manual = M.render(fs.readFileSync(path.join(__dirname, '..', 'MANUAL.md'), 'utf8'));
 const ids = new Set([...manual.matchAll(/id="([^"]+)"/g)].map(m => m[1]));
