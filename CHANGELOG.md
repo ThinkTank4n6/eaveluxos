@@ -1,5 +1,15 @@
 # Changelog
 
+## 4.22.7: the Windows test run
+
+GitHub's Windows tests failed on 4.22.6 (the app itself was fine): the
+4.22.5 repro script printed a lightning-bolt sign, which Windows' console
+(cp1252) can't print, so the script stopped and printed nothing.
+
+- The repro scripts print plain ASCII.
+- A new test runs every standalone repro (tests/repro_min_*.py, both ways)
+  with an ASCII-only console, so this is caught on Linux before a release.
+
 ## 4.22.6: when Lightning and Snowflake can't be read, say why
 
 Reported from a Mac (Apple silicon, macOS 27.2.1): Setup › Local mode showed

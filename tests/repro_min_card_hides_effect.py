@@ -1,5 +1,5 @@
-"""4.22.5 review #1: Patterns › In the Trimlight app showed "Test Lightning"
-as plain "Custom · Static": the controller's Lightning on it was read
+"""4.22.5 review #1: Patterns > In the Trimlight app showed "Test Lightning"
+as plain "Custom - Static": the controller's Lightning on it was read
 (extra: "lightning") but dropped when the card was built. Standalone; BUG,
 or OK with --fixed."""
 import sys
@@ -12,7 +12,8 @@ def cards(r):
     effects = [{"id": p["id"], "name": p["name"], **p["effect"]} for p in r["patterns"]]
     if FIXED:
         effects = [{**e, "_fx": p["extra"]} for e, p in zip(effects, r["patterns"])]
-    return [f'{e["name"]}: Custom · Static' + (" · ⚡ Lightning" if e.get("_fx") == "lightning" else "")
+    # ASCII only: Windows prints through cp1252 (4.22.6 failed there on a lightning-bolt sign)
+    return [f'{e["name"]}: Custom - Static' + (" - [Lightning]" if e.get("_fx") == "lightning" else "")
             for e in effects]
 
 

@@ -17,7 +17,7 @@ def read(d):
 
 def row(name, d):
     fx, why = read(d)
-    effect = "Effect: [None ▾]" if fx is not None else ""
+    effect = "Effect: [None v]" if fx is not None else ""
     note = f"  (Lightning and Snowflake unavailable: {why}; Copy details)" if why else ""
     return f"{name} {effect} [Delete]{note}"
 
