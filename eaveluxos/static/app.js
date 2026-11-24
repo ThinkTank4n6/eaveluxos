@@ -3861,6 +3861,7 @@ VIEWS.settings = async (sec) => {
           <p class="note">Phones and bookmarks need the new address afterward. The schedule pauses for a few seconds while the app restarts.</p></div>
         <div class="panel stack"><h2>Start automatically</h2>
           ${a.autostart.supported ? `<label class="check"><input type="checkbox" id="auto" ${a.autostart.enabled ? 'checked' : ''}> Start this app when the computer starts</label>
+            ${a.autostart.problem ? `<p class="callout warn small">${esc(a.autostart.problem)}</p>` : ''}
             ${a.autostart.note ? `<p class="note">${esc(a.autostart.note)}</p>` : ''}` : '<p class="muted">Not available on this system.</p>'}
           ${a.awake && a.awake.supported ? `<label class="check"><input type="checkbox" id="awake" ${a.awake.enabled ? 'checked' : ''}> Keep this computer awake while the app runs</label>
             <p class="note">A sleeping computer can't follow the schedule. With this on, the computer won't go to sleep on its own; the screen can still turn off, and the power button and Sleep still work. Quitting the app lets it sleep again.</p>` : ''}</div>` : ''}

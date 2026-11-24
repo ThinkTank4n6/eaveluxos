@@ -1,5 +1,33 @@
 # Changelog
 
+## 4.22.1: a Mac app that didn't come back after a restart
+
+Reported from an Intel Mac: after a shutdown the app didn't start again and
+nothing could reach it. Both Mac downloads (Apple silicon and Intel) had
+the same problem.
+
+Review (tests/repro_min_mac_translocated.py is #1):
+
+1. **Start automatically saved a place that disappears.** A Mac app opened
+   where it was downloaded runs from a temporary copy macOS makes ("App
+   Translocation"); one opened straight from the .dmg runs from the disk
+   image. Start automatically saved that place, so after a restart launchd
+   tried to start a copy that no longer existed. Now it refuses there and
+   says to move the app into Applications.
+2. Home shows the same warning when the app runs from such a place, and
+   **Setup › App** shows it under Start automatically.
+3. A start-at-login entry pointing at a copy that's gone is flagged, and is
+   switched over to this copy when it's opened from Applications (never
+   toward another temporary copy).
+4. Setup › App says that on a Mac it starts at login (a Mac waiting at the
+   login screen, as with FileVault, starts it once someone logs in).
+5. The manual: install steps, section 7 and the troubleshooting table.
+6. **The manual page could freeze.** Found while writing this: a line
+   starting with `|` that isn't part of a table (say, a table split by a
+   note) made the manual viewer loop forever, freezing that browser tab.
+   Such a line is now shown as text. (The manual never had one; the test
+   caught it before release.)
+
 ## 4.22.0: Lightning and Snowflake
 
 From Chris's backups A to D and the phone capture of Nov 23, 2026: the

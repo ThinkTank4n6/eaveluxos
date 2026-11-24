@@ -1,7 +1,7 @@
 # EaveLuxOS: User Manual
 ### The Intelligent Lighting Control Platform
 
-Version 4.22.0 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
+Version 4.22.1 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
 
 > **Quick start: you probably don't need Python.** Download the ready-made
 > app from the project's GitHub **Releases** page
@@ -193,6 +193,16 @@ install it with your system's software installer (the package is `python3`).
 | Linux PC | `eaveluxos_…_amd64.deb` (or `EaveLuxOS-Linux-x86_64.tar.gz`) | `sudo apt install ./eaveluxos_…_amd64.deb`, then start **EaveLuxOS** from the app menu. For the `.tar.gz`, unpack it and run `./eaveluxos`. |
 | Raspberry Pi (64-bit Raspberry Pi OS) | `eaveluxos_…_arm64.deb` | `sudo apt install ./eaveluxos_…_arm64.deb`, then `eaveluxos run`. |
 
+> **Mac: run it from Applications.** Don't open EaveLuxOS from the
+> **Downloads** folder or straight from the open .dmg window. macOS then runs a
+> temporary copy that's gone after a restart, so the app can't start on its
+> own afterward. Since 4.22.1 the app notices this: Home and **Setup › App**
+> say to move it, and **Start automatically** won't turn on until it runs from
+> Applications. Drag it in, eject the .dmg, open it from Applications, and
+> turn **Start automatically** on there. A start-at-login entry left by a
+> copy that's gone is switched over to the copy in Applications the first time
+> you open it from there.
+
 3. Optional, to make sure the download is complete and unchanged: compare
    its fingerprint with the line for it in **SHA256SUMS.txt** (also under
    Assets). Windows Command Prompt: `certutil -hashfile
@@ -346,6 +356,13 @@ can use them (see section 10).
 
 On Linux, it starts when you log in. To make it start at power-on without
 anyone logging in, see section 25.
+
+On a Mac it also starts when you log in. If the Mac waits at the login
+screen after a restart (FileVault always does), the lights follow the
+schedule once someone logs in; turn on automatic login in **System Settings ›
+Users & Groups** if you want it to start by itself. The app must run from the
+**Applications** folder (section 4); otherwise this panel says so and won't
+turn on.
 
 A sleeping computer can't follow the schedule. On Windows and on a Mac
 (4.7.2), **Keep this computer awake while the app runs** (same panel, on by
@@ -3392,6 +3409,7 @@ Sharing it helps other Trimlight owners know what works on their firmware.
 |---|---|
 | Another program uses port 8787 | The app moves to the next free port by itself and remembers it. To pick one, use **Setup › App › App address** (section 20). |
 | The browser says it can't connect | The app isn't running. Double-click the launcher. On Mac or Linux, keep its window open. |
+| Mac: it didn't come back after a shutdown or restart | Open **EaveLuxOS** from **Applications** (nothing is lost; your settings are in ~/Library/Application Support/EaveLuxOS). If Home or **Setup › App** says it runs from a temporary copy or the disk image, quit, drag it into Applications, eject the .dmg and open it from there, then turn **Start automatically** on. It starts after someone logs in to the Mac. If phones still can't reach it, the Mac may have a new address after the restart: see **Setup › Accounts & access › Phones and other computers**, and reserve the Mac's address in your router. If macOS asks to allow incoming connections for EaveLuxOS, click **Allow**. |
 | "Couldn't check these with Trimlight" during setup | The app couldn't reach Trimlight, so your keys weren't checked yet. Check the internet connection and try again. If the message also says the **certificate check failed**: on a Mac, update to version 3.11.1 or later, which fixes this. Otherwise check the computer's date and time, and whether antivirus or network filtering software checks secure (HTTPS) connections. |
 | "Trimlight didn't accept these" | Re-enter the Client ID and Secret. They're case-sensitive, so check for spaces. Also check the computer's clock is correct, because Trimlight's sign-in uses the time. |
 | "Trimlight's cloud can't read its copy of this controller" (code 12006, "Device data could not be parsed … declared 21 and scanned 20 effect records") | Trimlight's cloud copy of the controller is out of step, for example because two saved patterns got the same number. The lights keep running. The app first asks the controller to resend its data and tries again. Since 4.2.1 the backup timer never saves patterns and doesn't try to repair this itself: it removes its timers and stops itself until you turn it off and on again. Since 4.3 nothing in this app saves or deletes patterns through the cloud (Local mode does it over the home network), and with the controller's address set, Setup › Lights & controller still saves ports while the cloud can't read it. While it lasts, Setup › Lights & controller shows the error and turns saving off, so the port layout can't be overwritten. If it doesn't clear: tap **Resync with Trimlight's cloud** in Setup › Lights & controller (4.4), which asks the controller to send the cloud a fresh copy and changes nothing on it; give it a few minutes and try again. First tap **Back up now** in Local mode, which works without the cloud. **Don't unplug or reset the controller while this shows**: twice in November 2026 a restart then left it with only its factory patterns (put yours back with Pattern backups if that happens). |

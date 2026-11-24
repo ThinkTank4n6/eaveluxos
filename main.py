@@ -176,6 +176,11 @@ def cmd_run(open_browser: bool):
     app.start()  # the port is ours now, so this is the only scheduler
     try:
         from eaveluxos import autostart
+        bad = autostart.mac_location_problem()        # 4.22.1: shown on Home too
+        if bad:
+            logging.getLogger("eaveluxos").warning(bad)
+            if bad not in app.store.warnings:
+                app.store.warnings.append(bad)
         if autostart.migrate_legacy(HERE):
             logging.getLogger("eaveluxos").info("Start-at-login entry updated to the EaveLuxOS name.")
         elif autostart.repoint(HERE):

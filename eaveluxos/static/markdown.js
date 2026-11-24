@@ -113,6 +113,9 @@
       }
       if (isList(l)) { const r = list(lines, i, indentOf(l)); out += r.html; i = r.i; continue; }
       const para = [];
+      // 4.22.1: a line no block takes (a "|" row with no table header above
+      // it) is text; before, nothing moved past it and the page froze.
+      if (/^\s*\|/.test(l)) para.push(lines[i++].trim());
       while (i < lines.length && lines[i].trim() && !/^(#{1,6}\s|```|\s*>|\s*\|)/.test(lines[i]) && !isList(lines[i])) para.push(lines[i++].trim());
       out += `<p>${inline(para.join(' '))}</p>`;
     }

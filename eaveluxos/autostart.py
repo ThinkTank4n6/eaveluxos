@@ -7,6 +7,7 @@
 """
 import os
 import platform
+import plistlib
 from xml.sax.saxutils import escape
 import subprocess
 import sys
@@ -75,6 +76,44 @@ def launch_command(app_dir: Path) -> list[str]:
     return [_python_gui(), str(app_dir / "main.py"), "run"]
 
 
+MOVE_TO_APPLICATIONS = ("Quit EaveLuxOS, drag EaveLuxOS from the download into the Applications folder, "
+                        "eject the download, and open it from Applications.")
+
+
+def mac_location_problem(exe=None, system=None, frozen=None) -> str | None:
+    """4.22.1: why this Mac app's place won't last past a restart, or None.
+
+    Reported from an Intel Mac: after a shutdown the app didn't come back. A
+    Mac app opened where it was downloaded is run by macOS from a temporary
+    copy ("App Translocation", under /private/var/folders/.../AppTranslocation/),
+    and one opened straight from the .dmg runs from /Volumes/..., gone once
+    the disk image is ejected. Start automatically saved that place, which
+    no longer exists after a restart, so the app never started again. The
+    same for both Mac downloads (Apple silicon and Intel)."""
+    system = system or platform.system()
+    frozen = getattr(sys, "frozen", False) if frozen is None else frozen
+    if system != "Darwin" or not frozen:
+        return None
+    p = str(exe or sys.executable)
+    if "/AppTranslocation/" in p:
+        return ("EaveLuxOS is running from a temporary copy macOS made because it was opened where it was "
+                "downloaded, so it can't start on its own after a restart. " + MOVE_TO_APPLICATIONS)
+    if p.startswith("/Volumes/"):
+        return ("EaveLuxOS is running from the disk image (or another disk), which is gone once it's ejected, "
+                "so it can't start on its own after a restart. " + MOVE_TO_APPLICATIONS)
+    return None
+
+
+def _mac_target(path: Path) -> str | None:
+    """The program a Mac start-at-login entry starts, or None if unreadable."""
+    try:
+        with open(path, "rb") as f:
+            args = plistlib.load(f).get("ProgramArguments") or []
+        return str(args[0]) if args else None
+    except (OSError, ValueError, plistlib.InvalidFileException, AttributeError, IndexError):
+        return None
+
+
 def _python_gui():
     exe = Path(sys.executable)
     if platform.system() == "Windows":
@@ -128,8 +167,19 @@ def migrate_legacy(app_dir: Path) -> bool:
 def repoint(app_dir: Path) -> bool:
     """Windows: if "Start automatically" is on but starts another copy of the
     app (an older version's folder), make it start this one. Returns True if
-    it changed anything."""
+    it changed anything.
+    Mac (4.22.1): the same, so a copy moved into Applications and opened
+    there takes over from an entry that pointed at a temporary copy or the
+    disk image. Never toward a place that won't last."""
     system, path = _paths(app_dir)
+    if system == "Darwin" and path.exists() and getattr(sys, "frozen", False):
+        if mac_location_problem() or _mac_target(path) == launch_command(app_dir)[0]:
+            return False
+        try:
+            set_enabled(app_dir, True)
+        except (OSError, RuntimeError):
+            return False
+        return True
     if system != "Windows" or not path.exists():
         return False
     target = str(Path(launch_command(app_dir)[-2 if not getattr(sys, "frozen", False) else 0]))
@@ -175,12 +225,21 @@ def stop_service(run=subprocess.run) -> bool:
 def status(app_dir: Path) -> dict:
     system, path = _paths(app_dir)
     note = None
+    problem = None
     if system == "Linux":
         note = ("Starts when you log in. To start at power-on without logging in, run once: "
                 "loginctl enable-linger $USER")
+    elif system == "Darwin":
+        note = ("Starts when you log in to this Mac. If the Mac waits at the login screen after a restart "
+                "(FileVault always does), the app starts once someone logs in.")
+        problem = mac_location_problem()
+        target = _mac_target(path) if path.exists() else None
+        if not problem and target and not Path(target).exists():
+            problem = ("Start automatically points to a copy of EaveLuxOS that isn't there any more (" + target
+                       + "), so it won't start after a restart. Turn it off and on again here.")
     return {"supported": system in ("Windows", "Darwin", "Linux"),
             "enabled": path.exists() or any(p.exists() for p in _legacy_paths()), "system": system,
-            "note": note}
+            "note": note, "problem": problem}
 
 
 def _systemd_escape(value: str) -> str:
@@ -200,6 +259,10 @@ def set_enabled(app_dir: Path, enabled: bool) -> dict:
             subprocess.run(["systemctl", "--user", "disable", f"{NAME}.service"], capture_output=True)
         path.unlink(missing_ok=True)
         return status(app_dir)
+    if system == "Darwin":
+        bad = mac_location_problem()
+        if bad:                     # 4.22.1: never save a place that's gone after a restart
+            raise RuntimeError(bad)
     path.parent.mkdir(parents=True, exist_ok=True)
     if system == "Windows":
         quoted = " ".join(f'""{c}""' if " " in c or "\\" in c else c for c in cmd)

@@ -22,6 +22,10 @@ assert(html.includes('<ol><li>One<ul><li>inner</li></ul></li><li>Two</li></ol>')
 assert(html.includes('<ol start="5">') && html.includes('<td><b>2</b></td>') && html.includes('<blockquote><p><b>Tip:</b> x</p></blockquote>'));
 assert(html.includes('<pre class="code"><code>a &lt; b</code></pre>'));
 
+// 4.22.1: a "|" line with no table header (a table split by a note) is
+// text; it used to freeze the page.
+assert(M.render('| a | b |\n\n> note\n| c | d |\n').includes('<p>| c | d |</p>'));
+
 // The real manual: every table-of-contents link has a matching heading.
 const manual = M.render(fs.readFileSync(path.join(__dirname, '..', 'MANUAL.md'), 'utf8'));
 const ids = new Set([...manual.matchAll(/id="([^"]+)"/g)].map(m => m[1]));
