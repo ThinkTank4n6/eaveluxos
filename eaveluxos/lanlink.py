@@ -80,6 +80,12 @@ SUB_LIVE = 0x03                 # a built-in effect, shown live (seen Nov 17, 20
 SUB_EFFECTS = 0x1B
 EFFECT_KINDS = {0: "lightning", 1: "snowflake"}
 EFFECT_CODES = {v: k for k, v in EFFECT_KINDS.items()}
+
+
+def effect_name(kind: int) -> str:
+    """lightning, snowflake, or "effect N" for one this app doesn't know yet
+    (4.23.1: newer controllers offer more; it's kept, never changed)."""
+    return EFFECT_KINDS.get(kind, f"effect {kind}")
 GREETING_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
 BANDS = 16
 SOURCE_LEVELS, SOURCE_CONTROLLER = 1, 2   # who listens: this app (sends levels) or the controller
@@ -426,8 +432,10 @@ def read_state(body: bytes) -> dict:
 
 
 def _effects_fields(tail: bytes) -> dict:
-    full = read_effects_full(tail)
-    out = {"effects": None if full is None else full[1], "effects_lightning": None if full is None else full[0]}
+    lay = _effects_layout(tail)
+    full = None if lay is None else lay[:2]
+    out = {"effects": None if full is None else full[1], "effects_lightning": None if full is None else full[0],
+           "effects_offered": None if lay is None else lay[2]}
     if full is None:
         # 4.22.6: why, and the end of the answer (timers, effects and clock;
         # no pattern names), so an owner can send it and it can be added
@@ -451,14 +459,26 @@ def effects_problem(d: bytes) -> str:
 def read_effects_full(d: bytes):
     """The Pattern Library's effects, from the end of the controller's state
     (4.22): (lightning, pairs), or None when it isn't laid out as seen (then
-    nothing is written). Laid out, as seen Nov 21-23, 2026:
-        03 | n, n pattern numbers | m, m pairs (kind, number) | 00 | clock (7 bytes)
+    nothing is written). Laid out, as seen Nov 21-24, 2026:
+        offered | n, n pattern numbers | m, m pairs (kind, number) | 00 | clock (7 bytes)
     pairs: what the Trimlight app sends with sub 0x1b, kind 0 Lightning and 1
     Snowflake. The first list held the Lightning numbers again while the
     Trimlight app set them; 4.22.4: after patterns were deleted it kept a
     number the pairs no longer had (Chris's controller, Nov 23 23:35), so it
     is read but not required to agree. The clock is year-2000, month, day,
-    hour, minute, second, weekday. Exactly one way to read it, or None."""
+    hour, minute, second, weekday. Exactly one way to read it, or None.
+    offered (4.23.1): 03 on Chris's controller, 0F on a Mac owner's with newer
+    firmware (4.17.79, Nov 24). Read as one bit per effect, but that firmware
+    still offers only Lightning and Snowflake (its Trimlight app, Nov 24 4:25
+    PM: Snowflake #16, Lightning #17, read here as (1, 16), (0, 17)), so its
+    meaning isn't known. Only bits 0 and 1 are required; a pair may use any
+    kind whose bit is set, and kinds this app doesn't know are kept as they are."""
+    lay = _effects_layout(d)
+    return None if lay is None else lay[:2]
+
+
+def _effects_layout(d: bytes):
+    """(lightning, pairs, offered) or None; see read_effects_full."""
     if len(d) < 13 or d[-8] != 0:
         return None
     y, mo, dy, hh, mi, ss, wd = d[-7:]
@@ -471,12 +491,17 @@ def read_effects_full(d: bytes):
         if p < 2 or d[p] != m:
             continue
         pairs = [(d[p + 1 + 2 * i], d[p + 2 + 2 * i]) for i in range(m)]
-        if not all(k in EFFECT_KINDS and 1 <= n <= MAX_PATTERN_ID for k, n in pairs):
+        if not all(k < 8 and 1 <= n <= MAX_PATTERN_ID for k, n in pairs):
             continue
         for n in range(0, 31):
             q = p - n - 1
-            if q >= 1 and d[q] == n and d[q - 1] == 0x03 and all(1 <= x <= MAX_PATTERN_ID for x in d[q + 1:p]):
-                found.append((list(d[q + 1:p]), pairs))
+            if q < 1 or d[q] != n:
+                continue
+            offered = d[q - 1]
+            if (offered & 0x03) != 0x03 or any(not offered >> k & 1 for k, _ in pairs):
+                continue
+            if all(1 <= x <= MAX_PATTERN_ID for x in d[q + 1:p]):
+                found.append((list(d[q + 1:p]), pairs, offered))
     return found[0] if len(found) == 1 else None
 
 
@@ -734,8 +759,8 @@ class Link:
     def set_effects(self, pairs):
         """4.22: the whole Pattern Library effects list, as the Trimlight app
         sends it: (kind, pattern number) pairs."""
-        if len(pairs) > 30 or any(k not in EFFECT_KINDS or not 1 <= n <= MAX_PATTERN_ID for k, n in pairs):
-            raise ValueError("effects: kind 0 or 1, patterns 1-60, at most 30")
+        if len(pairs) > 30 or any(not 0 <= k < 8 or not 1 <= n <= MAX_PATTERN_ID for k, n in pairs):
+            raise ValueError("effects: kinds 0-7, patterns 1-60, at most 30")
         self._write(SUB_EFFECTS, bytes(b for k, n in pairs for b in (k, n)))
 
     def set_port(self, port: int, start: int, end: int, on: bool):

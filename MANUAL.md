@@ -1,7 +1,7 @@
 # EaveLuxOS: User Manual
 ### The Intelligent Lighting Control Platform
 
-Version 4.23.0 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
+Version 4.23.2 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
 
 > [!TIP]
 > **Quick start: you probably don't need Python.**
@@ -926,7 +926,12 @@ over the home network.
   (section 25).
 - If the reason is **no clock at the end**, open the Trimlight Edge app once
   on your home Wi-Fi (it sets the controller's time), then **Read again**.
-- Firework isn't offered yet.
+- Controllers with newer firmware (4.17.79, November 2026) report their
+  effects a little differently; EaveLuxOS reads both kinds (4.23.1). That
+  firmware still offers just Lightning and Snowflake. If a later one adds an
+  effect EaveLuxOS doesn't know yet, it shows as **Another effect (set in the
+  Trimlight app)**, with a ✨ badge, and is never changed unless you choose
+  Lightning, Snowflake or None for that pattern.
 
 ## 11. Create a pattern
 

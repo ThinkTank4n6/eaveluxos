@@ -1283,7 +1283,7 @@ class App:
                               "effect": localmode.cloud_effect(p),
                               # 4.22: Lightning / Snowflake (None: the list wasn't readable)
                               "extra": (None if st.get("effects") is None else
-                                        next((lanlink.EFFECT_KINDS[k] for k, n in st["effects"] if n == p["id"]), ""))}
+                                        next((lanlink.effect_name(k) for k, n in st["effects"] if n == p["id"]), ""))}
                              for p in st["patterns"]],
                 "effects_readable": st.get("effects") is not None,
                 "effects_why": st.get("effects_why"), "effects_tail": st.get("effects_tail"),       # 4.22.6
@@ -1366,7 +1366,7 @@ class App:
             raise ApiError(str(e), 502) from None
         log.info("Pattern %s's effect over the home network: %s.", pid, kind or "none")
         self._after_local_write(dev)
-        return {"ok": True, "effects": [{"pattern": n, "effect": lanlink.EFFECT_KINDS[k]} for k, n in new]}
+        return {"ok": True, "effects": [{"pattern": n, "effect": lanlink.effect_name(k)} for k, n in new]}
 
     def local_delete(self, pid, name, dev: str | None = None) -> dict:
         if isinstance(pid, bool) or not isinstance(pid, int) or not isinstance(name, str) or not name.strip():
@@ -2180,7 +2180,7 @@ class App:
             return out
         if st.get("effects") is None:
             return out
-        kinds = {n: lanlink.EFFECT_KINDS[k] for k, n in st["effects"]}
+        kinds = {n: lanlink.effect_name(k) for k, n in st["effects"]}
         have = {p["id"]: p for p in st["patterns"]}
         out["known"] = True
         out["by_id"] = {str(n): k for n, k in kinds.items() if n in have}

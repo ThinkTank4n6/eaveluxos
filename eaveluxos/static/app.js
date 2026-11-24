@@ -175,6 +175,8 @@ function effectSwatches(def) {
 }
 /* 4.22.5: a pattern's Lightning or Snowflake, as a small badge */
 function fxBadge(kind, note = '') {
+  // 4.23.1: newer controllers offer more effects; one this app doesn't name yet
+  if (kind !== 'lightning' && kind !== 'snowflake') return ` <span class="fxbadge fx-lightning" title="An effect set in the Trimlight app (${esc(kind)})${esc(note)}">\u2728 Effect</span>`;
   const L = kind === 'lightning';
   return ` <span class="fxbadge ${L ? 'fx-lightning' : 'fx-snowflake'}" title="${L ? 'Lightning' : 'Snowflake'} plays with this pattern on the controller${esc(note)}">${L ? '\u26A1 Lightning' : '\u2744\uFE0F Snowflake'}</span>`;
 }
@@ -3497,7 +3499,7 @@ async function localPanel(box, fresh = false) {
         ${st.unreadable ? `<p class="note small">The controller also sent ${st.unreadable} slot${st.unreadable === 1 ? '' : 's'} that ${st.unreadable === 1 ? 'isn\u2019t a pattern' : 'aren\u2019t patterns'} (numbered 0 or past 60, usually without a name). They\u2019re left out here and never changed by this app.</p>` : ''}
         <div class="list">${st.patterns.map(p => `<div class="item"><div class="grow"><b>${esc(p.name)}</b> <span class="small muted">#${p.id}</span>
           <div>${swatches(p.colors.map(c => c[1]), 10)}</div></div>
-          ${p.extra === null || p.extra === undefined ? '' : `<label class="row small" style="gap:4px">Effect<select data-lceff="${p.id}" style="width:auto" aria-label="Effect for ${esc(p.name)}">${[['', 'None'], ['lightning', 'Lightning'], ['snowflake', 'Snowflake']].map(([v, l]) => `<option value="${v}" ${p.extra === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>`}
+          ${p.extra === null || p.extra === undefined ? '' : `<label class="row small" style="gap:4px">Effect<select data-lceff="${p.id}" style="width:auto" aria-label="Effect for ${esc(p.name)}">${[['', 'None'], ['lightning', 'Lightning'], ['snowflake', 'Snowflake'], ...(p.extra && !['lightning', 'snowflake'].includes(p.extra) ? [[p.extra, 'Another effect (set in the Trimlight app)']] : [])].map(([v, l]) => `<option value="${v}" ${p.extra === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>`}
           <button class="small ghost danger" data-lcdel="${p.id}" data-name="${esc(p.name)}">Delete</button></div>`).join('') || '<p class="muted small">No saved patterns.</p>'}</div>
         ${(st.effects_leftover || []).length ? `<p class="note small">The controller still lists Lightning or Snowflake for number${st.effects_leftover.length === 1 ? '' : 's'} ${st.effects_leftover.join(', ')}, from ${st.effects_leftover.length === 1 ? 'a pattern' : 'patterns'} deleted earlier. This app saves new patterns under other numbers first, so they don\u2019t pick it up.</p>` : ''}
         ${st.patterns.length && !st.effects_readable ? `<div class="callout small" id="lcfxwhy"><b>Lightning and Snowflake aren\u2019t available for this controller yet.</b> This app reads them from the end of the controller\u2019s answer, and this one isn\u2019t laid out as seen on other controllers (${esc(st.effects_why || 'not readable')}), so nothing is shown or sent. You can still set them in the Trimlight Edge app.

@@ -1,5 +1,37 @@
 # Changelog
 
+## 4.23.2: the newer firmware, confirmed
+
+The Mac owner set Snowflake on "snowflake test" (#16) and Lightning on
+"lightning test" (#17) in the Trimlight app, and his new backup reads back
+exactly that with 4.23.1. His firmware (4.17.79) still offers only those two
+effects, so 4.23.1's guess that its 0F meant more effects was wrong: what that
+byte means isn't known. The reading doesn't depend on it (only its two lowest
+bits are required), so nothing changes in how the app works.
+
+- The manual and the code's notes say so, without the guess.
+- His backup is now one of the tests.
+
+## 4.23.1: Lightning and Snowflake on newer controller firmware
+
+From the Mac owner's backup (Nov 24, 7:25 AM; controller firmware 4.17.79):
+his controller sends 0F before its effects lists where Chris's sends 03.
+Both lists were there (empty), but 4.22 required exactly 03, so the Effect
+choice was hidden and Local mode said the lists weren't laid out as seen.
+
+Review (tests/repro_min_newer_firmware_offered.py is #1):
+
+1. **That byte lists the effects the controller offers**, one bit each, it
+   seems: 03 is two (Lightning and Snowflake), 0F four. Any value that
+   includes Lightning and Snowflake is now read, and a pair may use any kind
+   the controller offers.
+2. **Effects this app doesn't know yet are kept.** They show as "Another
+   effect (set in the Trimlight app)" in Local mode and as a ✨ Effect badge
+   on Patterns, and a change to another pattern's effect leaves them as they
+   are. Choosing Lightning, Snowflake or None for that pattern replaces it.
+3. Everything else stays strict: the clock, the 00 after the lists, numbers
+   1-60, exactly one way to read it.
+
 ## 4.23.0: all 23 Trimlight animations
 
 From Chris's patterns A1-A8, backup and capture (Nov 24, 2026), each
