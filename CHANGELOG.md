@@ -1,5 +1,18 @@
 # Changelog
 
+## 4.21.3: a music-zones frame sent twice on a slow computer
+
+GitHub's Mac run of 4.21.2 failed one test (Music zones: "the same frame
+is sent once"; it sent it twice). Two causes, both fixed:
+
+- **The app:** while a music-zones frame was being sent, the same frame fed
+  again was queued and sent a second time, because the frame was marked as
+  the last one sent only after the send finished. On a slow computer (or
+  Wi-Fi) that's a wasted frame now and then. It's marked as it's taken now.
+- **The test:** it counted the frames right after the last red one was fed,
+  while that red frame could still be on its way. It now waits until
+  nothing more arrives before counting.
+
 ## 4.21.2: a test that depended on the time of day
 
 Only a test changed; the app is the same as 4.21.1.

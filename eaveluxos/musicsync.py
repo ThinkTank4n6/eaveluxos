@@ -228,7 +228,10 @@ class ZoneStreamer:
                     fps, fed = st["fps"], self.fed
                     msg = self.frame if now >= next_send else None
                     if msg is not None:
-                        self.frame = None
+                        # 4.21.3: marked as the last one as it's taken, not after
+                        # it's sent: the same frame fed during the send (a slow
+                        # computer) was queued and sent a second time
+                        self.frame, st["last"] = None, msg
                 if now - fed > self.idle:
                     why = "idle"
                     break
@@ -242,9 +245,6 @@ class ZoneStreamer:
                     if msg is not None:
                         link._send(L.frame(L.CMD_REQUEST, L.request(*msg)))
                         self.sent += 1
-                        with self.lock:
-                            if self.state:
-                                self.state["last"] = msg
                         next_send = now + 1 / fps
                     if now >= next_ping:
                         p.ping()

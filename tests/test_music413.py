@@ -159,7 +159,15 @@ class Stream(WithController):
         n = len(self.previews())
         self.assertLessEqual(n, 8, "4 a second, never every frame fed")
         self.assertGreaterEqual(n, 4)
-        same = len(self.previews())
+        # 4.21.3: the last red frame can still be on its way (GitHub's Mac):
+        # wait until nothing more arrives before counting the green ones
+        same, t1 = len(self.previews()), time.monotonic()
+        while time.monotonic() - t1 < 3:
+            time.sleep(0.4)
+            now = len(self.previews())
+            if now == same:
+                break
+            same = now
         for _ in range(20):
             z.feed(["#00FF00"], [50], "tab")
             time.sleep(0.02)
