@@ -3587,6 +3587,9 @@ def make_server(app: App, host: str, port: int):
                         out["setup"] = st
                         out["user"] = {"username": u["username"], "role": u["role"], "local": bool(u.get("local")),
                                        "setup": bool(u.get("setup"))}
+                        if self._local():           # 4.22.2: for the page on this computer, if it can't reach the program later
+                            out["start"] = {"link": bool(getattr(app, "start_link", False)),
+                                            "program": getattr(app, "program", None)}
                     return self._json(200, out)
                 if not self._authed():
                     return self._json(401, {"error": "Sign in first."})

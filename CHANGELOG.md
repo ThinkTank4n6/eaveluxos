@@ -1,5 +1,33 @@
 # Changelog
 
+## 4.22.2: Start EaveLuxOS from its icon
+
+Reported on Windows: after Quit, the EaveLuxOS icon on the desktop (the
+browser's installed app, from **Open in app**) only said "Can't reach
+EaveLuxOS", and starting again meant finding the program or downloading it
+again.
+
+Review (tests/repro_min_icon_cant_start.py is #1):
+
+1. **Nothing on that page could start the program.** A web page can't start
+   a program, but it can open a link this computer knows. Each time
+   EaveLuxOS starts it now registers `eaveluxos://start` for this user (no
+   administrator rights): Windows in the user's registry, Linux with a
+   hidden .desktop entry, and the Mac app carries it in its Info.plist. The
+   **Can't reach EaveLuxOS** page on the app computer, and the page shown
+   after **Quit**, have a **Start EaveLuxOS** button; the browser asks first.
+2. The link never passes anything to the program (no `%1`), so a web page can
+   at most start EaveLuxOS.
+3. Those pages show where the program is, in case the button does nothing,
+   and open the app by themselves once the program answers. After Quit they
+   wait until it has really stopped first.
+4. The offline page phones see has the link too, for the app computer.
+5. The registration follows the program: a copy moved elsewhere takes it
+   over the next time it starts. Nothing is written when it's already right.
+6. The log now names the version each time the program starts ("EaveLuxOS
+   4.22.2 is running"). From the log alone it wasn't possible to tell which
+   version ran after an update that was interrupted by Quit.
+
 ## 4.22.1: a Mac app that didn't come back after a restart
 
 Reported from an Intel Mac: after a shutdown the app didn't start again and

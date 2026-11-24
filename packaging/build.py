@@ -110,7 +110,9 @@ def finish_mac_app(app: Path, ver: str):
     info = plistlib.loads(plist.read_bytes())
     info.update({"LSUIElement": True, "CFBundleShortVersionString": ver, "CFBundleVersion": ver,
                  "CFBundleName": "EaveLuxOS", "CFBundleDisplayName": "EaveLuxOS",
-                 "NSHumanReadableCopyright": "© 2026 Christopher A. Tankelewicz (ThinkTank4n6). MIT License."})
+                 "NSHumanReadableCopyright": "© 2026 Christopher A. Tankelewicz (ThinkTank4n6). MIT License.",
+                 # 4.22.2: eaveluxos://start starts the app (the Start EaveLuxOS button; see launchlink.py)
+                 "CFBundleURLTypes": [{"CFBundleURLName": "com.eaveluxos.start", "CFBundleURLSchemes": ["eaveluxos"]}]})
     plist.write_bytes(plistlib.dumps(info))
     if shutil.which("codesign"):
         subprocess.run(["codesign", "--force", "--deep", "--sign", "-", str(app)], check=True)

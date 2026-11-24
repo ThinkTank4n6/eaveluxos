@@ -1,7 +1,7 @@
 # EaveLuxOS: User Manual
 ### The Intelligent Lighting Control Platform
 
-Version 4.22.1 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
+Version 4.22.2 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
 
 > **Quick start: you probably don't need Python.** Download the ready-made
 > app from the project's GitHub **Releases** page
@@ -349,6 +349,30 @@ can use them (see section 10).
 > that pattern's run.)
 
 ## 7. Make it start automatically
+
+### Starting it again after Quit (4.22.2)
+
+The EaveLuxOS icon your browser put on the desktop or taskbar (**Open in
+app**, or **Install**) and any bookmark only *show* the app; the EaveLuxOS
+program is what runs the lights. When the program isn't running (after
+**Quit**, say), that window says **Can't reach EaveLuxOS** and shows a
+**Start EaveLuxOS** button:
+
+1. Click **Start EaveLuxOS**. The browser asks whether to open EaveLuxOS;
+   tick **Always allow** (or similar) and choose **Open**.
+2. Wait a few seconds. The page opens the app by itself once the program
+   answers; no need to press **Try again**.
+
+The page also shows where the program is (for example
+`C:\Users\you\EaveLuxOS\EaveLuxOS.exe`), in case the button does nothing.
+Then open that file yourself. The button is set up for your user account
+each time the program starts, so it works once EaveLuxOS 4.22.2 or newer has
+run on this computer, and it follows the program if you move it. It only
+ever starts EaveLuxOS; nothing on a web page can send it anything else. On a
+Mac it works for the app in Applications (not when run from the source
+code).
+
+To have it running without any of this, turn on **Start automatically**:
 
 1. Go to **Setup › App**.
 2. Under **Start automatically**, tick **Start this app when the computer
@@ -3408,7 +3432,7 @@ Sharing it helps other Trimlight owners know what works on their firmware.
 | Problem | What to do |
 |---|---|
 | Another program uses port 8787 | The app moves to the next free port by itself and remembers it. To pick one, use **Setup › App › App address** (section 20). |
-| The browser says it can't connect | The app isn't running. Double-click the launcher. On Mac or Linux, keep its window open. |
+| The browser says it can't connect, or the desktop icon says **Can't reach EaveLuxOS** | The program isn't running (the icon and bookmarks only show it). Click **Start EaveLuxOS** on that page (4.22.2; your browser asks first), or open the program from its folder (the page shows where it is). On Mac or Linux, when run from the source code, keep its window open. Turn on **Start automatically** (section 7) so it's always running. |
 | Mac: it didn't come back after a shutdown or restart | Open **EaveLuxOS** from **Applications** (nothing is lost; your settings are in ~/Library/Application Support/EaveLuxOS). If Home or **Setup › App** says it runs from a temporary copy or the disk image, quit, drag it into Applications, eject the .dmg and open it from there, then turn **Start automatically** on. It starts after someone logs in to the Mac. If phones still can't reach it, the Mac may have a new address after the restart: see **Setup › Accounts & access › Phones and other computers**, and reserve the Mac's address in your router. If macOS asks to allow incoming connections for EaveLuxOS, click **Allow**. |
 | "Couldn't check these with Trimlight" during setup | The app couldn't reach Trimlight, so your keys weren't checked yet. Check the internet connection and try again. If the message also says the **certificate check failed**: on a Mac, update to version 3.11.1 or later, which fixes this. Otherwise check the computer's date and time, and whether antivirus or network filtering software checks secure (HTTPS) connections. |
 | "Trimlight didn't accept these" | Re-enter the Client ID and Secret. They're case-sensitive, so check for spaces. Also check the computer's clock is correct, because Trimlight's sign-in uses the time. |

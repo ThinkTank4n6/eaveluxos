@@ -425,6 +425,7 @@ async function boot() {
   S.session = await api('session');
   const s = S.session;
   if (s.version) $('#legalver').textContent = `EaveLuxOS ${s.version}`;
+  if (s.start) { try { localStorage.setItem('elx.start', JSON.stringify(s.start)); } catch (e) { /* private window */ } }
   if (!s.authed) return gate();
   $('#top').hidden = false;
   const u = s.user || { role: 'admin', local: true };
@@ -606,7 +607,9 @@ async function quitApp() {
   let r;
   try { r = await api('quit', { body: {} }); } catch (e) { return toast(e.message, true); }
   $('#top').hidden = true;
-  $('#main').innerHTML = `<div class="gate"><div class="panel"><h2>The app has stopped</h2><p class="muted">Double-click the launcher to start it again${r && r.starts_at_login ? ', or it starts by itself the next time you log in (Start automatically is on)' : ''}.</p></div></div>`;
+  $('#main').innerHTML = `<div class="gate"><div class="panel stack"><h2>The app has stopped</h2><p class="muted">The lights stay as they are, and the schedule waits until EaveLuxOS starts again${r && r.starts_at_login ? ' (it also starts by itself the next time you log in: Start automatically is on)' : ''}.</p>${startHere()}</div></div>`;
+  const rt = $('#main [data-retry]'); if (rt) rt.onclick = () => location.reload();
+  waitForApp(false);
 }
 const ROLE_NAMES = { admin: 'Administrator', editor: 'Editor', viewer: 'Viewer' };
 const role = () => (S.session && S.session.user && S.session.user.role) || 'admin';
@@ -4315,12 +4318,35 @@ boot().catch(e => {
   $('#main').innerHTML = away ? `<div class="gate"><div class="panel stack"><h2>Can\u2019t reach EaveLuxOS</h2>
       ${!COARSE && /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname)
         // 4.16.6: on the app computer itself the Wi-Fi advice doesn't apply: the program isn't running
-        ? `<p>EaveLuxOS isn\u2019t running on this computer. This window (or bookmark) only shows the app; the EaveLuxOS program runs the lights. Start it again (open <b>EaveLuxOS</b> from its folder, or sign in again if it starts by itself), then choose <b>Try again</b>.</p>`
-        : `<p>This ${COARSE ? 'phone' : 'device'} can\u2019t reach the app computer right now. EaveLuxOS works on your home network: join your home Wi-Fi (or your home VPN), and check the app computer is on with EaveLuxOS running.</p>`}
-      <div><button class="primary" data-retry>Try again</button></div></div></div>`
+        ? `<p>EaveLuxOS isn\u2019t running on this computer. This window (or bookmark) only shows the app; the EaveLuxOS program runs the lights.</p>${startHere()}`
+        : `<p>This ${COARSE ? 'phone' : 'device'} can\u2019t reach the app computer right now. EaveLuxOS works on your home network: join your home Wi-Fi (or your home VPN), and check the app computer is on with EaveLuxOS running.</p>
+      <div><button class="primary" data-retry>Try again</button></div>`}</div></div>`
     : `<div class="gate"><p class="callout warn">Can't reach the app: ${esc(e.message)}</p></div>`;
   const r = $('#main [data-retry]'); if (r) r.onclick = () => location.reload();      // no inline handlers (the page's security policy)
+  if (away && $('#main [data-startlink]')) waitForApp();
 });
+/* 4.22.2: on the app computer, when the program isn't running (after Quit,
+   or from the desktop icon the browser made): a button that starts it
+   (eaveluxos://start, set up each time the program starts; the browser asks
+   first), where the program is, and the page reloads by itself once it
+   answers. */
+function startHere() {
+  let st = null;
+  try { st = JSON.parse(localStorage.getItem('elx.start') || 'null'); } catch (e) { st = null; }
+  const where = st && st.program ? `<p class="small muted">The program: <code>${esc(st.program)}</code></p>` : '';
+  return `<div class="row"><a class="btn primary" href="eaveluxos://start" data-startlink>Start EaveLuxOS</a><button class="ghost" data-retry>Try again</button></div>
+    <p class="note">Your browser asks first; tick <b>Always allow</b> so the button works in one click next time. This page opens the app by itself once it has started.${st && st.link === false ? ' (The button may not work on this computer; then open EaveLuxOS from its folder.)' : ' If nothing happens, open <b>EaveLuxOS</b> from its folder (or sign in again if it starts by itself).'}</p>${where}`;
+}
+function waitForApp(down = true) {
+  // down: the program is known to be stopped. After Quit it still answers for
+  // a moment while it closes, so it must stop answering once before a reload.
+  clearInterval(waitForApp.t);
+  waitForApp.t = setInterval(() => {
+    fetch('api/session', { cache: 'no-store' }).then(r => {
+      if (r.ok && down) { clearInterval(waitForApp.t); location.reload(); }
+    }).catch(() => { down = true; });
+  }, 2000);
+}
 
 /* ---------------------------------------------------------------- HOUSE MAP: bulb finder, photos, landmarks, zones */
 const MAX_SLOTS = 30, PER_SLOT = 90;

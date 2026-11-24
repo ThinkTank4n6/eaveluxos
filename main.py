@@ -176,6 +176,12 @@ def cmd_run(open_browser: bool):
     app.start()  # the port is ours now, so this is the only scheduler
     try:
         from eaveluxos import autostart
+        from eaveluxos import launchlink                # 4.22.2: the Start EaveLuxOS link
+        try:
+            app.start_link = launchlink.register(HERE)
+        except Exception as e:
+            logging.getLogger("eaveluxos").info("The Start EaveLuxOS link couldn't be set up: %s", e)
+        app.program = launchlink.command(HERE)[0]
         bad = autostart.mac_location_problem()        # 4.22.1: shown on Home too
         if bad:
             logging.getLogger("eaveluxos").warning(bad)
@@ -187,7 +193,8 @@ def cmd_run(open_browser: bool):
             logging.getLogger("eaveluxos").info("Start automatically now starts this copy (%s).", HERE)
     except Exception:
         pass
-    log.info("EaveLuxOS is running. Open %s on this computer.", url)
+    from eaveluxos.version import VERSION as _V
+    log.info("EaveLuxOS %s is running. Open %s on this computer.", _V, url)
     from eaveluxos.server import lan_addresses
     for ip in lan_addresses():
         log.info("On your phone (same Wi-Fi): %s://%s:%s/", app.scheme, ip, port)
