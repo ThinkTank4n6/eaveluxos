@@ -427,7 +427,25 @@ def read_state(body: bytes) -> dict:
 
 def _effects_fields(tail: bytes) -> dict:
     full = read_effects_full(tail)
-    return {"effects": None if full is None else full[1], "effects_lightning": None if full is None else full[0]}
+    out = {"effects": None if full is None else full[1], "effects_lightning": None if full is None else full[0]}
+    if full is None:
+        # 4.22.6: why, and the end of the answer (timers, effects and clock;
+        # no pattern names), so an owner can send it and it can be added
+        out["effects_why"] = effects_problem(tail)
+        out["effects_tail"] = tail[-48:].hex(" ")
+    return out
+
+
+def effects_problem(d: bytes) -> str:
+    """In a few words, why read_effects_full found nothing (4.22.6)."""
+    if len(d) < 13:
+        return "the controller's answer ends early"
+    if d[-8] != 0:
+        return "something unknown follows the effects lists"
+    y, mo, dy, hh, mi, ss, wd = d[-7:]
+    if not (1 <= mo <= 12 and 1 <= dy <= 31 and hh <= 23 and mi <= 59 and ss <= 59 and wd <= 7):
+        return "no clock at the end (the controller's time may not be set)"
+    return "the effects lists aren't laid out as seen on other controllers"
 
 
 def read_effects_full(d: bytes):

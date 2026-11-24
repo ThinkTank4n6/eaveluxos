@@ -352,6 +352,9 @@ pre.code{padding:10px;white-space:pre-wrap;margin:0}
 .md .tablewrap{overflow-x:auto}.md table{border-collapse:collapse;width:100%;font-size:.92rem}
 .md th,.md td{border:1px solid var(--line);padding:6px 9px;text-align:left;vertical-align:top}.md th{background:var(--surface2)}
 .md a{color:var(--lamp)}
+.fxbadge{display:inline-block;margin-left:6px;font-size:.78rem;font-weight:600;padding:1px 8px;border-radius:999px;white-space:nowrap;vertical-align:1px}
+.fx-lightning{color:var(--lamp);background:var(--surface2);border:1px solid var(--lamp)}
+.fx-snowflake{color:var(--ok);background:var(--ok-soft);border:1px solid var(--ok)}
 /* 4.22.3: the manual's alert boxes, version tags and contents */
 .md blockquote.alert{border-left-width:4px}
 .md .alert-title{font-weight:700;margin:0 0 .2em;font-size:.82rem;text-transform:uppercase;letter-spacing:.04em}

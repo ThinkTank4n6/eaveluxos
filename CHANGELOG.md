@@ -1,5 +1,53 @@
 # Changelog
 
+## 4.22.6: when Lightning and Snowflake can't be read, say why
+
+Reported from a Mac (Apple silicon, macOS 27.2.1): Setup › Local mode showed
+each pattern with only **Delete**, no Effect choice. This app reads the
+effects from the end of the controller's answer, and only when it's laid out
+exactly as seen on a real controller (Chris's, every backup from Nov 16 to 23,
+with and without effects, reads correctly). That owner's controller answers
+differently, and the app left the choice out without a word.
+
+Review (tests/repro_min_fx_hidden_silently.py is #1):
+
+1. **Hidden without a reason.** Local mode now says **Lightning and
+   Snowflake aren't available for this controller yet**, why (for example,
+   "no clock at the end (the controller's time may not be set)"), and that
+   nothing is shown or sent.
+2. **Copy details.** The last 48 bytes of the controller's answer (its daily
+   timers, effects lists and clock; no pattern names), with the version, to
+   send so that layout can be added. The same line goes in the log, once per
+   controller each time the app runs.
+3. Still nothing is guessed or written to a controller the app can't read.
+
+## 4.22.5: Lightning and Snowflake badges
+
+Asked for: show a pattern's Lightning or Snowflake on Patterns › In the
+Trimlight app and on My patterns.
+
+- **In the Trimlight app:** each saved pattern with an effect shows a
+  **⚡ Lightning** or **❄️ Snowflake** badge. When the list comes from
+  Trimlight's cloud instead (the home network didn't answer, or for Editors
+  and Viewers), the badges come from the last home-network read, by number.
+- **My patterns:** the same badge on each of your patterns that the
+  controller shows by a saved pattern's number, so the effect plays with it:
+  a pattern added from the Trimlight app and left as it was, or one that uses
+  a saved pattern by name. It's worked out the same way the app chooses what
+  to show (the same name first among look-alikes, 4.22.3), so a badge means
+  the effect really plays. Changed copies, shown live, get none.
+- New read-only `GET /api/patterns/fx`, for anyone signed in. It uses the
+  last read of the controller (at most 5 seconds old) and changes nothing.
+
+Review (tests/repro_min_card_hides_effect.py is #1):
+
+1. **The effect was read but dropped.** Since 4.22 the home-network read
+   of the controller included each pattern's effect, but the card was built
+   without it, so *Test Lightning* showed as plain "Custom · Static".
+2. A badge's tip says when the effect plays only over the home network
+   (Local mode's sending switched off).
+3. Badges load after the page, so the list never waits for the controller.
+
 ## 4.22.4: the Effect choice is back
 
 Reported: Lightning and Snowflake didn't show in Setup › Local mode.

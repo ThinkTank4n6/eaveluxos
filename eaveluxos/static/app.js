@@ -173,6 +173,14 @@ function effectSwatches(def) {
   if (def.builtin !== undefined && S.catalog) return S.catalog.builtin[def.builtin]?.swatches || [];
   return [];
 }
+/* 4.22.5: a pattern's Lightning or Snowflake, as a small badge */
+function fxBadge(kind, note = '') {
+  const L = kind === 'lightning';
+  return ` <span class="fxbadge ${L ? 'fx-lightning' : 'fx-snowflake'}" title="${L ? 'Lightning' : 'Snowflake'} plays with this pattern on the controller${esc(note)}">${L ? '\u26A1 Lightning' : '\u2744\uFE0F Snowflake'}</span>`;
+}
+function patternsFx() {
+  return api('patterns/fx').then(r => (r && r.known ? r : null)).catch(() => null);
+}
 function effectKind(def) {
   if (!def) return '';
   if (def.split) return `Split by controller · ${Object.keys(def.split).length + (def.rest && def.rest !== 'off' ? 1 : 0)} parts`;
@@ -1103,12 +1111,16 @@ VIEWS.patterns = async (tab) => {
       <div class="cards">${effs.map(([k, e]) => `<div class="card">
       <div class="title"><b>${esc(e.label || k)}</b><button class="small ghost favbtn" data-fav="${esc(k)}" aria-pressed="${favs().includes(k)}" title="${favs().includes(k) ? 'Remove from Home' : 'Pin to Home (up to ' + MAX_FAVS + ')'}" aria-label="${favs().includes(k) ? 'Remove from Home' : 'Pin to Home'}">${icon('star')}</button></div>
       ${e.colors ? strand(e.colors, e.counts) : strand(effectSwatches(e))}
-      <p class="small muted">${esc(effectKind(e))}${usedBy(k).length ? ` · used by ${usedBy(k).length}` : ''}</p>
+      <p class="small muted">${esc(effectKind(e))}${usedBy(k).length ? ` · used by ${usedBy(k).length}` : ''}<span data-fxk="${esc(k)}"></span></p>
       ${e.scene && HouseFX.sceneTotal(e) !== addressSpace() && !houseDevs().some(x => devBulbs(x) === HouseFX.sceneTotal(e)) ? `<p class="small warn">Made for ${HouseFX.sceneTotal(e)} bulbs; your lights now have ${addressSpace()}. Edit it and save it again.</p>` : ''}
       <div class="actions"><button class="small" data-on="${esc(k)}">Turn on</button><button class="small ghost" data-edit="${esc(k)}">Edit</button>${role() !== 'viewer' ? `<button class="small ghost" data-pfold="${esc(k)}">Folder${e.folder ? ': ' + esc(e.folder) : ''}</button>` : ''}${shareable(e) ? `<button class="small ghost" data-share="${esc(k)}">Share</button>` : ''}<button class="small ghost danger" data-del="${esc(k)}">Delete</button></div>
     </div>`).join('') || '<p class="muted small">No patterns in this folder.</p>'}</div>`;
     const ps = $('#psort', body);
     if (ps) ps.onchange = () => { S.psort = ps.value; lsSet('psort', ps.value); VIEWS.patterns('mine'); };
+    patternsFx().then(fx => {                 // 4.22.5: Lightning / Snowflake on the controller's copy
+      if (!fx || !document.body.contains(body)) return;
+      $$('[data-fxk]', body).forEach(s => { const k = fx.mine[s.dataset.fxk]; if (k) s.outerHTML = fxBadge(k, fx.plays ? '' : ' (when shown over your home network: Setup \u203a Local mode)'); });
+    });
   } else if (S.ptab === 'community') {
     // Reviewed patterns shared by other owners (community.py). Fetched only now.
     let lib;
@@ -1156,7 +1168,7 @@ VIEWS.patterns = async (tab) => {
       bindPick();         // another can be chosen while this one is read
       try {
         const r = await api('local' + (devs.length > 1 ? `?device=${encodeURIComponent(d.id)}` : ''));
-        effects = r.patterns.map(p => ({ id: p.id, ...p.effect })); from = 'lan';
+        effects = r.patterns.map(p => ({ id: p.id, ...p.effect, _fx: p.extra || '' })); from = 'lan';
       } catch (e) { why = e.message; }
       if (S.ptab !== 'controller' || S.ptabDev !== d.id || !document.body.contains(body)) return;    // moved on meanwhile
     }
@@ -1168,10 +1180,14 @@ VIEWS.patterns = async (tab) => {
     body.innerHTML = `${pick}<p class="note" style="margin-bottom:12px">Patterns saved in the Trimlight app, ${src}. Add them to your patterns to use them in schedules.${tryNote}</p>
       ${effects && effects.length ? `<div class="cards">${effects.map((e, i) => { const def = fromController(e); return `<div class="card">
         <div class="title"><b>${esc(e.name)}</b></div>${def.colors ? strand(def.colors, def.counts) : strand(effectSwatches(def))}
-        <p class="small muted">${esc(effectKind(def))}</p>
+        <p class="small muted">${esc(effectKind(def))}${e._fx ? fxBadge(e._fx) : `<span data-fxid="${esc(e.id)}"></span>`}</p>
         <div class="actions"><button class="small" data-ctry="${i}">Try</button><button class="small ghost" data-cadd="${i}">Add to my patterns</button></div></div>`; }).join('')}</div>`
         : `<p class="callout">${effects ? `No patterns are saved on ${esc(d.name)}.` : `${esc(d.name)} didn’t report its pattern library${d.error ? `: ${esc(d.error)}` : ''}.`}</p>`}`;
     bindPick();
+    if (from !== 'lan' && lanFor(d.id)) patternsFx().then(fx => {   // 4.22.5: from the cloud's list, by number
+      if (!fx || !document.body.contains(body)) return;
+      $$('[data-fxid]', body).forEach(s => { const k = fx.by_id[s.dataset.fxid]; if (k) s.outerHTML = fxBadge(k); });
+    });
   } else {
     S.bgroup = S.bgroup || 'All';
     const groups = ['All', ...S.catalog.groups];
@@ -3479,6 +3495,8 @@ async function localPanel(box, fresh = false) {
           ${p.extra === null || p.extra === undefined ? '' : `<label class="row small" style="gap:4px">Effect<select data-lceff="${p.id}" style="width:auto" aria-label="Effect for ${esc(p.name)}">${[['', 'None'], ['lightning', 'Lightning'], ['snowflake', 'Snowflake']].map(([v, l]) => `<option value="${v}" ${p.extra === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>`}
           <button class="small ghost danger" data-lcdel="${p.id}" data-name="${esc(p.name)}">Delete</button></div>`).join('') || '<p class="muted small">No saved patterns.</p>'}</div>
         ${(st.effects_leftover || []).length ? `<p class="note small">The controller still lists Lightning or Snowflake for number${st.effects_leftover.length === 1 ? '' : 's'} ${st.effects_leftover.join(', ')}, from ${st.effects_leftover.length === 1 ? 'a pattern' : 'patterns'} deleted earlier. This app saves new patterns under other numbers first, so they don\u2019t pick it up.</p>` : ''}
+        ${st.patterns.length && !st.effects_readable ? `<div class="callout small" id="lcfxwhy"><b>Lightning and Snowflake aren\u2019t available for this controller yet.</b> This app reads them from the end of the controller\u2019s answer, and this one isn\u2019t laid out as seen on other controllers (${esc(st.effects_why || 'not readable')}), so nothing is shown or sent. You can still set them in the Trimlight Edge app.
+          ${st.effects_tail ? `<p class="small muted" style="margin:.4em 0 0">To help add this controller, send the details to the EaveLuxOS project (they hold the timers, the effects and the clock; no pattern names):</p><div class="row"><code class="small" style="overflow-wrap:anywhere;flex:1">${esc(st.effects_tail)}</code><button class="small ghost" data-lcfxcopy>Copy details</button></div>` : ''}</div>` : ''}
         ${st.patterns.length && st.effects_readable ? '<p class="note small">Effect: the Trimlight app\u2019s Pattern Library effects. Lightning adds flashes and Snowflake falling white over that saved pattern whenever it shows (from the Trimlight app, its timers, or this app showing it by number). Set over the home network and read back.</p>' : ''}
         ${st.daily ? `<h3 style="margin:12px 0 4px">Daily timers on the controller</h3>
           <p class="small muted">The controller\u2019s own two daily timers (the Trimlight app\u2019s), as it holds them now. Shown only; change them in the Trimlight app for now. This app\u2019s schedule doesn\u2019t use them.</p>
@@ -3486,6 +3504,12 @@ async function localPanel(box, fresh = false) {
             <div class="small">${esc(hm12(t.start))} \u2013 ${esc(hm12(t.end))} \u00b7 ${esc(t.repeat || 'repeat ' + t.repetition)} \u00b7 ${esc(t.pattern || 'pattern #' + t.effectId)}</div></div></div>`).join('')}</div>` : ''}
         <div class="row" style="margin-top:8px"><button class="small ghost" data-lcread>Read again</button>
           <button class="small" data-lcbackup>Back up now</button><span class="small muted">Saves these patterns and ports on this computer (listed under Pattern backups).</span></div>`;
+      const fxc = $('[data-lcfxcopy]', box);             // 4.22.6: the details, to send
+      if (fxc) fxc.onclick = () => {
+        const t = `${$('#legalver').textContent} · effects: ${st.effects_why || ''} | ${st.effects_tail || ''}`;
+        (navigator.clipboard?.writeText ? navigator.clipboard.writeText(t) : Promise.reject())
+          .then(() => toast('Copied. Paste it into a message to the EaveLuxOS project.'), () => toast('Select the details and copy them.', true));
+      };
     } catch (e) { const lb = $('#lcbody', box); if (lb) lb.innerHTML = `<p class="callout warn small">${esc(e.message)}</p><div><button class="small ghost" data-lcread>Try again</button></div>`; } }, 0);
   }
   const assign = async (b, id, address, force = false) => {

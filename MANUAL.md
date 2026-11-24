@@ -1,7 +1,7 @@
 # EaveLuxOS: User Manual
 ### The Intelligent Lighting Control Platform
 
-Version 4.22.4 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
+Version 4.22.6 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
 
 > [!TIP]
 > **Quick start: you probably don't need Python.**
@@ -102,6 +102,8 @@ settings.*
   [Starting it again after Quit](#starting-it-again-after-quit-4222).
 - **Macs come back after a restart** (4.22.1): the app tells you if it's
   running from Downloads or the disk image, where it can't start by itself.
+- **Badges for Lightning and Snowflake** (4.22.5) on Patterns › In the
+  Trimlight app and My patterns.
 - **The right one of two look-alike patterns** (4.22.3): when two saved
   patterns look the same but only one has Lightning or Snowflake, the app
   shows the one you meant.
@@ -878,6 +880,20 @@ controller shows that pattern **by its number**:
 A copy you change (another brightness, say) is shown live instead, and live
 patterns don't carry the effect.
 
+**Which patterns have one (4.22.5)**
+
+A badge shows it: **⚡ Lightning** or **❄️ Snowflake**.
+
+- **Patterns › In the Trimlight app**: on each saved pattern that has one.
+- **Patterns › My patterns**: on each of your patterns that the controller
+  shows by a saved pattern's number, so the effect plays with it. A copy
+  you've changed has no badge, because it's shown live.
+
+Badges need the controller's address in Setup › Local mode. If Local mode's
+**Send on/off and saved patterns over the home network** is off, the My
+patterns badge's tip says the effect plays only when the pattern is shown
+over the home network.
+
 > [!TIP]
 > To have a pattern both ways, save it twice in the Trimlight Edge app (for
 > example *Candy cane* and *Candy cane storm*) and add Lightning to one. When
@@ -896,8 +912,15 @@ patterns don't carry the effect.
   which numbers, and EaveLuxOS saves new patterns under other numbers first.
 - The **Effect** choice appears only when the controller reports its effects
   list the way it did on a real controller in November 2026. If it doesn't
-  (another firmware, say), nothing is shown or sent; set the effect in the
-  Trimlight Edge app instead.
+  (another firmware, say), nothing is sent, and Local mode says
+  **Lightning and Snowflake aren't available for this controller yet**, with
+  the reason (4.22.6). Set the effect in the Trimlight Edge app meanwhile.
+  To help add that controller, press **Copy details** and send what it
+  copies to the EaveLuxOS project. It holds only the controller's timers,
+  effects and clock, no pattern names; the same line is in the log
+  (section 25).
+- If the reason is **no clock at the end**, open the Trimlight Edge app once
+  on your home Wi-Fi (it sets the controller's time), then **Read again**.
 - Firework isn't offered yet.
 
 ## 11. Create a pattern

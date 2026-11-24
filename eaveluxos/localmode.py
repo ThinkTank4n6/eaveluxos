@@ -85,6 +85,9 @@ def _look(p: dict) -> tuple:
             tuple((c, col, on) for c, col, on in p["slots"] if c))
 
 
+look_key = _look              # 4.22.5: for the server's badges
+
+
 def leftover_effects(st: dict) -> set:
     """4.22.4: pattern numbers with no pattern that the controller's effects
     lists still name (left by deleting a pattern that had one)."""

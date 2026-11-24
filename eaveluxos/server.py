@@ -1264,6 +1264,13 @@ class App:
 
     def local_state(self, fresh: bool = False, dev: str | None = None) -> dict:
         loc, dev, st = self._local_read(fresh, dev)
+        if st.get("effects") is None and st.get("effects_tail"):
+            # 4.22.6: once per controller while running, so it's in the log to send
+            seen = self.__dict__.setdefault("_fx_logged", set())
+            if dev not in seen:
+                seen.add(dev)
+                log.info("Lightning and Snowflake: this controller's effects list couldn't be read (%s). "
+                         "Details to send to the EaveLuxOS project: %s", st.get("effects_why"), st["effects_tail"])
         names = {p["id"]: p["name"] for p in st["patterns"]}
         daily = [{**t, "pattern": names.get(t["effectId"]), "repeat": lanlink.REPEAT.get(t["repetition"])}
                  for t in st.get("daily") or []] or None          # 4.6: read only
@@ -1279,6 +1286,7 @@ class App:
                                         next((lanlink.EFFECT_KINDS[k] for k, n in st["effects"] if n == p["id"]), ""))}
                              for p in st["patterns"]],
                 "effects_readable": st.get("effects") is not None,
+                "effects_why": st.get("effects_why"), "effects_tail": st.get("effects_tail"),       # 4.22.6
                 # 4.22.4: numbers whose deleted pattern's effect the controller still lists
                 "effects_leftover": sorted(localmode.leftover_effects(st)) if st.get("effects") is not None else []}
 
@@ -2154,6 +2162,46 @@ class App:
             raise ApiError(str(e)) from None
 
     # --- energy (4.21) ------------------------------------------------------------
+    def patterns_fx(self) -> dict:
+        """4.22.5: which patterns carry Lightning or Snowflake, for badges on
+        Patterns › My patterns and In the Trimlight app.
+        by_id: the controller's saved patterns (number -> effect).
+        mine: this app's patterns (key -> effect) that would be shown by that
+        saved pattern's number, so the effect plays (the same choice as
+        Controller._apply: saved by name or number; else an exact copy, the
+        same name first). Reads nothing new: the last read of the controller
+        over the home network (at most 5 seconds old, else read once).
+        Empty when there's no home-network address or the list isn't readable."""
+        out = {"by_id": {}, "mine": {}, "known": False,
+               "plays": bool(self.ctrl and self.ctrl.lan is not None)}
+        try:
+            _, _, st = self._local_read(False)
+        except ApiError:
+            return out
+        if st.get("effects") is None:
+            return out
+        kinds = {n: lanlink.EFFECT_KINDS[k] for k, n in st["effects"]}
+        have = {p["id"]: p for p in st["patterns"]}
+        out["known"] = True
+        out["by_id"] = {str(n): k for n, k in kinds.items() if n in have}
+        if not self.ctrl:
+            return out
+        by_name = {p["name"].strip().lower(): p["id"] for p in st["patterns"]}
+        looks = {}
+        for p in st["patterns"]:
+            looks.setdefault(localmode.look_key(p), []).append(p)
+        for key, e in (self.ctrl.cfg.effects or {}).items():
+            pid = None
+            if e.kind == "saved":
+                pid = e.saved_id if e.saved_id in have else by_name.get((e.saved_name or "").strip().lower())
+            elif e.kind not in ("split", "builtin") and isinstance(e.payload, dict):
+                lk = localmode.look_of(dict(e.payload))
+                if lk is not None:
+                    pid = localmode.pick_same_look(looks.get(lk) or [], e.label, st["effects"])
+            if pid and kinds.get(pid):
+                out["mine"][key] = kinds[pid]
+        return out
+
     def energy_estimate(self) -> dict:
         from . import energy
         if not self.ctrl:
@@ -3745,6 +3793,8 @@ def make_server(app: App, host: str, port: int):
                 return sorted(f.stem for f in d.glob("*.jpg")) if d.is_dir() else []
             if path == "/api/rulecheck":
                 return app.rule_check()
+            if path == "/api/patterns/fx":            # 4.22.5: Lightning / Snowflake badges
+                return app.patterns_fx()
             if path == "/api/energy":                 # 4.21: estimates from the patterns
                 return app.energy_estimate()
             if path == "/api/runtime":                # hours on per month (3.15)
