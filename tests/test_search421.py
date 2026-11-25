@@ -54,8 +54,8 @@ class Index(unittest.TestCase):
     def test_finds_what_people_type(self):
         q = lambda s: node(f"console.log(JSON.stringify(S.find({json.dumps(s)}).map(f => f.t)))")
         self.assertEqual(q("backup")[0], "Backup timer")
-        self.assertEqual(q("gam")[0], "Game-day lights")
-        self.assertEqual(q("eagles")[0], "Game-day lights")
+        self.assertEqual(q("gam")[0], "Game-time lights")
+        self.assertEqual(q("eagles")[0], "Game-time lights")
         self.assertEqual(q("restore")[0], "Pattern backups")
         self.assertEqual(q("PORTS")[0], "Ports and bulbs")
         self.assertEqual(q("web hook")[0], "Webhooks")

@@ -143,6 +143,59 @@ def clean_pattern(pid: str, data) -> dict:
     return p
 
 
+def share_file(pattern: dict, name: str, author: str = "", description: str = "", tags=()) -> tuple[str, str]:
+    """4.26: a pattern as a file for the library's patterns/ folder, checked
+    by the same rules as the library's own check (tools/community-library/
+    build_index.py), so the pull request passes. Returns (file name, text)."""
+    if not isinstance(pattern, dict) or "saved" in pattern or ("colors" not in pattern and "builtin" not in pattern):
+        raise CommunityError("Only a pattern of colors or a built-in effect can be shared "
+                             "(one saved in the Trimlight app belongs to that controller).")
+    name = _text(name, 60)
+    if not name:
+        raise CommunityError("Give it a name.")
+    author, description = _text(author, 40), _text(description, 200)
+    tg = []
+    for t in (tags if isinstance(tags, (list, tuple)) else str(tags or "").split(",")):
+        t = _text(t, 24).lower()
+        if t and t not in tg:
+            tg.append(t)
+    if len(tg) > 8:
+        raise CommunityError("Up to 8 tags.")
+    p = {"label": name, **{k: v for k, v in pattern.items() if k in PATTERN_KEYS and k != "label" and v is not None}}
+    try:
+        Effect.from_config("community", p)
+    except (ConfigError, ValueError, TypeError, KeyError) as e:
+        raise CommunityError(f"That pattern can't be shared ({e}).") from None
+    if "colors" in p:
+        p["colors"] = [str(c).upper() for c in p["colors"]]
+    pid = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")[:60].strip("-") or "pattern"
+    if not ID_RE.fullmatch(pid):
+        pid = "pattern"
+    body = {"name": name, **({"author": author} if author else {}), **({"description": description} if description else {}),
+            "tags": tg, "pattern": p}
+    return f"{pid}.json", _library_text(body)
+
+
+def _library_text(body: dict) -> str:
+    """The library's own layout (as in candy-cane.json): one top-level field
+    per line, with tags and the pattern each kept on a single line."""
+    lines = [f" {json.dumps(k)}: {json.dumps(v, ensure_ascii=False)}" for k, v in body.items()]
+    return "{\n" + ",\n".join(lines) + "\n}\n"
+
+
+def new_file_url(settings: dict, filename: str, text: str) -> str | None:
+    """4.26: GitHub's page for proposing that file to the library (it offers a
+    fork and a pull request to anyone without write access), or None when the
+    library isn't on GitHub."""
+    u = urllib.parse.urlparse(base_url(settings))
+    parts = [x for x in u.path.split("/") if x]
+    if u.hostname != "raw.githubusercontent.com" or len(parts) < 3:
+        return None
+    owner, repo, branch = parts[0], parts[1], parts[2]
+    q = urllib.parse.urlencode({"filename": f"patterns/{filename}", "value": text})
+    return f"https://github.com/{owner}/{repo}/new/{branch}?{q}"
+
+
 class Library:
     def __init__(self, opener=None, clock=time.time):
         self.opener, self.clock = opener, clock

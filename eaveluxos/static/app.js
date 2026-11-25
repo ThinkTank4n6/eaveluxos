@@ -999,14 +999,48 @@ async function shareDialog(keys, rotate) {
     <p class="note">Send this code in a message or post. In EaveLuxOS, the other person taps <b>Patterns › Open a share code</b> and pastes it. Only the colors and motion are in it, nothing about your home.</p>
     <textarea id="sharecode" readonly rows="4" style="width:100%;font-family:ui-monospace,monospace;font-size:12px">${esc(r.code)}</textarea>
     <div class="row"><button type="button" class="small" data-copy="sharecode">Copy the code</button>${navigator.share ? '<button type="button" class="small ghost" data-sharesys>Send…</button>' : ''}<span class="small muted">${r.length} characters</span></div>
+    ${keys.length === 1 && role() !== 'viewer' ? `<div class="row" style="gap:8px;align-items:center"><button type="button" class="small" data-community="${esc(keys[0])}">Share to the community library\u2026</button><span class="small muted">For everyone, in <b>Patterns \u203a Community</b></span></div>` : ''}
     ${qr ? `<div class="qrbox" style="text-align:center;background:#fff;padding:8px;border-radius:8px">${qr}</div>
       <p class="note">Or let them scan it: a phone's camera shows the code as text to copy and paste. Some browsers scan it right in Open a share code.</p>`
-      : '<p class="note">This one is too long for a QR code; send the code itself.</p>'}`, null);
+      : '<p class="note">This one is too long for a QR code; send the code itself.</p>'}
+`, null);
   const f = $('#dlg form');
   f.addEventListener('click', e => {
     const b = e.target.closest('button'); if (!b) return;
     if (b.dataset.copy) { const el = $('#sharecode'); el.select(); (navigator.clipboard?.writeText ? navigator.clipboard.writeText(el.value) : Promise.reject()).then(() => toast('Copied'), () => toast('Selected. Copy it with Ctrl+C (\u2318C on a Mac).')); }
     if (b.dataset.sharesys !== undefined) navigator.share({ title: 'EaveLuxOS pattern', text: r.code }).catch(() => {});
+    if (b.dataset.community) { const k = b.dataset.community; $("#dlg").close(); setTimeout(() => communityShareDialog(k), 0); }
+  });
+}
+/* 4.26: propose a pattern for the community library. EaveLuxOS writes the
+   file; GitHub's own page (opened in a new tab) makes the copy and the pull
+   request, signed in as the person sharing. Nothing is sent from here. */
+function communityShareDialog(key) {
+  const e = (S.settings.effects || {})[key] || {};
+  dialog(`<h2>Share \u201c${esc(e.label || key)}\u201d with the community</h2>
+    <p class="note">Patterns in <b>Patterns \u203a Community</b> come from a public GitHub library and are reviewed before they appear. You need a free GitHub account.</p>
+    <label class="field">Name<input name="nm" maxlength="60" value="${esc(e.label || key)}" required></label>
+    <label class="field">Your name or handle (shown with it)<input name="au" maxlength="40" placeholder="optional"></label>
+    <label class="field">Description<input name="ds" maxlength="200" placeholder="e.g. Warm autumn oranges and browns, standing still"></label>
+    <label class="field">Tags (comma-separated, up to 8)<input name="tg" maxlength="200" placeholder="e.g. fall, autumn, orange"></label>`, async f => {
+    const r = await api('community/share', { body: { key, name: f.nm.value, author: f.au.value, description: f.ds.value, tags: f.tg.value.split(',') } });
+    setTimeout(() => communityNextDialog(r), 0);
+  }, { ok: 'Next' });
+}
+function communityNextDialog(r) {
+  dialog(`<h2>Propose it on GitHub</h2>
+    ${r.url ? `<ol class="small" style="padding-left:1.2em;margin:0">
+      <li>Press <b>Open GitHub</b> and sign in. The file <code>${esc(r.filename)}</code> is already filled in.</li>
+      <li>Press <b>Commit changes\u2026</b>, then <b>Propose changes</b>.</li>
+      <li>Press <b>Create pull request</b>. The library\u2019s check runs; once it\u2019s reviewed and merged, your pattern appears in <b>Patterns \u203a Community</b> for everyone.</li></ol>
+      <div class="row"><a class="btn primary" href="${esc(r.url)}" target="_blank" rel="noopener noreferrer">Open GitHub</a><button type="button" class="small ghost" data-dl>Download the file instead</button></div>`
+      : `<p class="note">This library isn\u2019t on GitHub, so download the file and send it to whoever keeps the library.</p><div><button type="button" class="small" data-dl>Download ${esc(r.filename)}</button></div>`}
+    <details class="small"><summary>The file</summary><pre style="white-space:pre-wrap;font-size:12px">${esc(r.content)}</pre></details>`, null);
+  $('#dlg form').addEventListener('click', ev => {
+    if (!ev.target.closest('[data-dl]')) return;
+    const url = URL.createObjectURL(new Blob([r.content], { type: 'application/json' }));
+    const link = Object.assign(document.createElement('a'), { href: url, download: r.filename });
+    document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 2000);
   });
 }
 function sharePickDialog() {
@@ -1942,16 +1976,21 @@ async function gamePanel(box) {
   const day = d => new Date(d + 'T12:00').toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
   // 4.3.5: two separate switches. Settings from before had one for both.
   const party = gd.celebrate_enabled ?? !!gd.enabled;
-  box.innerHTML = `<h2>Game-day lights</h2>
+  box.innerHTML = `<h2>Game-time lights</h2>
     <p class="note">Two separate things, each with its own switch. Game dates and scores come from ESPN\u2019s public schedule; if it can\u2019t be reached, your normal schedule runs.</p>
-    <label class="check"><input type="checkbox" id="gdon" ${gd.enabled ? 'checked' : ''} ${ro ? 'disabled' : ''}> <span><b>Use game-day lights</b><br><span class="small muted">Your team\u2019s colors on the nights they play, instead of the usual pattern (even during a holiday season).</span></span></label>
+    <label class="check"><input type="checkbox" id="gdon" ${gd.enabled ? 'checked' : ''} ${ro ? 'disabled' : ''}> <span><b>Use game-time lights</b><br><span class="small muted">Your team\u2019s colors while they play (or all evening on game days, if you choose), instead of the usual pattern (even during a holiday season).</span></span></label>
     <label class="check"><input type="checkbox" id="gdparty" ${party ? 'checked' : ''} ${ro ? 'disabled' : ''}> <span><b>Celebrate scores</b><br><span class="small muted">Flash the team\u2019s colors for a few seconds when they score, then back to what was on. Works whether or not game-day lights are on; tick each team below.</span></span></label>
     ${(gd.teams || []).map((t, i) => { const inf = info(`${t.league}-${t.team}`); return `<div class="panel stack" style="background:var(--surface2);padding:12px">
       <div class="panel-head"><b>${esc(t.name || t.team.toUpperCase())}</b><span class="small muted">${esc((g.leagues[t.league] || t.league))}</span>${ro ? '' : `${t.celebrate ? `<button class="small ghost" data-gdauto="${i}">Make it an automation</button>` : ''}<button class="small ghost danger" data-gddel="${i}">Remove</button>`}</div>
       <div class="row"><label class="field" style="flex:2;min-width:150px">Team colors (pattern)<select data-gdeff="${i}" ${ro ? 'disabled' : ''}>${effs.map(([k, e]) => `<option value="${esc(k)}" ${t.effect === k ? 'selected' : ''}>${esc(e.label || k)}</option>`).join('')}</select></label>
-        <label class="field" style="flex:1;min-width:110px">On<input type="text" data-gdon="${i}" value="${esc(t.on || 'sunset')}" ${ro ? 'disabled' : ''}></label>
+        <label class="field" style="flex:1;min-width:150px">Lights on<select data-gdduring="${i}" ${ro ? 'disabled' : ''}><option value="game" ${t.during === 'game' ? 'selected' : ''}>During the game</option><option value="evening" ${t.during !== 'game' ? 'selected' : ''}>All evening</option></select></label></div>
+      ${t.during === 'game' ? `<div class="row small" style="gap:8px;flex-wrap:wrap"><label class="row" style="gap:6px">From<select data-gdbefore="${i}" style="width:auto" ${ro ? 'disabled' : ''}>${[0, 5, 10, 15, 30, 45, 60].map(m => `<option value="${m}" ${(t.before ?? 15) === m ? 'selected' : ''}>${m ? m + ' min before' : 'the start'}</option>`).join('')}</select></label>
+        <label class="row" style="gap:6px">until<select data-gdafter="${i}" style="width:auto" ${ro ? 'disabled' : ''}>${[0, 5, 10, 15, 30, 60].map(m => `<option value="${m}" ${(t.after ?? 15) === m ? 'selected' : ''}>${m ? m + ' min after the end' : 'the end'}</option>`).join('')}</select></label>
+        <label class="check"><input type="checkbox" data-gdday="${i}" ${t.daytime ? 'checked' : ''} ${ro ? 'disabled' : ''}> Day games too</label></div>
+      <p class="small muted" style="margin:0">From ESPN\u2019s start time to the final score (or, if the score can\u2019t be followed, the longest a game usually runs).${t.daytime ? '' : ' A day game lights up only once it\u2019s dark, if it\u2019s still on.'} ${gd.enabled ? '' : '<b>Game-time lights are off.</b>'}</p>`
+      : `<div class="row"><label class="field" style="flex:1;min-width:110px">On<input type="text" data-gdon="${i}" value="${esc(t.on || 'sunset')}" ${ro ? 'disabled' : ''}></label>
         <label class="field" style="flex:1;min-width:110px">Off<input type="text" data-gdoff="${i}" value="${esc(t.off || '23:00')}" ${ro ? 'disabled' : ''}></label></div>
-      <p class="small muted" style="margin:0">On and Off are for game-day lights. ${gd.enabled ? '' : '<b>Game-day lights are off.</b>'}</p>
+      <p class="small muted" style="margin:0">The team\u2019s colors all evening on game days. ${gd.enabled ? '' : '<b>Game-time lights are off.</b>'}</p>`}
       <label class="check small"><input type="checkbox" data-gdcel="${i}" ${t.celebrate ? 'checked' : ''} ${ro ? 'disabled' : ''}> Celebrate this team\u2019s scores${party ? '' : ' <span class="muted">(Celebrate scores is off above)</span>'}${['nfl', 'cfb'].includes(t.league) ? ' (field goals and touchdowns)' : ['nba', 'wnba', 'mcbb', 'wcbb'].includes(t.league) ? ' (3-pointers; baskets are too frequent)' : ''}</label>
       ${t.celebrate ? soundRow(t, i, ro) : ''}
       ${t.celebrate ? `<label class="row small" style="gap:6px">Its own celebration length<select data-gdsec1="${i}" style="width:auto" ${ro ? 'disabled' : ''}><option value="">as for every team</option>${[10, 15, 20, 30, 45, 60, 90, 120].map(s => `<option value="${s}" ${t.seconds === s ? 'selected' : ''}>${s} seconds</option>`).join('')}</select></label>` : ''}
@@ -1959,7 +1998,7 @@ async function gamePanel(box) {
         ${t.win_effect ? `<label class="row" style="gap:6px">for<select data-gdwinmin="${i}" style="width:auto" ${ro ? 'disabled' : ''}>${[15, 30, 60, 120, 240].map(m => `<option value="${m}" ${(t.win_minutes || 30) === m ? 'selected' : ''}>${m < 60 ? m + ' minutes' : m / 60 + ' hour' + (m > 60 ? 's' : '')}</option>`).join('')}</select></label>` : ''}</div>
       ${inf.live && inf.live.state === 'missing' ? `<p class="small warn">Not on ESPN’s scoreboard today under “${esc(inf.live.code)}”, so scores can’t be followed. Check the team code (the letters in the team’s address on espn.com).</p>`
         : inf.live ? `<p class="small"><b>${inf.live.state === 'in' ? 'Live' : inf.live.state === 'post' ? 'Final' : 'Today'}</b>: ${esc(t.name || t.team.toUpperCase())} ${inf.live.score}${inf.live.vs ? ` – ${esc(inf.live.vs)} ${inf.live.them ?? ''}` : ''} ${inf.live.detail ? '· ' + esc(inf.live.detail) : ''}</p>` : ''}
-      <p class="small ${inf.error && !inf.known ? 'warn' : 'muted'}">${inf.next && inf.next.length ? 'Next games: ' + inf.next.map(day).map(esc).join(', ') : inf.error ? 'Schedule not available yet: ' + esc(inf.error) : inf.known ? 'No more games this season.' : !gd.enabled && !(party && t.celebrate) ? 'Not checked while this team has neither game-day lights nor celebrations on.' : 'Schedule not checked yet (within a minute of turning it on).'}</p></div>`; }).join('')}
+      <p class="small ${inf.error && !inf.known ? 'warn' : 'muted'}">${inf.next && inf.next.length ? 'Next games: ' + inf.next.map(d => day(d) + (inf.starts && inf.starts[d] ? ' ' + new Date(`2000-01-01T${inf.starts[d]}`).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '')).map(esc).join(', ') : inf.error ? 'Schedule not available yet: ' + esc(inf.error) : inf.known ? 'No more games this season.' : !gd.enabled && !(party && t.celebrate) ? 'Not checked while this team has neither game-day lights nor celebrations on.' : 'Schedule not checked yet (within a minute of turning it on).'}</p></div>`; }).join('')}
     ${party && (gd.teams || []).some(t => t.celebrate) ? `<div class="row"><label class="row small">Celebrate for<select id="gdsec" style="width:auto" ${ro ? 'disabled' : ''}>${[10, 15, 20, 30, 45, 60].map(n => `<option value="${n}" ${(gd.celebrate_seconds || 15) === n ? 'selected' : ''}>${n} seconds</option>`).join('')}</select></label>
       <label class="check small"><input type="checkbox" id="gdonly" ${gd.celebrate_only_when_on !== false ? 'checked' : ''} ${ro ? 'disabled' : ''}> Only while the lights are on</label></div>
       <p class="note">Live scores come from ESPN’s free scoreboard, checked every 20 seconds during the game. It runs a little behind live TV, so the lights celebrate shortly after you see the score.</p>` : ''}
@@ -1996,7 +2035,7 @@ async function gamePanel(box) {
     }
     if (t.id === 'gdon') {
       if (n.gameday.celebrate_enabled === undefined) n.gameday.celebrate_enabled = !!n.gameday.enabled;   // keep celebrations as they were
-      n.gameday.enabled = t.checked; return busy(null, () => save(n, t.checked ? 'Game-day lights on' : 'Game-day lights off')).catch(() => { t.checked = !t.checked; });
+      n.gameday.enabled = t.checked; return busy(null, () => save(n, t.checked ? 'Game-time lights on' : 'Game-time lights off')).catch(() => { t.checked = !t.checked; });
     }
     if (t.id === 'gdparty') { n.gameday.celebrate_enabled = t.checked; return busy(null, () => save(n, t.checked ? 'Score celebrations on' : 'Score celebrations off')).catch(() => { t.checked = !t.checked; }); }
     if (t.id === 'gdpick') { $('#gdother').hidden = t.value !== 'other'; return; }
@@ -2025,9 +2064,14 @@ async function gamePanel(box) {
       if (ds.gdwinmin !== undefined) tm.win_minutes = +t.value;
       return busy(null, () => save(n, ds.gdwin !== undefined ? (t.value ? `${tm.name || 'The team'}: lights for a win` : 'No lights for a win') : 'Saved')).catch(() => {});
     }
-    const i = ds.gdeff ?? ds.gdon ?? ds.gdoff; if (i === undefined) return;
+    const i = ds.gdeff ?? ds.gdon ?? ds.gdoff ?? ds.gdduring ?? ds.gdbefore ?? ds.gdafter ?? ds.gdday; if (i === undefined) return;
     const team = n.gameday.teams[+i];
     if (ds.gdeff !== undefined) team.effect = t.value;
+    // 4.25: game time or all evening
+    if (ds.gdduring !== undefined) team.during = t.value;
+    if (ds.gdbefore !== undefined) team.before = +t.value;
+    if (ds.gdafter !== undefined) team.after = +t.value;
+    if (ds.gdday !== undefined) team.daytime = t.checked;
     if (ds.gdon !== undefined) team.on = t.value.trim() || 'sunset';
     if (ds.gdoff !== undefined) team.off = t.value.trim() || '23:00';
     busy(null, () => save(n)).catch(() => {});
@@ -2098,6 +2142,7 @@ async function gamePanel(box) {
     if ((n.gameday.teams || []).length >= 6) return toast('Up to 6 teams.', true);
     team.effect = team.effect || Object.keys(n.effects)[0];
     team.on = 'sunset'; team.off = '23:00';
+    team.during = 'game'; team.before = 15; team.after = 15;     // 4.25: new teams light up during the game
     n.gameday.teams = [...(n.gameday.teams || []), team];
     if (!n.gameday.enabled && !(n.gameday.celebrate_enabled ?? false)) n.gameday.enabled = true;   // a first team: game-day lights on
     busy(b, () => save(n, `${team.name} added`)).catch(() => {});
@@ -2366,7 +2411,7 @@ VIEWS.schedule = async () => {
     <div class="stack">
       ${fold('holidays', 'Holidays', '<div class="panel stack" id="holbox"><p class="muted small">Loading…</p></div>')}
       ${fold('dates', 'Birthdays & anniversaries', '<div class="panel stack" id="datebox"><p class="muted small">Loading…</p></div>')}
-      ${fold('game', 'Game-day lights', '<div class="panel stack" id="gamebox"><p class="muted small">Loading…</p></div>')}
+      ${fold('game', 'Game-time lights', '<div class="panel stack" id="gamebox"><p class="muted small">Loading…</p></div>')}
       ${fold('away', 'Away mode', '<div class="panel stack" id="awaybox"><p class="muted small">Loading…</p></div>')}
     </div></div>`;
   whenOpen('away', () => awayPanel($('#awaybox')));

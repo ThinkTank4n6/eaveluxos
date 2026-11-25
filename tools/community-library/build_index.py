@@ -74,7 +74,7 @@ def check_file(path: Path) -> tuple[dict | None, list[str]]:
         if not isinstance(counts, list) or len(counts) != len(cols) or \
                 not all(isinstance(n, int) and not isinstance(n, bool) and 1 <= n <= 90 for n in counts):
             errs.append("pattern: 'counts' must have one number 1-90 per color")
-        _int(p, "custom_mode", 0, 16, errs)
+        _int(p, "custom_mode", 0, 22, errs)          # 4.23: the newer Trimlight animations, 17-22
     elif "builtin" in p:
         _int(p, "builtin", 0, 179, errs)
         _int(p, "pixel_len", 1, 90, errs)

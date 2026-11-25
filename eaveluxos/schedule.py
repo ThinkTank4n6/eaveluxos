@@ -487,6 +487,8 @@ class Rule:
     holiday: str | None = None               # holiday rules (3.19): the holiday's name
     curve: list | None = None                # night curve (3.18): [(TimeExpr, kelvin|None, level %)]
     controllers: frozenset | None = None     # 4.8: the controllers this rule runs (None: all of them)
+    game_key: str | None = None              # 4.25: game-time lights: the team, so they end with the game
+    game_after: int = 0                      # 4.25: minutes they stay on after the game ends
 
     @property
     def effect(self):
@@ -599,6 +601,14 @@ class Rule:
                 return None
         if end is None or ts(end) <= ts(start):
             return None
+        if self.game_key:
+            # 4.25: game-time lights end when the game does (plus their minutes after)
+            from .gameday import ENDED
+            done = ENDED.get((self.game_key, d.isoformat()))
+            if done is not None and done + self.game_after * 60 < ts(end):
+                end = datetime.fromtimestamp(done + self.game_after * 60, start.tzinfo)
+                if ts(end) <= ts(start):
+                    return None
         return Window(self, start, end)
 
 
@@ -980,10 +990,51 @@ def _celebrations(gd, effects: dict) -> dict:
     return out
 
 
-def _game_rules(gd, effects: dict, order0: int, gamedates: dict, taken_names=()) -> list:
+GAME_MINUTES = (0, 120)        # 4.25: "before" and "after" a game, in minutes
+
+
+def _game_watch(gd) -> dict:
+    """4.25: game-time teams the scoreboard follows, to hear when the game ends."""
+    from .gameday import GameDayError, check_team, team_key
+    if not isinstance(gd, dict) or not gd.get("enabled") or not isinstance(gd.get("teams"), list):
+        return {}
+    out = {}
+    for t in gd["teams"]:
+        if not isinstance(t, dict) or t.get("during") != "game":
+            continue
+        try:
+            c = check_team(t)
+        except GameDayError:
+            continue
+        out[team_key(c["league"], c["team"])] = {**c, "effect": None, "seconds": 0, "min_points": 1,
+                                                 "only_when_on": False, "sound": None, "automation_only": True}
+    return out
+
+
+def game_time_settings(t: dict, name: str) -> dict | None:
+    """4.25: a team's game-time settings, or None for game-night lights (the
+    evening, as before 4.25)."""
+    during = t.get("during", "evening")
+    if during not in ("evening", "game"):
+        raise ConfigError(f"Game day '{name}': lights are on during the game or all evening.")
+    if during == "evening":
+        return None
+    out = {}
+    for k, dflt in (("before", 15), ("after", 15)):
+        v = t.get(k, dflt)
+        if isinstance(v, bool) or not isinstance(v, int) or not GAME_MINUTES[0] <= v <= GAME_MINUTES[1]:
+            raise ConfigError(f"Game day '{name}': minutes {k} the game are 0 to {GAME_MINUTES[1]}.")
+        out[k] = v
+    out["daytime"] = bool(t.get("daytime", False))
+    return out
+
+
+def _game_rules(gd, effects: dict, order0: int, gamedates: dict, taken_names=(), loc=None, gamestarts=None) -> list:
     """Game-day lights (gameday.py): one rule per team, running only on its
-    game dates, above seasonal rules."""
-    from .gameday import LEAGUES, PRIORITY, GameDayError, check_team, team_key
+    game dates, above seasonal rules. 4.25: game-time lights instead run from
+    a little before the game starts until a little after it ends (one rule per
+    start time), ending early when the scoreboard says the game is over."""
+    from .gameday import GAME_MAX_MINUTES, LEAGUES, PRIORITY, GameDayError, check_team, team_key
     if gd is None:
         return []
     if not isinstance(gd, dict) or not isinstance(gd.get("teams", []), list):
@@ -993,6 +1044,14 @@ def _game_rules(gd, effects: dict, order0: int, gamedates: dict, taken_names=())
     if len(gd["teams"]) > 6:
         raise ConfigError("Game-day lights can follow up to 6 teams.")
     out, used = [], set(taken_names)
+
+    def unique(name):
+        base, k = name, 2
+        while name in used:
+            name, k = f"{base} {k}", k + 1
+        used.add(name)
+        return name
+
     for i, t in enumerate(gd["teams"]):
         try:
             c = check_team(t)
@@ -1006,13 +1065,40 @@ def _game_rules(gd, effects: dict, order0: int, gamedates: dict, taken_names=())
         name = f"{c['name']} game day"
         if name in used:
             name = f"{c['name']} ({LEAGUES[c['league']][1]}) game day"
-        base, k = name, 2
-        while name in used:
-            name, k = f"{base} {k}", k + 1
-        used.add(name)
-        out.append(Rule(name=name, on=TimeExpr.parse(t.get("on") or "sunset"),
-                        off=TimeExpr.parse(t.get("off") or "23:00"), effects=[effects[eff]], priority=PRIORITY,
-                        order=order0 + i, only_dates=frozenset(gamedates.get(team_key(c["league"], c["team"]), ()))))
+        key = team_key(c["league"], c["team"])
+        dates = set(gamedates.get(key, ()))
+        gt = game_time_settings(t, c["name"])
+        if gt is None:
+            out.append(Rule(name=unique(name), on=TimeExpr.parse(t.get("on") or "sunset"),
+                            off=TimeExpr.parse(t.get("off") or "23:00"), effects=[effects[eff]], priority=PRIORITY,
+                            order=order0 + i, only_dates=frozenset(dates)))
+            continue
+        # 4.25: game time. Dates grouped by the window they get, one rule each.
+        starts = (gamestarts or {}).get(key, {})
+        groups: dict = {}
+        for d in sorted(dates):
+            hm = starts.get(d)
+            if not hm:
+                continue                                   # time not known yet: no lights rather than a guess
+            h, m = (int(x) for x in hm.split(":"))
+            on_min = h * 60 + m - gt["before"]
+            off_min = h * 60 + m + GAME_MAX_MINUTES[c["league"]] + gt["after"]
+            on = f"{(on_min // 60) % 24:02d}:{on_min % 60:02d}"
+            if not gt["daytime"] and loc is not None:
+                # a day game lights up only once it's dark: from sunset, if it's still on
+                sun = TimeExpr.parse("sunset").resolve(d, loc)
+                if sun is not None and sun.hour * 60 + sun.minute >= off_min - gt["after"]:
+                    continue                               # over before dark
+                if sun is not None and sun.hour * 60 + sun.minute > on_min:
+                    on = "sunset"
+            off = f"{(off_min // 60) % 24:02d}:{off_min % 60:02d}"
+            groups.setdefault((on, off), set()).add(d)
+        for (on, off), ds in sorted(groups.items()):
+            label = on if on == "sunset" else f"{int(on[:2]) % 12 or 12}:{on[3:]} {'AM' if int(on[:2]) < 12 else 'PM'}"
+            r = Rule(name=unique(f"{c['name']} game time ({label})"), on=TimeExpr.parse(on), off=TimeExpr.parse(off),
+                     effects=[effects[eff]], priority=PRIORITY, order=order0 + i, only_dates=frozenset(ds))
+            r.game_key, r.game_after = key, gt["after"]
+            out.append(r)
     return out
 
 
@@ -1114,7 +1200,7 @@ def _fade_check(raw) -> int:
 
 
 def build_config(raw: dict, secrets: dict, need_secrets: bool = True, gamedates: dict | None = None,
-                 country_dates: dict | None = None) -> Config:
+                 country_dates: dict | None = None, gamestarts: dict | None = None) -> Config:
     """raw: the settings document (same shape as config.toml).
     secrets: client_id, client_secret, ui_password, webhook_token."""
     loc_c = raw.get("location", {})
@@ -1147,7 +1233,8 @@ def build_config(raw: dict, secrets: dict, need_secrets: bool = True, gamedates:
     if not isinstance(favs, list) or len(favs) > 6 or not all(isinstance(k, str) for k in favs):
         raise ConfigError("Favorites must be a list of up to 6 pattern names.")
     rules = [Rule.from_config(i, r, effects) for i, r in enumerate(raw.get("rules", []))]
-    rules += _game_rules(raw.get("gameday"), effects, len(rules), gamedates or {}, [r.name for r in rules])
+    rules += _game_rules(raw.get("gameday"), effects, len(rules), gamedates or {}, [r.name for r in rules],
+                         loc=loc, gamestarts=gamestarts)
     rules += _holiday_rules(raw.get("holidays"), effects, len(rules), country_dates, [r.name for r in rules])
     rules += _personal_rules(raw.get("dates"), effects, len(rules), [r.name for r in rules])
     names = [r.name for r in rules]
@@ -1241,7 +1328,8 @@ def build_config(raw: dict, secrets: dict, need_secrets: bool = True, gamedates:
         music=build_music(raw, loc),
         weather_alerts=wx_alerts, zones=zones, total_bulbs=total_bulbs,
         celebrate=_celebrations(raw.get("gameday"), effects), gamma=gamma,
-        automations=autos, watch=_aw(raw.get("gameday"), autos), paused=pz, people=people,
+        automations=autos, watch={**_game_watch(raw.get("gameday")), **_aw(raw.get("gameday"), autos)}, paused=pz,
+        people=people,
         fade_seconds=_fade_check(raw.get("transitions")),
     )
 

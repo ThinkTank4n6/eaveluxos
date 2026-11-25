@@ -25,9 +25,17 @@ EaveLuxOS shows the patterns within 15 minutes (or straight away with
 
 ## Share a pattern
 
+**The easy way (EaveLuxOS 4.26 and later):** in **Patterns › My patterns**,
+press **Share** on the pattern, then **Share to the community library…**. Give
+it a name, your name or handle, a description and tags, press **Next**, then
+**Open GitHub**. GitHub opens with the file already written: press **Commit
+changes…**, **Propose changes**, then **Create pull request**.
+
+**By hand:**
+
 1. In EaveLuxOS, open the pattern in **Create** and note its colors, counts,
-   animation, speed and brightness (or export your patterns from **Settings ›
-   Share and back up** and copy the pattern from that file).
+   animation, speed and brightness (or export your patterns from **Setup ›
+   App › Export** and copy the pattern from that file).
 2. Add a file to `patterns/` named like `candy-cane.json` (lower-case letters,
    digits and dashes):
 
@@ -43,7 +51,7 @@ EaveLuxOS shows the patterns within 15 minutes (or straight away with
    ```
 
    `pattern` is exactly what EaveLuxOS stores for a pattern: either `colors`
-   (1 to 30, with `counts`, 1 to 90 bulbs each, and `custom_mode` 0 to 16) or
+   (1 to 30, with `counts`, 1 to 90 bulbs each, and `custom_mode` 0 to 22) or
    `builtin` (0 to 179, with `pixel_len`), plus `speed` and `brightness`
    (0 to 255). A pattern saved only in one controller's Trimlight app (`saved`)
    can't be shared.

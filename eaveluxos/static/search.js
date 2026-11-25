@@ -40,7 +40,7 @@
     { t: 'Rules', w: 'Schedule', v: 'schedule', h: 'Rules', k: 'schedule times sunset sunrise on off rule rotation nightly dates season' },
     { t: 'Import timers from the Trimlight app', w: 'Schedule', v: 'schedule', h: 'Rules', k: 'import timers daily calendar trimlight' },
     { t: 'Holidays', w: 'Schedule', v: 'schedule', f: 'holidays', k: 'christmas halloween july fourth thanksgiving public holiday' },
-    { t: 'Game-day lights', w: 'Schedule', v: 'schedule', f: 'game', k: 'sports team football baseball nfl nba nhl mlb eagles score win touchdown' },
+    { t: 'Game-time lights', w: 'Schedule', v: 'schedule', f: 'game', k: 'game day game-day lights sports team football baseball basketball hockey nfl nba nhl mlb wnba ncaa college eagles score win touchdown' },
     { t: 'Celebrate scores', w: 'Schedule', v: 'schedule', f: 'game', k: 'score goal touchdown flash celebration party live' },
     { t: 'Away mode', w: 'Schedule', v: 'schedule', f: 'away', k: 'vacation away random times travel' },
     { t: 'Birthdays & anniversaries', w: 'Schedule', v: 'schedule', f: 'dates', k: 'birthday anniversary personal date family wedding every year calendar' },

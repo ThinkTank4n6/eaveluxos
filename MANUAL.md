@@ -1,7 +1,7 @@
 # EaveLuxOS: User Manual
 ### The Intelligent Lighting Control Platform
 
-Version 4.24.1 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
+Version 4.26.1 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
 
 > [!TIP]
 > **Quick start: you probably don't need Python.**
@@ -70,7 +70,7 @@ settings.*
 12. [House](#12-house)
 13. [Schedule](#13-schedule)
     - [Birthdays and anniversaries](#birthdays-and-anniversaries-418)
-    - [Game-day lights](#game-day-lights)
+    - [Game-time lights](#game-time-lights)
     - [Fades between patterns](#fades-between-patterns-419)
 14. [Alerts: automations and weather rules](#14-alerts-automations-and-weather-rules)
     - [Who's home: arriving and leaving](#whos-home-arriving-and-leaving-418)
@@ -94,7 +94,7 @@ settings.*
 
 ## What's new
 
-**4.24, 4.23 and 4.22: college game days, animations, Lightning and Snowflake**
+**4.26 to 4.22: community sharing, game-time lights, college game days, animations, Lightning and Snowflake**
 - **Lightning and Snowflake** on any pattern saved on your controller, the
   same two effects as the Trimlight Edge app's Pattern Library: see
   [Lightning and Snowflake](#lightning-and-snowflake-422).
@@ -107,9 +107,14 @@ settings.*
   Inside out, Dissolve and Juggle are new, and Stars and Breath now use the
   Trimlight app's names, Twinkle fade and Fade:
   [Animations](#animations-423).
+- **Share to the community library** (4.26): one button writes the file and
+  opens GitHub ready to propose it: [The community library](#the-community-library).
+- **Game-time lights** (4.25): team colors only while the game is on, from
+  a little before the start to a little after the final score:
+  [Game-time lights](#game-time-lights).
 - **College sports and the WNBA on game day** (4.24): NCAA football, men's
   and women's basketball and hockey, with a team picker in each team's own
-  colors: [Game-day lights](#game-day-lights).
+  colors: [Game-time lights](#game-time-lights).
 - **Badges for Lightning and Snowflake** (4.22.5) on Patterns › In the
   Trimlight app and My patterns.
 - **The right one of two look-alike patterns** (4.22.3): when two saved
@@ -118,7 +123,7 @@ settings.*
 
 **4.21: game day, sharing and energy**
 - **Lights for a win** and a celebration length for each team:
-  [Game-day lights](#game-day-lights).
+  [Game-time lights](#game-time-lights).
 - **Share Studio shows and automations** as codes, and add them from the
   Community list: [Share Studio shows and automations](#share-studio-shows-and-automations-421).
 - **Energy estimate:** about how many watts, kilowatt-hours and dollars your
@@ -162,7 +167,7 @@ screen (they step aside while you type, so they never cover the keyboard).
 |---|---|
 | **Home** | What the lights are doing and why, **On** and **Off**, favorites, brightness and speed, tonight and the week ahead, who's home, each controller, and Activity. |
 | **Patterns** | **My patterns** (with folders), **In the Trimlight app**, **Built-in** effects and **Community**. **New pattern** opens the designer; **Studio** builds layered looks and timed shows. |
-| **Schedule** | **Every night:** rules, night curves and fades. **Special days:** holidays, birthdays and anniversaries, game-day lights and away mode. **Who wins tonight** shows how a night is decided. |
+| **Schedule** | **Every night:** rules, night curves and fades. **Special days:** holidays, birthdays and anniversaries, game-time lights and away mode. **Who wins tonight** shows how a night is decided. |
 | **Alerts** | Automations (When · If · Then) and templates, who's home, weather rules and weather looks, severe weather alerts, the security flash, webhooks, Home Assistant, Siri, Alexa and Google. |
 | **Music** | Music shows (the controller's music mode), music from this computer, music zones and mood follow. |
 | **House** | The house map: photos, rooflines, camera calibration, landmarks, zones, the bulb finder, bulb numbering, house view and scenes. |
@@ -1555,7 +1560,7 @@ to scale.
 A **rule** says when the lights turn on and off, and which pattern shows.
 
 The Schedule tab has two parts: **Every night** (your rules, and **Coming up**,
-what runs each night) and **Special days** (holidays, game-day lights and away
+what runs each night) and **Special days** (holidays, game-time lights and away
 mode, each folded to one line until you open it). Weather, severe weather
 alerts and the security flash are on the **Alerts** tab; the backup timer is
 in **Setup › Lights & controller**.
@@ -1811,11 +1816,13 @@ The tick box turns a date off without deleting it. Your dates stay on this
 computer: they are never in a shared or exported settings file (an
 encrypted backup keeps them).
 
-### Game-day lights
+### Game-time lights
 
-Your team's colors on the nights they play, instead of the usual pattern.
+Your team's colors while they play, instead of the usual pattern. Before
+4.25 this was called **Game-day lights**, and it lit the whole evening of
+every game day; that's still a choice for each team.
 
-1. Under **Game-day lights**, choose a team in **Add a team…** and tap
+1. Under **Game-time lights**, choose a team in **Add a team…** and tap
    **Add**. The Eagles, Phillies, 76ers and Flyers come with a team-color
    pattern made for you. For any other team, choose **Another team…**, pick
    the league, start typing the team's name and choose it from the list
@@ -1824,6 +1831,19 @@ Your team's colors on the nights they play, instead of the usual pattern.
    address on espn.com, for example `nyg` for the Giants) or, for a college,
    its team number (the number in its espn.com address, for example `213`
    for Penn State).
+2. Choose when, with **Lights on**:
+   - **During the game** (new teams, 4.25): from a little before the start
+     (**From**: 15 minutes before, to start) until a little after the final
+     score (**until**: 15 minutes after the end). A day game lights up only
+     once it's dark, and only if it's still on; tick **Day games too** to
+     light it in daylight as well.
+   - **All evening**: the **On** and **Off** times (sunset to 11:00 PM to
+     start), every game day, as before 4.25. Teams added before 4.25 stay
+     on this until you change it.
+3. Change the **Pattern** if you like.
+4. Tick **Use game-time lights**. Nothing is checked while it's off (the
+   panel says so). Within a minute the panel lists the next games, with
+   their start times. They also show on the Month calendar.
 
 | League | In the list as |
 |---|---|
@@ -1831,14 +1851,20 @@ Your team's colors on the nights they play, instead of the usual pattern.
 | College football (4.24) | NCAA football (FBS and FCS) |
 | College basketball (4.24) | NCAA men's basketball, NCAA women's basketball |
 | College ice hockey (4.24) | NCAA men's hockey, NCAA women's hockey |
-2. Change the **Pattern** or the **On** and **Off** times if you like (sunset
-   to 11:00 PM to start).
-3. Tick **Use game-day lights**. Nothing is checked while it's off (the
-   panel says so). Within a minute the panel lists the next games. They also
-   show on the Month calendar.
+
+**How it knows when the game is on (4.25).** The start time comes from
+ESPN's schedule. The end comes from ESPN's live scoreboard, followed during
+the game whether or not score celebrations are on: the lights end the
+chosen minutes after the final score. If the score can't be followed (ESPN
+can't be reached), they end when the longest game of that sport usually
+would (4 hours for the NFL and MLB, 4¼ for college football, 3 for the NBA,
+2¾ for the WNBA and college basketball, 3¼ for hockey). A game whose start
+time ESPN hasn't set yet gets no lights until it has one. In an MLB
+doubleheader, the lights start with the first game and end with the first
+final score.
 
 **When it talks to ESPN.** Game dates come from ESPN's public schedule: about
-a minute after the app starts or game-day lights are turned on (or a team is
+a minute after the app starts or game-time lights are turned on (or a team is
 added), then every 6 hours, and right away after you change the time zone.
 **Check now** asks at once. Each time it asks for the regular season and the
 playoffs by name (not the preseason). Live scores are a separate, much more
@@ -1852,21 +1878,21 @@ and needs no account, but isn't an official service, so it could change.
   already known are kept (the panel says so), and with none your normal
   schedule simply runs. A game night wins
 over seasonal rules (priority 250), so an Eagles game in December shows Eagles
-colors. Turn **Use game-day lights** off to pause it without losing the teams.
+colors. Turn **Use game-time lights** off to pause it without losing the teams.
 
 #### Score celebrations
 
 Score celebrations have their **own switch** (since 4.3.5), separate from
-**Use game-day lights**: use either one, both, or neither.
+**Use game-time lights**: use either one, both, or neither.
 
 1. Tick **Celebrate scores** at the top of the panel.
 2. Under each team you want, tick **Celebrate this team's scores**.
 
 When that team scores during a game, the lights flash its team colors
 (moving fast) for a few seconds, then go back to whatever was on: the game
-night's colors, or your normal schedule when game-day lights are off. The
+game's colors, or your normal schedule when game-time lights are off. The
 team still needs to be on the list (for its colors and its schedule); its On
-and Off times only matter for game-day lights. Settings from before 4.3.5,
+and Off times only matter for game-time lights. Settings from before 4.3.5,
 when one switch ran both, keep working as they were.
 
 - **Celebrate for** sets the length (10 to 60 seconds; 15 to start).
@@ -2107,7 +2133,7 @@ with the webhook address and token from **Alerts › Webhooks** (section 21).
 Names are 1 to 40 letters, numbers, spaces, - or _, and upper and lower case
 are the same. The answer lists what each automation did.
 
-**Make it an automation.** Under **Schedule › Game-day lights**, each team
+**Make it an automation.** Under **Schedule › Game-time lights**, each team
 with a score celebration has **Make it an automation**. It creates the same
 celebration as an automation (when the team scores, if the lights are on
 (unless the celebration was set to flash in daylight too),
@@ -3460,11 +3486,29 @@ pattern; it never changes your schedule or settings.
   and only to an `https://` address. Importing a file never changes it, and
   the app doesn't follow a redirect to anywhere else.
 
-**To share a pattern there:** the library is the public GitHub repository
-`ThinkTank4n6/eaveluxos-patterns`. Add a small file describing your pattern and
-open a pull request; its README explains the format, and an automatic check
-tells you if anything needs fixing. (The repository's starter kit is in this
-app's `tools/community-library` folder.)
+**To share a pattern there (4.26):** the library is the public GitHub
+repository `ThinkTank4n6/eaveluxos-patterns`, and patterns arrive as proposals
+(pull requests) that are reviewed before they appear. You need a free GitHub
+account.
+
+1. In **Patterns › My patterns**, press **Share** on the pattern, then
+   **Share to the community library…** at the bottom.
+2. Check the **Name**, and add your name or handle (shown with it), a short
+   **Description** and a few **Tags** (fall, autumn, orange…). Press **Next**.
+3. Press **Open GitHub** and sign in. GitHub opens with the pattern's file
+   already written for you.
+4. Press **Commit changes…**, then **Propose changes**, then **Create pull
+   request**. The library's automatic check runs on it.
+5. Once it's reviewed and merged, it appears in **Patterns › Community** for
+   everyone (within 15 minutes, or at once with **Refresh**).
+
+Only the pattern goes in the file (its colors, bulbs, animation, speed and
+brightness, under the name you give it); nothing about your home. EaveLuxOS
+doesn't send anything itself: your browser opens GitHub, signed in as you.
+Patterns saved only in the Trimlight app, drawn bulb by bulb or split by
+controller can't be shared this way. If the library isn't on GitHub (an
+Administrator changed its address), **Download the file** instead. (The
+repository's starter kit is in this app's `tools/community-library` folder.)
 
 ### Share Studio shows and automations (4.21)
 

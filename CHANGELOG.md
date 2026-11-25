@@ -1,5 +1,70 @@
 # Changelog
 
+## 4.26.1: community files in the library's layout
+
+Reported: the Fall file from Share to the community library looked different
+from the patterns already in the library.
+
+- The file now uses the library's own layout, as in `candy-cane.json`: one
+  field per line, with `tags` and `pattern` each on a single line, and
+  `label` first in the pattern. The contents were already the same; only the
+  line breaks differed. The library's check accepted both.
+- Review: tests/repro_min_share_layout.py (prints BUG on 4.26.0, OK with
+  --fixed on 4.26.1).
+
+## 4.26.0: share to the community library
+
+Asked for: how to put a pattern in the community library, with a video to
+share with owners. It meant writing a JSON file by hand and opening a pull
+request on GitHub.
+
+- **Share › Share to the community library…** on any of your color or
+  built-in patterns: give it a name, your name or handle, a description and
+  tags, press **Next**, then **Open GitHub**. GitHub opens with the file
+  written in the library's format; **Commit changes…**, **Propose changes**
+  and **Create pull request** finish it. EaveLuxOS sends nothing itself.
+- The file holds only the pattern (never its folder or anything about the
+  home) and is checked with the library's own rules first, so the pull
+  request's check passes.
+- **Download the file** instead, for a library that isn't on GitHub.
+- New `POST /api/community/share` (Editors), which only builds the file.
+
+Review (tests/repro_min_library_rejects_juggle.py is #1):
+
+1. **The library refused the newer animations.** Since 4.23 a pattern can
+   use Full strobe to Juggle (17-22), but the library's check
+   (tools/community-library/build_index.py) still allowed 0-16, so sharing
+   one failed. Now 0-22. Copy the updated build_index.py and README.md into
+   the eaveluxos-patterns repository.
+
+## 4.25.0: game-time lights
+
+Asked for by an owner: the team colors only while the game is on, not all
+evening. **Game-day lights** are now **Game-time lights**.
+
+- **Lights on: During the game** (new teams): from a little before ESPN's
+  start time (0 to 60 minutes; 15 to start) until a little after the final
+  score (0 to 60; 15). The end comes from ESPN's live scoreboard, which now
+  follows these teams during their games even without score celebrations;
+  if it can't, the lights end when that sport's longest games usually would.
+- **Day games** light up only once it's dark, and only while still on,
+  unless **Day games too** is ticked.
+- **All evening** is still a choice for each team (On and Off, as before);
+  teams added before 4.25 stay on it until changed.
+- The panel lists the next games with their start times. The search finds it
+  as game time or game day.
+- A game whose start time ESPN hasn't set yet gets no lights until it has
+  one.
+
+Review (tests/repro_min_lights_all_evening.py is #1):
+
+1. **Team colors all evening.** An 8:20 PM kick-off on a December Sunday lit
+   the house from 4:40 PM, 3 hours 40 minutes early. Game time starts 15
+   minutes before.
+2. A day game over before dark lights nothing, and one still on at sunset
+   lights from sunset to the final score.
+3. Known limit: in an MLB doubleheader the lights end with the first final.
+
 ## 4.24.1: the Mac test run
 
 GitHub's macOS tests failed on 4.24.0 (the app itself was fine): in

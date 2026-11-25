@@ -204,7 +204,7 @@ REAUTH_SECONDS = 300
 # schedules and the house map and control the lights, but can't change the
 # household's location, controllers, weather or safety-net settings, accounts,
 # or anything on the admin list. Viewers can look but not change anything.
-EDITOR_POSTS = {"/api/action", "/api/settings", "/api/photo", "/api/photo/upload", "/api/photo/delete", "/api/device/save_effect", "/api/import",
+EDITOR_POSTS = {"/api/community/share", "/api/action", "/api/settings", "/api/photo", "/api/photo/upload", "/api/photo/delete", "/api/device/save_effect", "/api/import",
                 "/api/sound/upload", "/api/sound/delete", "/api/sound/test",     # 4.9: celebration sounds
                 "/api/automation/try", "/api/automation/check",                  # 4.11: automations
                 "/api/presence",                                                 # 4.18: who's home, set by hand
@@ -519,6 +519,7 @@ class App:
         with self.lock:
             try:
                 cfg = build_config(self.store.settings, self.store.secrets, gamedates=self.gameday.dates(),
+                                   gamestarts=self.gameday.starts(),
                                    country_dates=self.country_dates())
             except SetupNeeded as e:
                 self.problem, self.problem_is_setup = str(e), True
@@ -2068,6 +2069,16 @@ class App:
             return []
 
     def on_game(self, team: dict, kind: str, game: dict):
+        if kind == "end" and team.get("key"):
+            # 4.25: game-time lights end with the game (plus their minutes after)
+            cfg = self.cfg
+            when = datetime.now(cfg.loc.tz) if cfg else datetime.now().astimezone()
+            gameday.ENDED[(team["key"], gameday.evening_of(when))] = when.timestamp()
+            if len(gameday.ENDED) > 200:
+                for k in sorted(gameday.ENDED, key=gameday.ENDED.get)[:100]:
+                    gameday.ENDED.pop(k, None)
+            if self.ctrl is not None:
+                self.ctrl._kick()
         us = game["teams"].get(team["team"])
         them = [v for k, v in game["teams"].items() if k != team["team"]]
         result = None
@@ -3256,6 +3267,22 @@ class App:
                  "lat": round(x["latitude"], 4), "lon": round(x["longitude"], 4), "timezone": x.get("timezone")}
                 for x in data.get("results", []) or []]
 
+    def community_share(self, b: dict) -> dict:
+        """4.26: one of my patterns as a file for the community library, and
+        GitHub's page to propose it. Nothing is sent anywhere from here: the
+        person's browser opens GitHub with the file filled in."""
+        key = b.get("key")
+        eff = (self.store.settings.get("effects") or {}).get(key) if isinstance(key, str) else None
+        if not isinstance(eff, dict):
+            raise ApiError("Choose one of your patterns.")
+        try:
+            name, text = community.share_file(eff, b.get("name") or eff.get("label") or key, b.get("author") or "",
+                                              b.get("description") or "", b.get("tags") or [])
+            url = community.new_file_url(self.store.settings, name, text)
+        except community.CommunityError as e:
+            raise ApiError(str(e)) from None
+        return {"filename": name, "content": text, "url": url}
+
     def import_settings(self, body: dict):
         incoming = body.get("settings")
         if not isinstance(incoming, dict):
@@ -4282,6 +4309,8 @@ def make_server(app: App, host: str, port: int):
                     raise ApiError(str(e))
             if path == "/api/import":
                 return app.import_settings(b)
+            if path == "/api/community/share":        # 4.26: propose a pattern to the library
+                return app.community_share(b)
             if path == "/api/photo":
                 f = app.photo_path(str(b.get("side", "")))
                 data = str(b.get("data", ""))

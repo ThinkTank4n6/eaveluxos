@@ -62,6 +62,19 @@ EARLY_HOUR = 5              # a game starting before 5 AM belongs to the night b
 ESPN_TZ = ZoneInfo("America/New_York")
 RETRY = 2 * 3600
 PRIORITY = 250
+# 4.25: game-time lights. The longest a game is expected to run, after which
+# the lights end even if the end of the game wasn't heard (minutes).
+GAME_MAX_MINUTES = {"nfl": 240, "cfb": 255, "mlb": 240, "nba": 180, "wnba": 165, "mcbb": 165, "wcbb": 165,
+                    "nhl": 195, "mchk": 195, "wchk": 195}
+# (team key, the evening's date "YYYY-MM-DD") -> when the game ended (epoch
+# seconds), from the live scoreboard (scores.py, server.on_game); game-time
+# rules end that many minutes after it.
+ENDED: dict = {}
+
+
+def evening_of(dt) -> str:
+    """The evening a moment belongs to (a game after midnight: the night before)."""
+    return (dt - timedelta(days=1) if dt.hour < EARLY_HOUR else dt).date().isoformat()
 
 
 def celebrations_on(gd) -> bool:
@@ -110,6 +123,12 @@ def schedule_url(league: str, team: str, seasontype: int | None = None) -> str:
 def parse_dates(raw: bytes, tz) -> list[str]:
     """Local game dates (YYYY-MM-DD) from an ESPN schedule answer. Forgiving
     about shape: anything that isn't a dated event is skipped."""
+    return sorted(parse_starts(raw, tz))
+
+
+def parse_starts(raw: bytes, tz) -> dict:
+    """4.25: local game date -> local start time "HH:MM" (None when ESPN
+    hasn't set the time yet), from an ESPN schedule answer."""
     try:
         data = json.loads(raw)
     except ValueError:
@@ -117,7 +136,7 @@ def parse_dates(raw: bytes, tz) -> list[str]:
     events = data.get("events") if isinstance(data, dict) else None
     if not isinstance(events, list):
         raise GameDayError("The schedule answer had no games.")
-    out = set()
+    out = {}
     for ev in events[:400]:
         if not isinstance(ev, dict):
             continue
@@ -142,13 +161,14 @@ def parse_dates(raw: bytes, tz) -> list[str]:
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
         if c0.get("timeValid") is False or ev.get("timeValid") is False:
-            out.add(dt.astimezone(ESPN_TZ).date().isoformat())   # time not set yet: ESPN's own day
+            out.setdefault(dt.astimezone(ESPN_TZ).date().isoformat(), None)   # time not set yet: ESPN's own day
             continue
         loc = dt.astimezone(tz)
-        if loc.hour < EARLY_HOUR:
-            loc -= timedelta(days=1)                       # after midnight: that evening's game
-        out.add(loc.date().isoformat())
-    return sorted(out)
+        day = evening_of(loc)                              # after midnight: that evening's game
+        hm = f"{loc.hour:02d}:{loc.minute:02d}"
+        if out.get(day) is None or hm < out[day]:          # a doubleheader: from the first game
+            out[day] = hm
+    return out
 
 
 def teams_url(league: str) -> str:
@@ -233,8 +253,11 @@ class GameDays:
         for k, v in (raw.items() if isinstance(raw, dict) else []):
             if isinstance(v, dict) and isinstance(v.get("dates"), list):
                 ds = [d for d in v["dates"] if isinstance(d, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", d)]
+                st = v.get("starts") if isinstance(v.get("starts"), dict) else {}
                 out[str(k)] = {"dates": ds[:500], "fetched": v.get("fetched") if isinstance(v.get("fetched"), (int, float)) else 0,
-                               "error": v.get("error") if isinstance(v.get("error"), str) else None}
+                               "error": v.get("error") if isinstance(v.get("error"), str) else None,
+                               "starts": {d: t for d, t in st.items() if d in ds and isinstance(t, str)
+                                          and re.fullmatch(r"\d{2}:\d{2}", t)}}
         return out
 
     def _save(self):
@@ -250,6 +273,11 @@ class GameDays:
         with self.lock:
             return {k: {date.fromisoformat(d) for d in v["dates"]} for k, v in self.cache.items()}
 
+    def starts(self) -> dict:
+        """4.25: key -> {date: "HH:MM"} (local start times), for game-time lights."""
+        with self.lock:
+            return {k: {date.fromisoformat(d): t for d, t in (v.get("starts") or {}).items()} for k, v in self.cache.items()}
+
     def summary(self, teams, today: date) -> list[dict]:
         out = []
         with self.lock:
@@ -258,7 +286,8 @@ class GameDays:
                 c = self.cache.get(k) or {}
                 nxt = [d for d in c.get("dates", []) if d >= today.isoformat()][:5]
                 out.append({"key": k, "name": t.get("name"), "next": nxt, "known": len(c.get("dates", [])),
-                            "error": c.get("error"), "fetched": c.get("fetched") or None})
+                            "error": c.get("error"), "fetched": c.get("fetched") or None,
+                            "starts": {d: (c.get("starts") or {}).get(d) for d in nxt}})       # 4.25
         return out
 
     def refresh(self, teams, tz) -> bool:
@@ -272,13 +301,16 @@ class GameDays:
         self.tz_used = str(tz)
         for t in teams:
             k = team_key(t["league"], t["team"])
-            dates, err = None, None
+            dates, err, starts = None, None, {}
             try:
-                dates = set(parse_dates(self.fetch(schedule_url(t["league"], t["team"], SEASONS[0])), tz))
+                starts = parse_starts(self.fetch(schedule_url(t["league"], t["team"], SEASONS[0])), tz)
                 try:                         # playoffs too, when there are any
-                    dates |= set(parse_dates(self.fetch(schedule_url(t["league"], t["team"], SEASONS[1])), tz))
+                    for d, hm in parse_starts(self.fetch(schedule_url(t["league"], t["team"], SEASONS[1])), tz).items():
+                        if starts.get(d) is None or (hm is not None and hm < starts[d]):
+                            starts[d] = hm
                 except GameDayError:
                     pass
+                dates = set(starts)
                 if not dates:
                     # 4.3.2: an answer listing no games at all (a rollover at
                     # ESPN) mustn't erase the nights already known.
@@ -291,8 +323,9 @@ class GameDays:
                 old = self.cache.get(k) or {"dates": [], "fetched": 0}
                 if dates is not None:
                     new = sorted(dates)
-                    changed |= new != old["dates"]
-                    self.cache[k] = {"dates": new, "fetched": self.now(), "error": None}
+                    st = {d: hm for d, hm in starts.items() if hm}
+                    changed |= new != old["dates"] or st != (old.get("starts") or {})
+                    self.cache[k] = {"dates": new, "fetched": self.now(), "error": None, "starts": st}
                 else:
                     self.cache[k] = {**old, "error": err}
         with self.lock:
