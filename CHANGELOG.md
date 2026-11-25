@@ -1,5 +1,16 @@
 # Changelog
 
+## 4.24.1: the Mac test run
+
+GitHub's macOS tests failed on 4.24.0 (the app itself was fine): in
+test_music413's "slows down when the controller lags", the busy Mac sent
+too few frames for the test controller to lag at first, so after the test's
+0.6 seconds of quick answers the music-zone pace rose to 5 frames a second,
+as designed, and the test checked before it came back down.
+
+- That test now holds the speed-up off (it has its own test) and waits up
+  to 30 seconds for the slow-down.
+
 ## 4.24.0: college sports and the WNBA on game day
 
 Asked for: NCAA football, basketball and ice hockey (men's and women's) and

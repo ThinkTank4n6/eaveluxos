@@ -14,6 +14,7 @@ import subprocess
 import threading
 import time
 import unittest
+from unittest import mock
 from pathlib import Path
 
 from eaveluxos import lanlink as L
@@ -178,6 +179,13 @@ class Stream(WithController):
 
     def test_slows_down_when_the_controller_lags(self):
         self.ctl.max_fps = 3
+        # 4.24.1: GitHub's busy Mac sent too few frames for the controller to
+        # lag at first, so after RISE_AFTER (0.6 s in these tests) of quick answers the pace
+        # rose to 5, as designed, and the test ended before it came down.
+        # Speeding up has its own test; here it's held off.
+        p = mock.patch.object(M, "RISE_AFTER", 3600.0)
+        p.start()
+        self.addCleanup(p.stop)
         z = M.ZoneStreamer()
         z.start("127.0.0.1", "tab", 8, "s1")
         self.addCleanup(z.stop)
@@ -185,7 +193,7 @@ class Stream(WithController):
         # 4.16.1: until it has slowed down (at most 12 s): GitHub's Mac sent only
         # 13 frames in 4 s on a busy day, too few to see two late answers in a row
         t0, k = time.monotonic(), 0
-        while time.monotonic() - t0 < 12:
+        while time.monotonic() - t0 < 30:
             k += 1
             z.feed(["#FF0000"], [1 + k % 200], "tab")
             time.sleep(0.02)
