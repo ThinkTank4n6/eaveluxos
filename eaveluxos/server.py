@@ -2664,8 +2664,9 @@ class App:
                                 only_if_on=team.get("only_when_on", True))
         if started and (team.get("sound") or {}).get("on"):
             self._play_sound(team["key"], team["sound"])          # 4.9: the goal horn
-        if not started:
-            c.note(f"{team['name']} scored ({points} points); no celebration because the lights are off.")
+        # 4.26.2: when it doesn't start, start_flash has already logged the
+        # real reason (lights off, a weather alert, a music show...); this used
+        # to add "because the lights are off" whatever the reason was.
         return started
 
     # --- 4.9: celebration sounds (sound.py) -------------------------------------

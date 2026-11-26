@@ -1,5 +1,22 @@
 # Changelog
 
+## 4.26.2: a held-back score celebration logs the real reason
+
+Reported: celebrations seemed not to work for the Flyers (Nov 25) or the
+Eagles (Nov 26). The log showed every score was seen:
+
+- **Flyers, Nov 25:** all three goals were held back because a **High Wind
+  Warning** weather alert was showing, and weather alerts outrank score
+  celebrations. But each one also logged "no celebration because the lights
+  are off", which wasn't true and hid the real reason. That second line is
+  gone; the log now gives only the real reason (lights off, a weather alert,
+  a music show, a pause).
+- **Eagles, Nov 26:** the field goal (5:49 PM) was celebrated: 20 seconds of
+  Eagles colors, then back to Fall. Scores come from ESPN's scoreboard, which
+  can trail a TV broadcast by up to a minute.
+- Review: tests/repro_min_score_note_lights_off.py (prints BUG on 4.26.1, OK
+  with --fixed on 4.26.2).
+
 ## 4.26.1: community files in the library's layout
 
 Reported: the Fall file from Share to the community library looked different

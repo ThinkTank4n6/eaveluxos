@@ -1,7 +1,7 @@
 # EaveLuxOS: User Manual
 ### The Intelligent Lighting Control Platform
 
-Version 4.26.1 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
+Version 4.26.2 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
 
 > [!TIP]
 > **Quick start: you probably don't need Python.**
@@ -1898,7 +1898,11 @@ when one switch ran both, keep working as they were.
 - **Celebrate for** sets the length (10 to 60 seconds; 15 to start).
 - **Only while the lights are on** (on to start) skips daytime games, so the
   lights don't come on at 1 PM for a touchdown. A celebration never
-  interrupts a music show or a security flash.
+  interrupts a music show, a security flash or a **weather alert** that's
+  showing (a High Wind Warning, say). A skipped celebration is listed under
+  **Activity** on Home with the reason, such as "Flyers scored! skipped: the
+  High Wind Warning alert is showing." To let celebrations through, use
+  **Home › Dismiss weather alert** (section 14).
 - If the team can't be found on ESPN's scoreboard on a game day, the panel
   says so: check the team code. For an MLB doubleheader, the game being played
   is followed. A game that runs past midnight is followed until it ends (until
