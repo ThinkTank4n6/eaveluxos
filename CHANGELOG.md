@@ -1,5 +1,33 @@
 # Changelog
 
+## 4.28.0: games on the calendar, game time by default
+
+Asked for: show game-time lights and score celebrations under Coming up;
+set the game times automatically (15 minutes before and after); videos.
+Reported: the Mac build failed with "hdiutil: create failed - Resource busy".
+
+- **Coming up** (Schedule): each game of a team followed with game-time
+  lights or score celebrations shows with its sport and start time ("Time
+  TBD" until ESPN sets it): a chip on the Month calendar, and a line in the
+  day's details and in List, saying which of the two is on. The game-time
+  lights' own window shows as before, now in a color none of your own rules
+  use (it was Christmas orange). /api/upcoming gives "games" per day.
+- **Game time by default:** a team saved without a choice (every team added
+  before 4.25, like the Eagles and Flyers here) now lights from 15 minutes
+  before the start to 15 minutes after the final when **Use game-time
+  lights** is on, instead of all evening. **All evening** stays when chosen.
+- **Adding a first team** ticked **Celebrate scores** as well as **Use
+  game-time lights**: without its own switch saved, celebrations followed the
+  old single switch. Now only game-time lights are turned on.
+- **Mac build:** the .dmg step tries again (up to 6 times, 10 to 50 seconds
+  apart, detaching a leftover volume) after GitHub's Mac machines answer
+  "Resource busy". All the tests had passed; only the packing had failed.
+- Two videos: gametime-lights.mp4 and celebrate-scores.mp4.
+- Tests: test_gametime428.py (with browser checks), test_dmg428.py; older
+  game-day tests now say "All evening" when they test it.
+  tests/repro_min_gametime_default.py (prints BUG on 4.27.0, OK with
+  --fixed on 4.28.0).
+
 ## 4.27.0: control from anywhere, and power-cut alerts
 
 Asked for: control from anywhere (other systems are cloud apps), and an alert

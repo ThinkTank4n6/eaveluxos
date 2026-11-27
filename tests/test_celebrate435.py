@@ -16,9 +16,10 @@ def settings(**gd):
     s = copy.deepcopy(DEFAULT_SETTINGS)
     s["location"].update(latitude=39.95, longitude=-75.16)
     s["effects"]["team_nhl_phi"] = {"label": "Flyers colors", "colors": ["#F74902", "#FFFFFF"], "counts": [4, 4]}
+    # 4.28: "during" given, since a team without one now gets game time
     s["gameday"] = {"teams": [{"league": "nhl", "team": "phi", "name": "Flyers", "effect": "team_nhl_phi",
-                               "on": "sunset", "off": "23:00", "celebrate": True},
-                              {"league": "nfl", "team": "phi", "name": "Eagles", "effect": "team_nhl_phi"}], **gd}
+                               "on": "sunset", "off": "23:00", "celebrate": True, "during": "evening"},
+                              {"league": "nfl", "team": "phi", "name": "Eagles", "effect": "team_nhl_phi", "during": "evening"}], **gd}
     return s
 
 

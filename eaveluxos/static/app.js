@@ -1987,13 +1987,13 @@ async function gamePanel(box) {
   const party = gd.celebrate_enabled ?? !!gd.enabled;
   box.innerHTML = `<h2>Game-time lights</h2>
     <p class="note">Two separate things, each with its own switch. Game dates and scores come from ESPN\u2019s public schedule; if it can\u2019t be reached, your normal schedule runs.</p>
-    <label class="check"><input type="checkbox" id="gdon" ${gd.enabled ? 'checked' : ''} ${ro ? 'disabled' : ''}> <span><b>Use game-time lights</b><br><span class="small muted">Your team\u2019s colors while they play (or all evening on game days, if you choose), instead of the usual pattern (even during a holiday season).</span></span></label>
+    <label class="check"><input type="checkbox" id="gdon" ${gd.enabled ? 'checked' : ''} ${ro ? 'disabled' : ''}> <span><b>Use game-time lights</b><br><span class="small muted">Your team\u2019s colors from 15 minutes before each game until 15 minutes after it ends, set automatically from ESPN\u2019s start times, instead of the usual pattern (even during a holiday season). Change the minutes, or choose all evening, for each team below.</span></span></label>
     <label class="check"><input type="checkbox" id="gdparty" ${party ? 'checked' : ''} ${ro ? 'disabled' : ''}> <span><b>Celebrate scores</b><br><span class="small muted">Flash the team\u2019s colors for a few seconds when they score, then back to what was on. Works whether or not game-day lights are on; tick each team below.</span></span></label>
     ${(gd.teams || []).map((t, i) => { const inf = info(`${t.league}-${t.team}`); return `<div class="panel stack" style="background:var(--surface2);padding:12px">
       <div class="panel-head"><b>${esc(t.name || t.team.toUpperCase())}</b><span class="small muted">${esc((g.leagues[t.league] || t.league))}</span>${ro ? '' : `${t.celebrate ? `<button class="small ghost" data-gdauto="${i}">Make it an automation</button>` : ''}<button class="small ghost danger" data-gddel="${i}">Remove</button>`}</div>
       <div class="row"><label class="field" style="flex:2;min-width:150px">Team colors (pattern)<select data-gdeff="${i}" ${ro ? 'disabled' : ''}>${effs.map(([k, e]) => `<option value="${esc(k)}" ${t.effect === k ? 'selected' : ''}>${esc(e.label || k)}</option>`).join('')}</select></label>
-        <label class="field" style="flex:1;min-width:150px">Lights on<select data-gdduring="${i}" ${ro ? 'disabled' : ''}><option value="game" ${t.during === 'game' ? 'selected' : ''}>During the game</option><option value="evening" ${t.during !== 'game' ? 'selected' : ''}>All evening</option></select></label></div>
-      ${t.during === 'game' ? `<div class="row small" style="gap:8px;flex-wrap:wrap"><label class="row" style="gap:6px">From<select data-gdbefore="${i}" style="width:auto" ${ro ? 'disabled' : ''}>${[0, 5, 10, 15, 30, 45, 60].map(m => `<option value="${m}" ${(t.before ?? 15) === m ? 'selected' : ''}>${m ? m + ' min before' : 'the start'}</option>`).join('')}</select></label>
+        <label class="field" style="flex:1;min-width:150px">Lights on<select data-gdduring="${i}" ${ro ? 'disabled' : ''}><option value="game" ${t.during !== 'evening' ? 'selected' : ''}>During the game</option><option value="evening" ${t.during === 'evening' ? 'selected' : ''}>All evening</option></select></label></div>
+      ${t.during !== 'evening' ? `<div class="row small" style="gap:8px;flex-wrap:wrap"><label class="row" style="gap:6px">From<select data-gdbefore="${i}" style="width:auto" ${ro ? 'disabled' : ''}>${[0, 5, 10, 15, 30, 45, 60].map(m => `<option value="${m}" ${(t.before ?? 15) === m ? 'selected' : ''}>${m ? m + ' min before' : 'the start'}</option>`).join('')}</select></label>
         <label class="row" style="gap:6px">until<select data-gdafter="${i}" style="width:auto" ${ro ? 'disabled' : ''}>${[0, 5, 10, 15, 30, 60].map(m => `<option value="${m}" ${(t.after ?? 15) === m ? 'selected' : ''}>${m ? m + ' min after the end' : 'the end'}</option>`).join('')}</select></label>
         <label class="check"><input type="checkbox" data-gdday="${i}" ${t.daytime ? 'checked' : ''} ${ro ? 'disabled' : ''}> Day games too</label></div>
       <p class="small muted" style="margin:0">From ESPN\u2019s start time to the final score (or, if the score can\u2019t be followed, the longest a game usually runs).${t.daytime ? '' : ' A day game lights up only once it\u2019s dark, if it\u2019s still on.'} ${gd.enabled ? '' : '<b>Game-time lights are off.</b>'}</p>`
@@ -2153,7 +2153,12 @@ async function gamePanel(box) {
     team.on = 'sunset'; team.off = '23:00';
     team.during = 'game'; team.before = 15; team.after = 15;     // 4.25: new teams light up during the game
     n.gameday.teams = [...(n.gameday.teams || []), team];
-    if (!n.gameday.enabled && !(n.gameday.celebrate_enabled ?? false)) n.gameday.enabled = true;   // a first team: game-day lights on
+    if (!n.gameday.enabled && !(n.gameday.celebrate_enabled ?? false)) {
+      n.gameday.enabled = true;                                    // a first team: game-time lights on
+      // 4.28: and only those. Without its own switch saved, Celebrate scores
+      // follows the old single switch and was ticked too.
+      if (n.gameday.celebrate_enabled === undefined) n.gameday.celebrate_enabled = false;
+    }
     busy(b, () => save(n, `${team.name} added`)).catch(() => {});
   };
 }
@@ -2322,9 +2327,14 @@ const RULE_COLORS = ['#E8833A', '#3A86E8', '#2FA36B', '#C04BD1', '#D6455D', '#1F
 function ruleColor(name) {
   const i = (S.settings.rules || []).findIndex(r => r.name === name);
   if (i >= 0) return RULE_COLORS[i % RULE_COLORS.length];
+  // 4.28: rules made for you (game time, holidays) take a color no rule of
+  // yours uses, so "Eagles game time" doesn't share Christmas's orange
+  const used = new Set((S.settings.rules || []).map((r, j) => RULE_COLORS[j % RULE_COLORS.length]));
+  const free = RULE_COLORS.filter(c => !used.has(c)), pool = free.length ? free : RULE_COLORS;
   let h = 0; for (const c of String(name)) h = (h * 31 + c.charCodeAt(0)) >>> 0;
-  return RULE_COLORS[h % RULE_COLORS.length];
+  return pool[h % pool.length];
 }
+const SPORT_ICON = { football: '\u{1F3C8}', hockey: '\u{1F3D2}', basketball: '\u{1F3C0}', baseball: '\u26BE' };
 function upcomingPanel(box) {
   if (!box) return;
   const view = S.upcView || 'month';          // 4.6.1: the month first
@@ -2338,7 +2348,9 @@ function upcomingPanel(box) {
     ${view === 'month' ? `<div class="calnav"><button class="small ghost" data-calm="-1" aria-label="Previous month">‹</button><b>${esc(title)}</b><button class="small ghost" data-calm="1" aria-label="Next month">›</button></div>` : ''}
     <div id="upc" style="margin-top:8px"><p class="muted">Loading…</p></div>`;
   const day = d => new Date(d.date + 'T12:00');
-  const times = d => (d.windows || []).length ? d.windows.map(w => `<div class="win"><span class="dot" style="background:${ruleColor(w.rule)}"></span><span class="num">${esc(hm12(w.on_label))} – ${esc(hm12(w.off_label))}</span> <span class="sub">${esc(w.rule)}${w.effect && w.effect !== w.rule ? ' · ' + esc(w.effect) : ''}${w.controllers ? ' · ' + esc(w.controllers.join(', ')) : ''}</span></div>`).join('') : '<span class="sub">Off</span>';
+  // 4.28: games of teams with game-time lights or score celebrations on
+  const games = d => (d.games || []).map(g => `<div class="win game"><span class="gico" aria-hidden="true">${SPORT_ICON[g.sport] || '\u{1F3C6}'}</span><span class="num">${g.start ? esc(hm12(g.start)) : 'Time TBD'}</span> <span class="sub">${esc(g.team)} game${[g.lights ? 'game-time lights' : '', g.celebrate ? 'celebrate scores' : ''].filter(Boolean).map(x => ' · ' + x).join('')}</span></div>`).join('');
+  const times = d => ((d.windows || []).length ? d.windows.map(w => `<div class="win"><span class="dot" style="background:${ruleColor(w.rule)}"></span><span class="num">${esc(hm12(w.on_label))} – ${esc(hm12(w.off_label))}</span> <span class="sub">${esc(w.rule)}${w.effect && w.effect !== w.rule ? ' · ' + esc(w.effect) : ''}${w.controllers ? ' · ' + esc(w.controllers.join(', ')) : ''}</span></div>`).join('') : '<div class="win"><span class="sub">Lights off</span></div>') + games(d);
   const q = (view === 'month' ? `upcoming?month=${ym}` : 'upcoming?days=21') + (cdev ? `&device=${encodeURIComponent(cdev)}` : '');
   const sel = $('#upcdev', box);
   if (sel) sel.onchange = () => { S.upcDev = sel.value; upcomingPanel(box); };
@@ -2355,10 +2367,11 @@ function upcomingPanel(box) {
     out.innerHTML = `<div class="cal" role="grid" aria-label="${esc(title)}">
         ${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(w => `<div class="calh">${w}</div>`).join('')}
         ${'<div></div>'.repeat(lead)}
-        ${list.map((d, i) => `<button class="calday${day(d).toDateString() === today ? ' today' : ''}${(d.windows || []).length ? '' : ' off'}" data-calday="${i}" aria-label="${esc(day(d).toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' }))}: ${esc((d.windows || []).map(w => w.rule).join(', ') || 'off')}">
-          <span class="n">${day(d).getDate()}</span>${(d.windows || []).map(w => `<span class="bar" style="background:${ruleColor(w.rule)}" title="${esc(w.rule)}"><span>${esc(w.rule)}</span></span>`).join('')}</button>`).join('')}
+        ${list.map((d, i) => `<button class="calday${day(d).toDateString() === today ? ' today' : ''}${(d.windows || []).length || (d.games || []).length ? '' : ' off'}" data-calday="${i}" aria-label="${esc(day(d).toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' }))}: ${esc([...(d.windows || []).map(w => w.rule), ...(d.games || []).map(g => g.team + ' game' + (g.start ? ' ' + hm12(g.start) : ''))].join(', ') || 'off')}">
+          <span class="n">${day(d).getDate()}</span>${(d.windows || []).map(w => `<span class="bar" style="background:${ruleColor(w.rule)}" title="${esc(w.rule)}"><span>${esc(w.rule)}</span></span>`).join('')}${(d.games || []).map(g => `<span class="gamechip" title="${esc(g.team)} game"><span aria-hidden="true">${SPORT_ICON[g.sport] || '\u{1F3C6}'}</span><span>${g.start ? esc(hm12(g.start)) : esc(g.team)}</span></span>`).join('')}</button>`).join('')}
       </div>
       ${rules.length ? `<div class="legend" style="margin-top:10px">${rules.map(r => `<span><span class="dot" style="background:${ruleColor(r)}"></span>${esc(r)}</span>`).join('')}</div>` : '<p class="muted small" style="margin-top:8px">Nothing scheduled this month.</p>'}
+      ${list.some(d => (d.games || []).length) ? `<p class="small muted" style="margin-top:6px">${[...new Set(list.flatMap(d => (d.games || []).map(g => SPORT_ICON[g.sport] || '\u{1F3C6}')))].join(' ')} A game of a team you follow (game-time lights or score celebrations), with its start time.</p>` : ''}
       <div id="caldetail" class="note" style="margin-top:10px">Tap a day for its times.</div>`;
     out.onclick = e => {
       const b = e.target.closest('[data-calday]'); if (!b) return;

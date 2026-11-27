@@ -191,7 +191,10 @@ button.current{border-color:var(--lamp);box-shadow:inset 0 0 0 1px var(--lamp)}
 .dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;vertical-align:middle}
 /* a controller card's Online/Offline label isn't one of those 10px dots (4.5: it spilled 3px off a phone screen) */
 .dc-top .dot{display:inline;width:auto;height:auto;margin:0;border-radius:0;vertical-align:baseline}
-@media (max-width:560px){ .calday{min-height:48px} .calday .bar{height:8px} .calday .bar span{display:none} }
+/* 4.28: a followed team's game on the calendar, and in the list */
+.calday .gamechip{display:flex;gap:3px;align-items:center;font-size:.68rem;line-height:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--ink)}
+.win.game .gico{display:inline-block;width:1.2em;text-align:center;margin-right:2px}
+@media (max-width:560px){ .calday{min-height:48px} .calday .bar{height:8px} .calday .bar span{display:none} .calday .gamechip span + span{display:none} }
 .favs{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
 .favs .fav{display:flex;flex-direction:column;align-items:stretch;gap:8px;padding:12px;min-height:84px;text-align:left}
 .favs .fav b{font-size:1rem}

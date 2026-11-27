@@ -140,7 +140,7 @@ class GameDayFetching(unittest.TestCase):
             a.gameday.next_at = later
             save(favorites=["christmas"])
             self.assertEqual(a.gameday.next_at, later)                       # an ordinary save: no fetch
-            team = {"league": "nfl", "team": "phi", "name": "Eagles", "effect": "christmas"}
+            team = {"league": "nfl", "team": "phi", "name": "Eagles", "effect": "christmas", "during": "evening"}
             save(gameday={"enabled": True, "teams": [team]})
             self.assertEqual(a.gameday.next_at, 0)                            # a new team: fetch soon
             a.gameday.next_at = later
@@ -231,7 +231,7 @@ class CheckSchedulesNow(unittest.TestCase):
         a, d = make_app()
         try:
             s = copy.deepcopy(a.store.settings)
-            s["gameday"] = {"enabled": True, "teams": [{"league": "nfl", "team": "phi", "name": "Eagles", "effect": "christmas"}]}
+            s["gameday"] = {"enabled": True, "teams": [{"league": "nfl", "team": "phi", "name": "Eagles", "effect": "christmas", "during": "evening"}]}
             a.save_settings(s, s.get("_rev"))
             gate = threading.Event()
 

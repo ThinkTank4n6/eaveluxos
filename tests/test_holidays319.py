@@ -167,7 +167,7 @@ class HolidayRules(unittest.TestCase):
         c = self.ctrl(s)
         self.assertEqual(self.at(c, 2026, 11, 26, 19).source, "Christmas season")
         s = settings()
-        s["gameday"] = {"enabled": True, "teams": [{"league": "nfl", "team": "phi", "name": "Eagles", "effect": "christmas"}]}
+        s["gameday"] = {"enabled": True, "teams": [{"league": "nfl", "team": "phi", "name": "Eagles", "effect": "christmas", "during": "evening"}]}
         c = self.ctrl(s, gamedates={"nfl-phi": {date(2026, 11, 26)}})
         self.assertIn("game day", self.at(c, 2026, 11, 26, 19).source)
 

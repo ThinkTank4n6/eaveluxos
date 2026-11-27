@@ -3248,6 +3248,7 @@ class App:
             if not start.year - 1 <= y <= start.year + 2:
                 raise ApiError("Pick a month from last year to two years ahead.")
             start, days = date(y, mo, 1), calendar.monthrange(y, mo)[1]
+        games = self._upcoming_games()
         prev = None
         for i in range(days):
             d = start + timedelta(days=i)
@@ -3260,8 +3261,39 @@ class App:
             out.append({"date": d.isoformat(), "sunrise": s["sunrise"] and s["sunrise"].strftime("%H:%M"),
                         "sunset": s["sunset"] and s["sunset"].strftime("%H:%M"), "abbr": abbr,
                         "dst_change": bool(prev and prev != abbr), "windows": wins,
+                        "games": games.get(d, []),
                         **{k: first.get(k) for k in ("on", "off", "on_label", "off_label", "rule", "effect")}})
             prev = abbr
+        return out
+
+    def _upcoming_games(self) -> dict:
+        """4.28: date -> the games of teams with game-time lights or score
+        celebrations on: [{"team", "league", "start": "HH:MM" or None,
+        "lights", "celebrate"}], for Schedule › Coming up. The lights'
+        own times are in "windows" (the game-time rules)."""
+        gd = self.store.settings.get("gameday") or {}
+        if not isinstance(gd, dict) or not isinstance(gd.get("teams"), list):
+            return {}
+        lights, party = bool(gd.get("enabled")), gameday.celebrations_on(gd)
+        dates, starts = self.gameday.dates(), self.gameday.starts()
+        out: dict = {}
+        for t in gd["teams"]:
+            if not isinstance(t, dict):
+                continue
+            cel = party and bool(t.get("celebrate"))
+            if not (lights or cel):
+                continue
+            try:
+                c = gameday.check_team(t)
+            except gameday.GameDayError:
+                continue
+            k = gameday.team_key(c["league"], c["team"])
+            for d in sorted(dates.get(k, ())):
+                out.setdefault(d, []).append({"team": c["name"], "league": gameday.LEAGUES[c["league"]][1],
+                                              "sport": gameday.LEAGUES[c["league"]][0].split("/")[0],
+                                              "start": starts.get(k, {}).get(d), "lights": lights, "celebrate": cel})
+        for v in out.values():
+            v.sort(key=lambda g: g["start"] or "99")
         return out
 
     def geocode(self, q: str):

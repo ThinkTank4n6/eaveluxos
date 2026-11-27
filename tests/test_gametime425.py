@@ -87,8 +87,9 @@ class Rules(unittest.TestCase):
         c = self.build(team(during="evening", on="sunset", off="23:00"))
         self.assertEqual([r.name for r in c.schedule.rules if "Eagles" in r.name], ["Eagles game day"])
         old = {"enabled": True, "teams": [{"league": "nfl", "team": "phi", "name": "Eagles", "effect": "eagles"}]}
-        self.assertEqual([r.name for r in self.build(old).schedule.rules if "Eagles" in r.name], ["Eagles game day"],
-                         "teams saved before 4.25 keep their evening")
+        # 4.28: a team saved without a choice now gets game time (15 before, 15 after)
+        self.assertEqual([r.name for r in self.build(old).schedule.rules if "Eagles" in r.name],
+                         ["Eagles game time (8:00 PM)", "Eagles game time (sunset)"])
 
     def test_followed_on_the_scoreboard(self):
         c = self.build(team())

@@ -20,6 +20,7 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import time
 import zipfile
 from pathlib import Path
 
@@ -126,8 +127,21 @@ def make_dmg(app: Path, out: Path):
     (stage / "Applications").symlink_to("/Applications")       # drag-to-install target
     for doc in ("README.md", "MANUAL.md", "LICENSE"):
         shutil.copy(ROOT / doc, stage / doc)
-    subprocess.run(["hdiutil", "create", "-volname", "EaveLuxOS", "-srcfolder", str(stage),
-                    "-ov", "-format", "UDZO", str(out)], check=True)
+    # 4.28: "hdiutil: create failed - Resource busy" happens now and then on
+    # GitHub's Mac runners (the system is still scanning the new files, or a
+    # disk image from before is still attached). Try again a few times,
+    # detaching any EaveLuxOS volume left mounted, before giving up.
+    cmd = ["hdiutil", "create", "-volname", "EaveLuxOS", "-srcfolder", str(stage), "-ov", "-format", "UDZO", str(out)]
+    for attempt in range(1, 7):
+        r = subprocess.run(cmd, capture_output=True, text=True)
+        if r.returncode == 0:
+            print(r.stdout, end="")
+            return
+        print(f"hdiutil create failed (try {attempt} of 6): {(r.stderr or r.stdout).strip()}", flush=True)
+        if attempt == 6:
+            raise subprocess.CalledProcessError(r.returncode, cmd, r.stdout, r.stderr)
+        subprocess.run(["hdiutil", "detach", "/Volumes/EaveLuxOS", "-force"], capture_output=True)
+        time.sleep(10 * attempt)
 
 
 def build_mac():

@@ -36,7 +36,8 @@ def settings(**kw):
     return s
 
 
-EAGLES = {"enabled": True, "teams": [{"league": "nfl", "team": "phi", "name": "Eagles", "effect": "eagles", "on": "sunset", "off": "23:00"}]}
+EAGLES = {"enabled": True, "teams": [{"league": "nfl", "team": "phi", "name": "Eagles", "effect": "eagles", "on": "sunset", "off": "23:00",
+                                      "during": "evening"}]}     # 4.28: game time when not given
 
 
 class Parsing(unittest.TestCase):
@@ -112,9 +113,9 @@ class Rules(unittest.TestCase):
         a rule of your own called "Eagles game day", made saving fail with
         "Two schedule rules have the same name"."""
         s = settings(gameday={"enabled": True, "teams": [
-            {"league": "nfl", "team": "phi", "name": "PHI", "effect": "eagles"},
-            {"league": "nba", "team": "phi", "name": "PHI", "effect": "eagles"},
-            {"league": "nhl", "team": "phi", "name": "Eagles", "effect": "eagles"}]})
+            {"league": "nfl", "team": "phi", "name": "PHI", "effect": "eagles", "during": "evening"},
+            {"league": "nba", "team": "phi", "name": "PHI", "effect": "eagles", "during": "evening"},
+            {"league": "nhl", "team": "phi", "name": "Eagles", "effect": "eagles", "during": "evening"}]})
         s["rules"].append({"name": "Eagles game day", "on": "18:00", "off": "19:00", "effect": "eagles"})
         c = build_config(s, SECRETS, gamedates={"nfl-phi": {date(2026, 12, 6)}})
         names = [r.name for r in c.schedule.rules]

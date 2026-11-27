@@ -1000,7 +1000,7 @@ def _game_watch(gd) -> dict:
         return {}
     out = {}
     for t in gd["teams"]:
-        if not isinstance(t, dict) or t.get("during") != "game":
+        if not isinstance(t, dict) or t.get("during", "game") != "game":
             continue
         try:
             c = check_team(t)
@@ -1013,8 +1013,10 @@ def _game_watch(gd) -> dict:
 
 def game_time_settings(t: dict, name: str) -> dict | None:
     """4.25: a team's game-time settings, or None for game-night lights (the
-    evening, as before 4.25)."""
-    during = t.get("during", "evening")
+    evening, as before 4.25). 4.28: a team without a choice gets game time,
+    15 minutes before the start to 15 after the end; "All evening" is kept
+    only when chosen."""
+    during = t.get("during", "game")
     if during not in ("evening", "game"):
         raise ConfigError(f"Game day '{name}': lights are on during the game or all evening.")
     if during == "evening":

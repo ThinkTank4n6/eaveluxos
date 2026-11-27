@@ -1,7 +1,7 @@
 # EaveLuxOS: User Manual
 ### The Intelligent Lighting Control Platform
 
-Version 4.27.0 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
+Version 4.28.0 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
 
 > [!TIP]
 > **Quick start: you probably don't need Python.**
@@ -94,7 +94,11 @@ settings.*
 
 ## What's new
 
-**4.27 to 4.22: control from anywhere, power-cut alerts, community sharing, game-time lights, college game days, animations, Lightning and Snowflake**
+**4.28 to 4.22: games on the calendar, control from anywhere, power-cut alerts, community sharing, game-time lights, college game days, animations, Lightning and Snowflake**
+- **Games on the calendar** (4.28): Schedule › Coming up shows your teams'
+  games, with start times, for game-time lights and for score celebrations.
+  Every team now gets game time (15 minutes before to 15 after) unless you
+  chose all evening: see [Game-time lights](#game-time-lights).
 - **Control from anywhere** (4.27): **Setup › Accounts & access › Away from
   home** walks you through Tailscale, step by step, then shows the address
   and a QR code for your phone. Nothing opens on your router (section 20).
@@ -1866,9 +1870,15 @@ encrypted backup keeps them).
 
 ### Game-time lights
 
-Your team's colors while they play, instead of the usual pattern. Before
-4.25 this was called **Game-day lights**, and it lit the whole evening of
-every game day; that's still a choice for each team.
+Your team's colors while they play, instead of the usual pattern: from 15
+minutes before each game until 15 minutes after it ends, set automatically
+from ESPN's start times (4.28). Before 4.25 this was called **Game-day
+lights**, and it lit the whole evening of every game day; that's still a
+choice for each team.
+
+> [!TIP]
+> Videos: **Game-time lights** and **Celebrate scores** walk through each
+> one, about a minute each.
 
 1. Under **Game-time lights**, choose a team in **Add a team…** and tap
    **Add**. The Eagles, Phillies, 76ers and Flyers come with a team-color
@@ -1880,18 +1890,27 @@ every game day; that's still a choice for each team.
    its team number (the number in its espn.com address, for example `213`
    for Penn State).
 2. Choose when, with **Lights on**:
-   - **During the game** (new teams, 4.25): from a little before the start
+   - **During the game** (every team unless you choose otherwise, 4.28):
+     from a little before the start
      (**From**: 15 minutes before, to start) until a little after the final
      score (**until**: 15 minutes after the end). A day game lights up only
      once it's dark, and only if it's still on; tick **Day games too** to
      light it in daylight as well.
    - **All evening**: the **On** and **Off** times (sunset to 11:00 PM to
-     start), every game day, as before 4.25. Teams added before 4.25 stay
-     on this until you change it.
+     start), every game day, as before 4.25. Since 4.28, teams added before
+     4.25 use **During the game** too, unless you chose **All evening**.
 3. Change the **Pattern** if you like.
-4. Tick **Use game-time lights**. Nothing is checked while it's off (the
-   panel says so). Within a minute the panel lists the next games, with
-   their start times. They also show on the Month calendar.
+4. Check that **Use game-time lights** is ticked (adding your first team
+   ticks it, and only it). Nothing is checked while it's off (the panel says
+   so). Within a minute the panel lists the next games, with their start
+   times.
+
+**Under Coming up (4.28).** Schedule › Coming up shows each game of a team
+you follow, with game-time lights or score celebrations on: the Month view
+marks the day with the sport (🏈, 🏒, 🏀, ⚾) and the start time; tap the
+day, or use List, for "8:15 PM Eagles game · game-time lights · celebrate
+scores". With game-time lights on, the lights' own times show as well, as
+"Eagles game time (8:00 PM)", in a color of their own.
 
 | League | In the list as |
 |---|---|
