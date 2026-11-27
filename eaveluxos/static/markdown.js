@@ -37,7 +37,13 @@
       return `\u0001${links.length - 1}\u0001`;
     });
     s = esc(s);
-    s = s.replace(/https?:\/\/[^\s<>"')]+[^\s<>"').,;:]/g, u => `<a href="${u}" target="_blank" rel="noopener noreferrer">${u}</a>`);
+    // 4.26.3: a bare address stops before * (so **http://localhost:8787** stays
+    // bold around the link) and is held aside while bold and italic are
+    // marked, so they can never land inside the link's markup.
+    s = s.replace(/https?:\/\/[^\s<>"')*]*[^\s<>"').,;:*]/g, u => {
+      links.push(`<a href="${u}" target="_blank" rel="noopener noreferrer">${u}</a>`);
+      return `\u0001${links.length - 1}\u0001`;
+    });
     s = emph(s);
     s = s.replace(/\u0001(\d+)\u0001/g, (_, i) => links[+i]).replace(/\u0000(\d+)\u0000/g, (_, i) => codes[+i]);
     return s;
@@ -66,12 +72,36 @@
         if (!l.trim()) {
           let j = i + 1;
           while (j < lines.length && !lines[j].trim()) j++;
-          if (j < lines.length && indentOf(lines[j]) > base) { i = j; continue; }
+          if (j < lines.length && indentOf(lines[j]) > base) {
+            // 4.26.3: an indented block after a blank line (paragraphs, a
+            // table, a code block, a list) belongs to this item and is
+            // rendered like any other Markdown; a table there used to show
+            // as raw "| Role | Can |" text, and each line as its own paragraph.
+            let k = j;
+            const block = [];
+            while (k < lines.length) {
+              if (lines[k].trim() && indentOf(lines[k]) <= base) break;
+              block.push(lines[k]); k++;
+            }
+            while (block.length && !block[block.length - 1].trim()) block.pop();
+            const cut = Math.min(...block.filter(b => b.trim()).map(indentOf));
+            inner += render(block.map(b => b.replace(/\t/g, '    ').slice(cut)).join('\n'));
+            i = k;
+            continue;
+          }
           break;
         }
         const sub = isList(l);
         if (sub && indentOf(l) > base) { const r = list(lines, i, indentOf(l)); inner += r.html; i = r.i; continue; }
         if (sub || indentOf(l) <= base) break;
+        if (/^\s*```/.test(l)) {                    // 4.26.3: a code block right under the item's text
+          const cut = indentOf(l), block = [l];
+          i++;
+          while (i < lines.length && !/^\s*```/.test(lines[i])) block.push(lines[i++]);
+          if (i < lines.length) block.push(lines[i++]);
+          inner += render(block.map(b => b.replace(/\t/g, '    ').slice(Math.min(cut, indentOf(b)))).join('\n'));
+          continue;
+        }
         if (inner) inner += `<p>${inline(l.trim())}</p>`; else text += ' ' + l.trim();
         i++;
       }

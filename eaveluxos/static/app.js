@@ -505,8 +505,15 @@ async function usagePanel(box) {
    account) when the lights can't be reached, a controller is offline or
    unreadable, or a new version is out. Administrators only. */
 const ALERT_EVENTS = [['failed', 'The lights can\u2019t be reached to turn on or off (after 10 minutes)'],
-  ['offline', 'A controller is offline (after 15 minutes)'], ['unreadable', 'Trimlight can\u2019t read a controller (code 12006)'],
+  ['offline', 'A controller is offline (after 10 minutes), and again when it\u2019s back'], ['unreadable', 'Trimlight can\u2019t read a controller (code 12006)'],
+  ['down', 'EaveLuxOS was off (a power cut, or the computer shut down or restarted): sent when it runs again'],
   ['update', 'A new EaveLuxOS version is out']];
+// 4.27: what was sent lately, so "I never get alerts" can be checked against the phone
+function alertHistory(h) {
+  if (!h || !h.length) return '<p class="muted small">Nothing sent yet. Alerts only go out when something is wrong (or with <b>Send a test</b>).</p>';
+  const when = t => new Date(t * 1000).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  return `<ul class="checklist small">${h.map(x => `<li class="${x.ok ? 'ok' : 'warn'}"><b>${x.ok ? '\u2713' : '!'}</b> ${esc(when(x.at))}: ${esc(x.title)}${x.ok ? '' : ` <span class="muted">${esc(x.error || 'not sent')}</span>`}</li>`).join('')}</ul>`;
+}
 async function alertPanel(box) {
   if (!box) return;
   let a; try { a = await api('alerts'); } catch (e) { box.innerHTML = `<h2>Phone alerts</h2><p class="muted small">${esc(e.message)}</p>`; return; }
@@ -525,7 +532,9 @@ async function alertPanel(box) {
       <label class="field">Topic <span class="hint">Anyone who knows it can read your alerts, so keep it hard to guess.</span><input type="text" id="altop" value="${esc(a.topic)}" maxlength="64"></label>
       <label class="field">ntfy server <span class="hint">Leave as is unless you run your own.</span><input type="url" id="alsrv" value="${esc(a.server)}"></label>
       <div><button class="small ghost" data-alsave>Save topic and server</button></div></div></details>
-    <p class="note">A problem is sent once, then again at most every 6 hours, and a message follows when it\u2019s back to normal. Messages never include your address.</p>`;
+    <p class="note">A problem is sent once, then again at most every 6 hours, and a message follows when it\u2019s back to normal. Messages never include your address.</p>
+    <details id="alhist"><summary class="small">Sent lately</summary><div style="margin-top:6px">${alertHistory(a.history)}
+      <p class="note">A \u2713 means the ntfy server took the message. If it\u2019s listed here but your phone showed nothing: open the ntfy app and look in the topic. <b>In the topic but no banner:</b> on an iPhone, open the Settings app, then Notifications, then ntfy, and turn on Allow Notifications and Banners, and check that a Focus mode isn\u2019t hiding it. <b>Not in the topic at all:</b> in ntfy, delete the subscription and add the topic again (copy it from above). Swiping ntfy away in the app switcher can also stop its alerts on an iPhone until it\u2019s opened again.</p></div></details>`;
   const save = (body, b) => busy(b, () => api('alerts/settings', { body })).then(r => { toast('Saved'); return r; });
   box.onchange = e => {
     const t = e.target;
@@ -536,7 +545,7 @@ async function alertPanel(box) {
     const b = e.target.closest('button'); if (!b) return;
     e.stopPropagation();
     if (b.dataset.alcopy !== undefined) { try { navigator.clipboard.writeText(a.topic); toast('Topic copied'); } catch (x) { toast('Select the topic and copy it.', true); } }
-    else if (b.dataset.altest !== undefined) busy(b, () => api('alerts/test', { body: {} })).then(() => toast('Sent. Check your phone.')).catch(() => {});
+    else if (b.dataset.altest !== undefined) busy(b, () => api('alerts/test', { body: {} })).then(() => { toast('Sent. Check your phone.'); alertPanel(box); }).catch(() => alertPanel(box));
     else if (b.dataset.alsave !== undefined) save({ topic: $('#altop').value.trim(), server: $('#alsrv').value.trim() }, b).then(() => alertPanel(box)).catch(() => {});
   };
 }

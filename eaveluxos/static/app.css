@@ -349,7 +349,9 @@ pre.code{padding:10px;white-space:pre-wrap;margin:0}
 .md blockquote{border-left:3px solid var(--lamp);background:var(--surface2);padding:8px 14px;border-radius:0 var(--radius-m) var(--radius-m) 0}
 .md code{font-size:.88em;background:var(--surface2);padding:1px 5px;border-radius:5px}
 .md pre code{background:none;padding:0}
-.md .tablewrap{overflow-x:auto}.md table{border-collapse:collapse;width:100%;font-size:.92rem}
+.md .tablewrap{overflow-x:auto}.md table{border-collapse:collapse;width:100%;font-size:.92rem;overflow-wrap:normal}
+/* 4.26.3: table cells break only between words ("Home", not "Hom e"; a file name at its hyphens) */
+.md code{word-break:normal}.md td:first-child{min-width:7.5em}
 .md th,.md td{border:1px solid var(--line);padding:6px 9px;text-align:left;vertical-align:top}.md th{background:var(--surface2)}
 .md a{color:var(--lamp)}
 .fxbadge{display:inline-block;margin-left:6px;font-size:.78rem;font-weight:600;padding:1px 8px;border-radius:999px;white-space:nowrap;vertical-align:1px}
@@ -508,3 +510,7 @@ pre.code{padding:10px;white-space:pre-wrap;margin:0}
 .studiokf .grow { min-width: 0; }
 .studiokf .strand { margin-top: 6px; }
 .stsched { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+/* 4.27: Away from home with Tailscale, one numbered step per line */
+.tsstep { display: grid; grid-template-columns: 1.6em 1fr; gap: 4px; align-items: start; }
+.tsstep > b:first-child { color: var(--accent, inherit); }
+.tsstep code { overflow-wrap: anywhere; }

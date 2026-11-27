@@ -34,7 +34,7 @@ class AlertTiming(unittest.TestCase):
 
     def test_a_problem_waits_then_alerts_once_then_says_when_fixed(self):
         self.cond = {"offline": (True, "Trimlight")}
-        self.minutes(14)
+        self.minutes(9)                                                  # 4.27: 10 minutes (was 15)
         self.assertEqual(self.sent, [])                                  # not for a short blip
         self.minutes(2)
         self.assertEqual(self.titles(), ["EaveLuxOS: Controller offline"])

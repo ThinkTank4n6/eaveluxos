@@ -1,5 +1,67 @@
 # Changelog
 
+## 4.27.0: control from anywhere, and power-cut alerts
+
+Asked for: control from anywhere (other systems are cloud apps), and an alert
+when a controller goes offline. Reported: "ntfy never sends me anything, only
+the test."
+
+- **Away from home with Tailscale** (Setup › Accounts & access › Away from
+  home): a checklist that checks itself: Tailscale installed, connected,
+  pointed at EaveLuxOS with Tailscale Serve (the one command to run is shown,
+  with Copy), then the phone's https://NAME.ts.net address and a QR code.
+  Serve gives a real certificate, so phones install nothing extra. The app
+  only reads Tailscale's status; it never changes Tailscale's settings. This
+  computer's own Tailscale name is accepted as a host name; requests through
+  Serve arrive with X-Forwarded-For and are treated as from away, as before.
+- **"EaveLuxOS was off" alert:** on Nov 26 the app computer lost power twice
+  (7:21 to 7:28 PM, and 8:41 to 10:24 PM) and nothing said so. While the
+  computer is off nothing can be sent, so now, when the app runs again after
+  5 minutes or more off without Quit, one alert (and a line in Activity) gives
+  the times. Quit isn't reported. data/alive.json holds the last sign of life.
+- **Controller offline** alerts come after 10 minutes (were 15), and a
+  "back online" message follows, as before.
+- **Sent lately** (Phone alerts): the last 20 messages, with a ✓ when the
+  ntfy server took them or the reason it didn't, plus what to check on the
+  phone. About the report: the log showed 12 "New version" alerts taken by
+  ntfy.sh since Nov 17 (the last at 10:26 PM on Nov 26); nothing else was
+  wrong long enough to alert. So the messages reached ntfy, and the phone
+  side is what to check (the steps are on the page and in the manual).
+- Review #1: Quit's "quit" mark and the minute's "still running" mark are
+  written under one lock, so the second can't land after the first and make
+  the next start look like a power cut. An empty Tailscale name never counts
+  as an allowed host.
+- test_startlink4222 polled the page while it reloaded itself, and could fail
+  on "execution context was destroyed"; it now waits for the page instead.
+- Tests: test_alerts427.py, test_remote427.py (with browser checks);
+  tests/repro_min_power_cut_no_alert.py (prints BUG on 4.26.3, OK with
+  --fixed on 4.27.0).
+
+## 4.26.3: a cleaner manual
+
+Reported: tables in the manual looked sloppy ("Hom e", "Patte rns"), and so
+did section 4.
+
+- **Tables** in the manual viewer break only between words. Names such as
+  "Home" and file names such as `EaveLuxOS-macOS-Intel.dmg` no longer split
+  mid-word.
+- **Bold addresses** such as **http://localhost:8787** broke the line: the
+  closing `**` went into the link, so the link pointed to the wrong place and
+  the rest of the line (sometimes the next item too) turned bold. Nine places
+  in the manual did this.
+- **Lists:** a table inside a list item (the account roles in section 20)
+  showed as raw `| Role | Can |` text, and each line of a paragraph inside a
+  list item was its own paragraph (broken sentences in "Add a rule" and
+  elsewhere). Both now render properly, and so do code blocks in a list.
+- **Section 4, Download and start the app**, rewritten: numbered steps, one
+  table for what to download and one for how to install it, the
+  ThinkTankForensics.com download page beside GitHub, the download check as
+  copyable commands, the Mac troubleshooting in its own part, and **Where
+  your data is kept** as its own short section with a table.
+- README: ThinkTankForensics.com is listed as a download page too.
+- Review: tests/repro_min_bold_link.py (prints BUG on 4.26.2, OK with
+  --fixed on 4.26.3).
+
 ## 4.26.2: a held-back score celebration logs the real reason
 
 Reported: celebrations seemed not to work for the Flyers (Nov 25) or the

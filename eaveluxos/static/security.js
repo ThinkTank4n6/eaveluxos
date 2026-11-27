@@ -111,15 +111,48 @@ function vaultPanel(box) {
 }
 
 /* ---------------------------------------------------------------- away from home */
+/* 4.27: with Tailscale, a step-by-step setup that checks itself: installed,
+   connected, Serve pointed at this app, then the address and a QR code for
+   the phone. Any VPN to the home network still works the usual way. */
 function remotePanel(box, a) {
   const yes = (ok, text, fix) => `<li class="${ok ? 'ok' : 'warn'}"><b>${ok ? '✓' : '!'}</b> ${text}${!ok && fix ? ` <span class="small muted">${fix}</span>` : ''}</li>`;
   const https = (a.scheme || 'http') === 'https';
   box.innerHTML = `<h2>Away from home</h2>
-    <p class="note">EaveLuxOS is meant for your home network. To use it away from home, connect to your home network first with a <b>VPN</b>: your router’s own (for example WireGuard on a Firewalla, UniFi or ASUS router) or <b>Tailscale</b> on this computer and your phone. Then the usual address works as if you were home. Don’t forward a port on your router to this app: that puts it on the open internet.</p>
+    <p class="note">Use EaveLuxOS from anywhere without opening it to the internet. The easiest way is <b>Tailscale</b> (free for personal use): it connects this computer and your phone privately and encrypted, with nothing to change on your router. Never forward a port on your router to this app.</p>
+    <div id="tsbox" class="stack"><p class="muted small">Checking for Tailscale…</p></div>
+    <details><summary class="small">Safety checklist</summary>
     <ul class="checklist">
       ${yes(a.password_set, 'Every person has an account with a password', 'Setup › Accounts & access › Accounts.')}
-      ${yes(https, 'HTTPS is on (the address starts with https://)', 'See the manual: “HTTPS on your home network” (mkcert).')}
+      ${yes(https, 'HTTPS is on at home (the address starts with https://)', 'See the manual: “HTTPS on your home network” (mkcert). Tailscale’s own address is always https.')}
       ${'local_login' in a ? yes(!!a.local_login || !a.password_set, 'Programs on this computer sign in too', 'Optional: “Require signing in on this computer too” above.') : ''}
-    </ul>
+    </ul></details>
+    <details><summary class="small">Your router’s VPN instead</summary>
+    <p class="note">A VPN to your home network (WireGuard on a Firewalla, UniFi or ASUS router, for example) works too: connect the phone to it, then use the usual home address.</p></details>
     <p class="note">Programs (Home Assistant, scripts) use an <b>API token</b> instead of a password; webhooks keep their own link. Changes made away from home ask for your password again, and every change is in the audit log.</p>`;
+  tailscalePanel($('#tsbox', box));
+}
+
+async function tailscalePanel(el, fresh) {
+  if (!el) return;
+  let t;
+  try { t = await api('remote' + (fresh ? '?fresh=1' : '')); } catch (e) { el.innerHTML = `<p class="muted small">${esc(e.message)}</p>`; return; }
+  const step = (n, done, title, body) => `<div class="tsstep"><b>${done ? '✓' : n + '.'}</b> <span><b>${title}</b>${body ? `<br><span class="small">${body}</span>` : ''}</span></div>`;
+  const s1 = !!t.installed, s2 = s1 && !!t.running, s3 = s2 && !!t.serve;
+  let qr = '';
+  if (s3 && t.address) { try { qr = QR.svg(t.address, 'M', 5); } catch { qr = ''; } }
+  el.innerHTML = `
+    ${step(1, s1, 'Install Tailscale on this computer', s1 ? 'Installed.' : 'Download it from <b>tailscale.com/download</b>, install it, and sign in (Google, Microsoft or Apple account).')}
+    ${step(2, s2, 'Connect it', s2 ? `Connected as <code>${esc(t.name || t.ip || 'this computer')}</code>.` : esc(t.error || 'Open Tailscale and sign in.'))}
+    ${step(3, s3, 'Point Tailscale at EaveLuxOS (once)', s3 ? 'Done: Tailscale passes requests to this app.' : `${s2 ? '' : 'After step 2: '}open ${navigator.platform && /Win/.test(navigator.platform) ? 'a <b>Command Prompt</b>' : 'a <b>Terminal</b>'} on this computer and run:
+       <div class="row" style="margin:6px 0"><code id="tscmd">${esc(t.command)}</code><button class="small ghost" data-tscopy>Copy</button></div>
+       It keeps running after restarts. If it asks you to turn on HTTPS for your tailnet, follow the link it prints and choose <b>Enable</b>, then run it again.`)}
+    ${step(4, false, 'On your phone', `Install <b>Tailscale</b> from the App Store or Google Play and sign in with the <b>same account</b>.${s3 && t.address ? ` Then open <a href="${esc(t.address)}" target="_blank" rel="noopener"><code>${esc(t.address)}</code></a>, or scan this code, sign in, and use <b>Add to Home Screen</b> to keep it. It works at home too.` : ''}`)}
+    ${qr ? `<div class="qr" style="max-width:200px">${qr}</div>` : ''}
+    <div class="row"><button class="small ghost" data-tscheck>Check again</button></div>
+    ${!s3 && t.direct ? `<p class="note">Without step 3, <code>${esc(t.direct)}</code> may work from the phone too${t.https ? ', but the browser warns about the certificate there' : ''}, and Windows Firewall may block it. Step 3 avoids both.</p>` : ''}`;
+  el.onclick = e => {
+    const b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.tscopy !== undefined) { try { navigator.clipboard.writeText(t.command); toast('Copied'); } catch { toast('Select the command and copy it.', true); } }
+    if (b.dataset.tscheck !== undefined) busy(b, () => tailscalePanel(el, true)).catch(() => {});
+  };
 }

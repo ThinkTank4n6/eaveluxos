@@ -1,7 +1,7 @@
 # EaveLuxOS
 ### The Intelligent Lighting Control Platform
 
-By **Christopher A. Tankelewicz (ThinkTank4n6)** · MIT License · version 4.26.2
+By **Christopher A. Tankelewicz (ThinkTank4n6)** · MIT License · version 4.27.0
 
 EaveLuxOS currently works with **Trimlight Edge** permanent-lighting controllers.
 Its scheduling, mapping and design tools are built to grow to other brands.
@@ -138,8 +138,10 @@ owner and are used here only to say which hardware EaveLuxOS works with.*
 
 ### Easiest: download the installer (no Python needed)
 
-Open this project's **Releases** page on GitHub and download the file for your
-computer.
+Open this project's **Releases** page on GitHub
+(https://github.com/ThinkTank4n6/eaveluxos/releases/latest), or
+**ThinkTankForensics.com** (https://thinktankforensics.com/home.html, under
+**Home projects**), and download the file for your computer.
 
 **Windows:** `EaveLuxOS-Windows.zip`
 - Unzip it into a folder you'll keep and double-click `EaveLuxOS.exe`.

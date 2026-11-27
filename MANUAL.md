@@ -1,7 +1,7 @@
 # EaveLuxOS: User Manual
 ### The Intelligent Lighting Control Platform
 
-Version 4.26.2 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
+Version 4.27.0 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
 
 > [!TIP]
 > **Quick start: you probably don't need Python.**
@@ -94,7 +94,14 @@ settings.*
 
 ## What's new
 
-**4.26 to 4.22: community sharing, game-time lights, college game days, animations, Lightning and Snowflake**
+**4.27 to 4.22: control from anywhere, power-cut alerts, community sharing, game-time lights, college game days, animations, Lightning and Snowflake**
+- **Control from anywhere** (4.27): **Setup › Accounts & access › Away from
+  home** walks you through Tailscale, step by step, then shows the address
+  and a QR code for your phone. Nothing opens on your router (section 20).
+- **"EaveLuxOS was off" alerts** (4.27): after a power cut or restart, your
+  phone hears how long the app was off. Controller-offline alerts now come
+  after 10 minutes, and **Sent lately** lists what was sent, to check against
+  your phone (section 20, Phone alerts).
 - **Lightning and Snowflake** on any pattern saved on your controller, the
   same two effects as the Trimlight Edge app's Pattern Library: see
   [Lightning and Snowflake](#lightning-and-snowflake-422).
@@ -269,88 +276,132 @@ install it with your system's software installer (the package is `python3`).
 
 ## 4. Download and start the app
 
+There are two ways to get EaveLuxOS. Most people want **the ready-made
+app**: nothing else to install. The source code is for computers without a
+ready-made app, or for changing the code.
+
 ### The ready-made app (recommended)
 
-1. On the app computer, open
-   **https://github.com/ThinkTank4n6/eaveluxos/releases/latest**. (From the
-   project page: the **Releases** heading on the right, then the newest
-   release, marked **Latest**.)
-2. Scroll down to **Assets** and download the file for your computer:
+**Step 1. Download it.** On the computer that will run your lights, open
+either of these:
 
-| Computer | Download | Install and start |
-|---|---|---|
-| Windows 10 or 11 | `EaveLuxOS-Windows.zip` | Right-click it › **Extract All…** into a folder you'll keep, such as `Documents\EaveLuxOS` (not Downloads, and not inside the zip). Double-click **EaveLuxOS.exe**. If Windows says "Windows protected your PC", click **More info › Run anyway** (once). |
-| Mac with Apple silicon (M1 and newer) | `EaveLuxOS-macOS.dmg` | Open it and drag **EaveLuxOS** into **Applications**, then open it from there. If macOS blocks it, open **System Settings › Privacy & Security**, scroll down and click **Open Anyway**. |
-| Mac with Intel | `EaveLuxOS-macOS-Intel.dmg` | The same. Apple menu › **About This Mac** says "Intel" on one. |
-| Linux PC | `eaveluxos_…_amd64.deb` (or `EaveLuxOS-Linux-x86_64.tar.gz`) | `sudo apt install ./eaveluxos_…_amd64.deb`, then start **EaveLuxOS** from the app menu. For the `.tar.gz`, unpack it and run `./eaveluxos`. |
-| Raspberry Pi (64-bit Raspberry Pi OS) | `eaveluxos_…_arm64.deb` | `sudo apt install ./eaveluxos_…_arm64.deb`, then `eaveluxos run`. |
+- **GitHub** (always the newest release):
+  https://github.com/ThinkTank4n6/eaveluxos/releases/latest. Scroll down
+  to **Assets**.
+- **ThinkTankForensics.com**: https://thinktankforensics.com/home.html,
+  under **Home projects**. It links to the same files.
+
+Download the file for your computer:
+
+| Computer | File to download |
+|---|---|
+| Windows 10 or 11 | `EaveLuxOS-Windows.zip` |
+| Mac with Apple silicon (M1 and newer) | `EaveLuxOS-macOS.dmg` |
+| Mac with Intel | `EaveLuxOS-macOS-Intel.dmg` |
+| Linux PC | `eaveluxos_…_amd64.deb`, or `EaveLuxOS-Linux-x86_64.tar.gz` |
+| Raspberry Pi (64-bit Raspberry Pi OS) | `eaveluxos_…_arm64.deb` |
+
+Not sure which Mac you have? Apple menu › **About This Mac**: it says
+**Intel** on an Intel Mac, and **Apple M1** (M2, M3…) otherwise.
+
+**Step 2. Install and start it.**
+
+| Computer | What to do |
+|---|---|
+| Windows | Right-click the zip › **Extract All…** into a folder you'll keep, such as `Documents\EaveLuxOS` (not Downloads, and not inside the zip). Double-click **EaveLuxOS.exe**. If Windows says "Windows protected your PC", click **More info › Run anyway** (only the first time). |
+| Mac | Open the .dmg and drag **EaveLuxOS** into **Applications**. Open it from Applications. If macOS blocks it, open **System Settings › Privacy & Security**, scroll down and click **Open Anyway**. |
+| Linux PC | Run `sudo apt install ./eaveluxos_…_amd64.deb`, then start **EaveLuxOS** from the app menu. For the .tar.gz: unpack it and run `./eaveluxos`. |
+| Raspberry Pi | Run `sudo apt install ./eaveluxos_…_arm64.deb`, then `eaveluxos run`. |
 
 > [!IMPORTANT]
-> **Mac: run it from Applications.** Don't open EaveLuxOS from the
-> **Downloads** folder or straight from the open .dmg window. macOS then runs a
-> temporary copy that's gone after a restart, so the app can't start on its
-> own afterward. Since 4.22.1 the app notices this: Home and **Setup › App**
-> say to move it, and **Start automatically** won't turn on until it runs from
-> Applications. Drag it in, eject the .dmg, open it from Applications, and
-> turn **Start automatically** on there. A start-at-login entry left by a
-> copy that's gone is switched over to the copy in Applications the first time
-> you open it from there.
+> **Mac: always run it from Applications**, not from **Downloads** or from
+> the open .dmg window. Otherwise macOS runs a temporary copy that's gone
+> after a restart, and the app can't start on its own. The app notices this
+> (since 4.22.1): Home and **Setup › App** tell you to move it, and **Start
+> automatically** won't turn on until it runs from Applications. To fix it:
+> drag it into Applications, eject the .dmg, open it from Applications and
+> turn **Start automatically** on there.
 
-3. Optional, to make sure the download is complete and unchanged: compare
-   its fingerprint with the line for it in **SHA256SUMS.txt** (also under
-   Assets). Windows Command Prompt: `certutil -hashfile
-   %USERPROFILE%\Downloads\EaveLuxOS-Windows.zip SHA256`; Mac or Linux:
-   `shasum -a 256 <file>`. The long number must match exactly.
-4. Your browser opens to **http://localhost:8787** (or **https://** once HTTPS
-   is on, section 8) with the setup assistant: go to section 5.
+**Step 3. The setup assistant opens.** Your browser opens to
+**http://localhost:8787** (or **https://** once HTTPS is on, section 8). Go
+to section 5.
 
-Later versions install themselves from **Setup › App › Update** (section
-23); you don't download them again. Your settings are kept apart from the
-program (see *Where your data is kept* below), so a new version, or going
-back to an older one, keeps them.
+**Optional: check the download.** To be sure the file is complete and
+unchanged, compare its fingerprint with its line in **SHA256SUMS.txt** (also
+under Assets on GitHub). The long number must match exactly.
+
+- Windows (Command Prompt):
+  ```
+  certutil -hashfile %USERPROFILE%\Downloads\EaveLuxOS-Windows.zip SHA256
+  ```
+- Mac or Linux (Terminal), with your file's name:
+  ```
+  shasum -a 256 EaveLuxOS-macOS.dmg
+  ```
+
+**Later versions install themselves** from **Setup › App › Update**
+(section 23), so you don't download them again. Your settings are kept apart
+from the program (see **Where your data is kept** below), so they stay when
+you update or go back to an older version.
 
 ### From the source code (needs Python)
 
-Only if there's no ready-made app for your computer, or you want to change
-the code. Install Python first (section 3).
+Use this only if there's no ready-made app for your computer, or you want to
+change the code. Install Python first (section 3).
 
-1. Download **eaveluxos.zip** and unzip it somewhere permanent, such
-   as your **Documents** folder. Don't run it from inside the zip or from
-   Downloads, since you'll want to keep this folder.
-2. Open the **eaveluxos** folder and double-click the launcher for
-   your computer:
+**Step 1. Download and unzip.** Download **eaveluxos.zip** and unzip it
+somewhere permanent, such as your **Documents** folder (not Downloads, and
+not inside the zip).
 
-| Computer | Double-click | Notes |
+**Step 2. Start it.** Open the **eaveluxos** folder and double-click the
+launcher for your computer:
+
+| Computer | Double-click | Good to know |
 |---|---|---|
-| Windows | **Start EaveLuxOS.bat** | The first time, it may install a small time-zone package (needs internet). The app then runs in the background without a window. |
-| Mac | **Start EaveLuxOS.command** | The first time, macOS may block it. Right-click the file, choose **Open**, then **Open** again. Keep the Terminal window that appears open while the app runs. |
+| Windows | **Start EaveLuxOS.bat** | The first time, it may install a small time-zone package (needs internet). The app then runs in the background, without a window. |
+| Mac | **Start EaveLuxOS.command** | The first time, macOS may block it: right-click the file › **Open** › **Open**. Keep the Terminal window open while the app runs. |
 | Linux | **start-eaveluxos.sh** | If asked, choose **Run in Terminal**. Keep the window open. |
 
-**Mac: "could not be executed because you do not have appropriate access
-privileges".** The Mac lost the file's permission to run, which happens when
-the folder was copied from another computer, a USB stick or a re-made zip.
-Once, in **Terminal** (Applications › Utilities):
+**Step 3. The setup assistant opens.** Your browser opens to
+**http://localhost:8787**. If it doesn't, open the browser yourself and go to
+that address. Then go to section 5.
 
-1. Type `chmod +x ` (with a space), drag **Start EaveLuxOS.command** into the
-   window and press **Return**.
+> [!TIP]
+> Starting it twice is safe: the second start only opens the browser to the
+> copy that's already running. If it doesn't start at all, Windows shows a
+> message box that explains why.
+
+#### If the Mac won't start it
+
+**"Could not be executed because you do not have appropriate access
+privileges."** The file lost its permission to run, which happens when the
+folder was copied from another computer, a USB stick or a re-made zip. Fix
+it once, in **Terminal** (Applications › Utilities):
+
+1. Type `chmod +x ` (with a space at the end), drag **Start
+   EaveLuxOS.command** into the window and press **Return**.
 2. If it still won't run, type `xattr -c ` (with a space), drag the file in
    again and press **Return**.
-3. Double-click it again; the first time, right-click › **Open** › **Open**.
+3. Double-click it again. The first time: right-click › **Open** › **Open**.
 
-From then on a double-click works. If the folder is on a USB stick, a
-network drive or an opened disk image, copy it to **Documents** first: macOS
-may not run anything from there. To start it without the file, in Terminal
-type `cd ` (with a space), drag the **eaveluxos** folder in, press **Return**,
-then run `python3 main.py run --open`. **Setup › App › Start automatically**
-then starts it at each login. The Intel and Apple silicon apps
-(`EaveLuxOS-macOS-Intel.dmg`, `EaveLuxOS-macOS.dmg`) need none of this.
+If the folder is on a USB stick, a network drive or an opened disk image,
+copy it to **Documents** first: macOS may not run anything from there.
 
-**Mac: "Failed building wheel for cryptography" (or "failed to build
-installable wheels … cryptography").** The encryption package EaveLuxOS
-uses comes ready-made for most Macs, but an older **pip** (often on an Intel
-Mac) can't find it and tries to build it, which fails. In Terminal, type
-these two lines (typed, not pasted: pasting from an email or chat can put
-special spaces in them, and pip then answers "no such option"):
+To start it without the file: in Terminal, type `cd ` (with a space), drag
+the **eaveluxos** folder in and press **Return**, then run:
+
+```
+python3 main.py run --open
+```
+
+**Setup › App › Start automatically** then starts it at each login.
+
+**"Failed building wheel for cryptography"** (or "failed to build
+installable wheels … cryptography"). An older **pip**, often on an Intel
+Mac, can't find the ready-made encryption package and tries to build it.
+Type these two lines in Terminal. Type them rather than paste them: text
+pasted from an email or chat can carry special spaces, and pip then answers
+"no such option".
 
 ```
 python3 -m pip install --upgrade pip
@@ -358,31 +409,27 @@ python3 -m pip install --user --only-binary :all: cryptography
 ```
 
 Since 4.10.1, **Start EaveLuxOS.command** does this by itself. If it still
-fails, that Mac's Python or macOS is too old for the ready-made package:
-install the current Python from python.org (and run **Install
-Certificates.command** in its folder), or use the Mac app instead. EaveLuxOS
-runs without the package; until it's installed, the Trimlight secret is
-saved unencrypted on that computer (the app warns about it) and the secure
-phone connection (Setup › Phones and tablets) waits.
+fails, that Mac's Python or macOS is too old for the package: install the
+current Python from python.org (and run **Install Certificates.command** in
+its folder), or use the Mac app instead. EaveLuxOS runs without the package,
+but until it's installed, the Trimlight secret is saved unencrypted on that
+computer (the app warns you) and the secure phone connection waits.
 
-3. Your web browser opens to **http://localhost:8787** and shows the setup
-   assistant. If the browser doesn't open, open it yourself and go to that
-   address.
+None of this applies to the Mac apps (`EaveLuxOS-macOS.dmg` and
+`EaveLuxOS-macOS-Intel.dmg`).
 
-> [!TIP]
-> Launching it twice is safe. A second launch only opens the browser
-> to the copy that's already running.
+### Where your data is kept
 
-> [!NOTE]
-> **If it doesn't start:** on Windows a message box explains why.
+Your settings, patterns and photos are kept apart from the program, so a new
+version (or an older one) finds them:
 
-> [!NOTE]
-> **Where your data is kept:** on **Windows**, always in
-> `%LOCALAPPDATA%\EaveLuxOS` (for example `C:\Users\you\AppData\Local\EaveLuxOS`),
-> whichever version you run, so you never copy it between versions. On a Mac,
-> the app uses `~/Library/Application Support/EaveLuxOS`; on Linux, the
-> `data` folder next to `main.py` (or `~/.local/share/eaveluxos` if that
-> can't be written). **Setup › App › Setup and about** shows the folder in use.
+| Computer | Folder |
+|---|---|
+| Windows | `%LOCALAPPDATA%\EaveLuxOS` (for example `C:\Users\you\AppData\Local\EaveLuxOS`) |
+| Mac | `~/Library/Application Support/EaveLuxOS` |
+| Linux | the `data` folder next to `main.py`, or `~/.local/share/eaveluxos` if that can't be written |
+
+**Setup › App › Setup and about** shows the folder in use.
 
 ## 5. The setup assistant
 
@@ -711,9 +758,10 @@ from a version before 2.3.2, each phone signs in once more.
 > bookmark forwards to `https://` by itself (4.16.5).
 
 > [!NOTE]
-> **Away from home:** The app only works on your home network, which is
-> deliberate. Never "port forward" it on your router. For remote access, use a
-> VPN that connects you to your home network (many routers include one).
+> **Away from home:** The app is reached on your home network only, which is
+> deliberate. Never "port forward" it on your router. For remote access, use
+> Tailscale (**Setup › Accounts & access › Away from home** walks you through
+> it, section 20) or your router's own VPN.
 >
 > **If you put a reverse proxy in front of the app** (Caddy, nginx, Tailscale
 > Serve, cloudflared), the app tells outside requests apart from this computer
@@ -3180,15 +3228,36 @@ automatically, AI pattern ideas, version history and Setup and about.
   white, and the controller adds about 3 W. Weather, flashes and choices made
   by hand aren't known ahead.
 - **Updates:** see section 23.
-- **Phone alerts** (Administrators; on the **Alerts** tab now): a message on your phone when the lights
-  can't be reached to turn on or off (after 10 minutes), a controller is
-  offline (after 15 minutes), Trimlight can't read a controller (code 12006),
-  or a new version is out. To set it up:
+- **Phone alerts** (Administrators; on the **Alerts** tab now): a message on
+  your phone when something needs you:
+  - the lights can't be reached to turn on or off (after 10 minutes);
+  - a controller is offline (after 10 minutes), and again when it's back;
+  - Trimlight can't read a controller (code 12006);
+  - **EaveLuxOS was off** (4.27): the computer lost power, was shut down or
+    restarted without **Quit**, for 5 minutes or more. While the computer is
+    off nothing can be sent, so this one comes when it runs again, with the
+    times it was off ("from about 8:41 PM to 10:24 PM"). It's also listed
+    under **Activity** on Home. A **Quit** isn't reported;
+  - a new version is out.
+
+  To set it up:
   1. Install the free **ntfy** app (App Store or Google Play). No account is
      needed.
   2. In ntfy, tap **+** and subscribe to the topic shown in EaveLuxOS (tap
      **Copy**).
   3. Tap **Send a test**, then tick **Send alerts** and the alerts you want.
+
+  Alerts only go out when something is wrong, so on a good week you get none.
+  **Sent lately** lists the last 20 messages, with ✓ when the ntfy server took
+  them (or why it didn't). **A ✓ but nothing on your phone?** Open the ntfy
+  app and look in the topic:
+  - **The message is in the topic, but no banner came:** on an iPhone, open
+    the **Settings** app, then **Notifications**, then **ntfy**, and turn on **Allow Notifications**
+    and **Banners**; check that a Focus mode isn't hiding it.
+  - **The message isn't in the topic:** in ntfy, delete the subscription and
+    add the topic again (copy it from EaveLuxOS).
+  - On an iPhone, swiping ntfy away in the app switcher can stop its alerts
+    until you open it again.
 
   Each problem is sent once, then at most every 6 hours while it lasts, and a
   message follows when it's back to normal. Anyone who knows the topic can
@@ -3246,12 +3315,36 @@ current ones stay in Version history); the app's own port stays. With the
 accounts, everyone signs in again. A wrong passphrase, or a file that was
 changed, is refused.
 
-**Away from home**: EaveLuxOS is for your home network. To use it away from
-home, connect your phone to your home network first with a **VPN**: your
-router's own (WireGuard on a Firewalla, UniFi or ASUS router) or
-**Tailscale** on this computer and the phone. Then the usual address works.
-Don't forward a port on your router to EaveLuxOS. The **Away from home** box
-checks that everyone has a password and HTTPS is on.
+**Away from home** (4.27): use EaveLuxOS from anywhere, without opening it to
+the internet. The panel walks you through **Tailscale** (free for personal
+use), which connects this computer and your phone privately, encrypted, with
+nothing to change on your router. Each step gets a ✓ when it's done:
+
+1. **Install Tailscale on this computer** (tailscale.com/download) and sign in
+   with a Google, Microsoft or Apple account.
+2. **Connect it.** The panel shows this computer's Tailscale name, such as
+   `minipc.tail1234.ts.net`.
+3. **Point Tailscale at EaveLuxOS (once).** Copy the command the panel shows
+   and run it in a Command Prompt (Windows) or Terminal (Mac, Linux), for
+   example:
+   ```
+   tailscale serve --bg https+insecure://127.0.0.1:8787
+   ```
+   This is **Tailscale Serve**: it gives this computer an
+   `https://NAME.ts.net` address with a real certificate (no certificate to
+   install on phones) and passes requests on to the app. It keeps running
+   after restarts. If Tailscale asks you to turn on HTTPS for your tailnet, open
+   the link it prints, choose **Enable**, and run the command again.
+4. **On your phone**, install Tailscale and sign in with the **same
+   account**. Then open the address the panel shows (or scan its QR code),
+   sign in, and use **Add to Home Screen**. It works at home too.
+
+Tap **Check again** after each step. Requests through Tailscale are treated
+as coming from away: they always need signing in, and changes ask for your
+password again. **Your router's own VPN** (WireGuard on a Firewalla, UniFi or
+ASUS router) works too: connect the phone to it, then use the usual home
+address. **Never forward a port** on your router to EaveLuxOS. The **Safety
+checklist** checks that everyone has a password and HTTPS is on at home.
 
 **No internet**: with Local mode's **Send on/off and saved patterns over the
 home network** on, the schedule keeps running when the internet (or

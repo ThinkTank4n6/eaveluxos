@@ -162,11 +162,12 @@ class Browser(ServerBase):
         self.assertEqual(pg2.get_attribute("a[data-startlink]", "href"), "eaveluxos://start")
         self.assertIn(r"C:\Apps\EaveLuxOS\EaveLuxOS.exe", pg2.inner_text("#main"))
         pg2.unroute("**/*")                         # the program answers again
-        for _ in range(100):
-            if pg2.query_selector("#quick [data-q=off]"):
-                break
-            time.sleep(0.1)
-        self.assertTrue(pg2.query_selector("#quick [data-q=off]"), "the page opened the app by itself")
+        # 4.27: wait_for_selector survives the page reloading itself; polling
+        # with query_selector failed when the reload landed mid-call
+        try:
+            pg2.wait_for_selector("#quick [data-q=off]", state="attached", timeout=20000)
+        except Exception:
+            self.fail("the page didn't open the app by itself")
 
 
 if __name__ == "__main__":

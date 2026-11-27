@@ -39,7 +39,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from zoneinfo import available_timezones
 
-from . import alerts, automations, autostart, catalog, community, gameday, holidays, keepawake, lanlink, localmode, presence, restore, scores, sharecode, sound, updates, winfirewall
+from . import alerts, automations, autostart, catalog, community, gameday, holidays, keepawake, lanlink, localmode, presence, remote, restore, scores, sharecode, sound, updates, winfirewall
 from .api import TrimlightAPI, TrimlightError, port_base
 from .controller import Controller
 from . import safety
@@ -222,7 +222,7 @@ VIEWER_POSTS = {"/api/share"}
 MOOD_LEVELS = ("calm", "lively", "party")
 MOOD_MINUTES = 3     # a mood pattern ends by itself this long after the last word from the listening page
 AI_PER_MINUTE, AI_PER_DAY = 6, 100   # AI pattern ideas cost money on the owner's key (3.18.2)
-ADMIN_GETS = {"/api/users", "/api/safety/backup", "/api/backups", "/api/backups/patterns", "/api/alerts", "/api/local",
+ADMIN_GETS = {"/api/remote", "/api/users", "/api/safety/backup", "/api/backups", "/api/backups/patterns", "/api/alerts", "/api/local",
               "/api/audit", "/api/tokens"}                       # 4.17
 # Household settings only an Administrator may change. "community" is the
 # address the app computer fetches the pattern library from: anyone who could
@@ -455,7 +455,8 @@ class App:
         self.updates = updates.UpdateChecker(self.store.dir)   # "a new version is out"
         self.awake = keepawake.KeepAwake(self.store.dir)        # no sleeping while the schedule runs (4.4.4)
         self.player = sound.Player()                            # celebration sounds (4.9)
-        self.alerts = alerts.Alerts(self.store.dir, probe=self.alert_probe)   # phone alerts (ntfy)
+        self.alerts = alerts.Alerts(self.store.dir, probe=self.alert_probe,    # phone alerts (ntfy)
+                                    clock=self._alert_clock, note=self._alert_note)
         self.gameday = gameday.GameDays(self.store.dir, on_change=self.rebuild)  # game-day lights
         self.country = holidays.CountryHolidays(self.store.dir, on_change=self.rebuild)  # public holidays (3.19)
         self._country_checked = {}                                               # code -> last "Check now" (3.19.1)
@@ -2750,6 +2751,21 @@ class App:
             raise ApiError("This computer has no sound player the app can use.", 409)
         return {"played": self._play_sound(team, snd)}
 
+    def _alert_clock(self, ts: float) -> str:
+        """4.27: a time in a phone alert, in the house's own time zone."""
+        tz = self.cfg.loc.tz if self.cfg else None
+        dt = datetime.fromtimestamp(ts, tz) if tz else datetime.fromtimestamp(ts)
+        now = datetime.now(tz) if tz else datetime.now()
+        t = dt.strftime("%I:%M %p").lstrip("0")
+        return t if dt.date() == now.date() else f"{dt.strftime('%a')} {t}"
+
+    def _alert_note(self, text: str):
+        c = self.ctrl
+        if c:
+            c.note(text, logging.WARNING)
+        else:
+            log.warning("%s", text)
+
     def alert_probe(self) -> dict:
         """What phone alerts look at, once a minute (alerts.py)."""
         out = {}
@@ -3617,7 +3633,12 @@ def make_server(app: App, host: str, port: int):
 
         def _host_ok(self) -> bool:
             extra = (app.store.settings.get("service", {}).get("allowed_hosts", []) or []) + env_allowed_hosts()
-            if host_allowed(self.headers.get("Host", ""), extra):
+            if host_allowed(self.headers.get("Host", ""), extra + [n for n in (remote.known_name(),) if n]):
+                return True
+            # 4.27: this computer's own Tailscale name (Tailscale Serve), looked
+            # up when it isn't known yet; never more than every 30 seconds
+            h = (self.headers.get("Host") or "").strip().lower().rsplit(":", 1)[0]
+            if h.endswith(".ts.net") and h == (remote.look(self.server.server_address[1]).get("name") or "\0"):
                 return True
             log.warning("Refused request for unknown host %r from %s", self.headers.get("Host"), self.client_address[0])
             self.close_connection = True
@@ -3846,6 +3867,15 @@ def make_server(app: App, host: str, port: int):
                 return {"months": app.ctrl.runtime.summary(12) if app.ctrl else []}
             if path == "/api/alerts":
                 return app.alerts.settings()
+            if path == "/api/remote":          # 4.27: Away from home with Tailscale (administrators)
+                port = self.server.server_address[1]
+                https = app.scheme == "https"
+                r = remote.look(port, fresh=urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).get("fresh") == ["1"])
+                r["https"] = https
+                r["command"] = remote.serve_command(port, https)
+                r["address"] = f"https://{r['name']}" if r.get("name") else None
+                r["direct"] = f"{'https' if https else 'http'}://{r['ip']}:{port}" if r.get("ip") else None
+                return r
             if path == "/api/ai":
                 from .textpattern import AI_MODEL
                 return {"configured": bool(app.store.secrets.get("ai_key")),
@@ -4399,6 +4429,8 @@ def make_server(app: App, host: str, port: int):
                 # 4.16.5: say so in the log (a quiet log otherwise looked like a crash)
                 log.info("Quit from this computer's page: the schedule stops until EaveLuxOS starts again%s.",
                          " (it starts by itself at the next sign-in)" if at_login else "")
+
+                app.alerts.quitting()          # 4.27: a Quit isn't reported as "was off"
 
                 def quit_now():
                     # 4.17: the controller's own timers take over, when asked

@@ -52,7 +52,7 @@
     { t: 'API tokens', w: 'Setup › Accounts & access', v: 'access', f: 'tokens', k: 'token api bearer home assistant integration script key' },
     { t: 'Audit log', w: 'Setup › Accounts & access', v: 'access', f: 'audit', k: 'audit log who changed history activity security' },
     { t: 'Encrypted backup', w: 'Setup › App', v: 'app', k: 'encrypted passphrase move new computer whole app' },
-    { t: 'Away from home (VPN)', w: 'Setup › Accounts & access', v: 'access', k: 'remote access vpn tailscale wireguard firewalla away from home outside' },
+    { t: 'Away from home (Tailscale or VPN)', w: 'Setup › Accounts & access', v: 'access', k: 'remote access anywhere vpn tailscale serve wireguard firewalla away from home outside qr' },
     { t: 'Hand the lights to the controller\u2019s timers on Quit', w: 'Setup › Local mode', v: 'local', k: 'timer mode quit controller own timers fallback' },
     { t: 'Pause the schedule', w: 'Schedule', v: 'schedule', k: 'pause stop hold suspend resume schedule leave lights alone' },
     { t: 'Quick buttons', w: 'Home', v: 'quick', k: 'quick buttons tiles phone scenes favorites one tap big' },
@@ -68,7 +68,7 @@
     { t: 'Severe weather alerts', w: 'Alerts', v: 'alerts', f: 'wxalerts', k: 'storm tornado warning nws flood hurricane' },
     { t: 'Security flash', w: 'Alerts', v: 'alerts', f: 'security', k: 'security flash bright motion intruder alarm' },
     { t: 'Webhooks', w: 'Alerts', v: 'alerts', f: 'webhooks', k: 'web hook home assistant camera alarm url api trigger automation' },
-    { t: 'Phone alerts', w: 'Alerts', v: 'alerts', f: 'phone', k: 'notification push ntfy phone message problem' },
+    { t: 'Phone alerts', w: 'Alerts', v: 'alerts', f: 'phone', k: 'notification push ntfy phone message problem power cut outage offline was off sent lately' },
     // Music
     { t: 'Music show', w: 'Music', v: 'music', h: 'Music show', k: 'music show start stop dance' },
     { t: 'Music from this computer', w: 'Music', v: 'music', h: 'Music from this computer', k: 'sound audio microphone share tab spotify youtube local link lan levels music pattern sensitivity color' },
