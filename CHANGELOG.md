@@ -1,5 +1,36 @@
 # Changelog
 
+## 4.28.2: no needless re-sends after a change
+
+Chris's log, Nov 27: lights on at 4:48 PM, then "Trimlight was changed outside
+this app (power blip or the Trimlight app). Restoring it." at 4:54, 5:20,
+5:27 and 5:46 PM, each about 6 minutes 40 seconds after the app had sent
+something; also 6:07 and 11:01 AM, and three times on Nov 26 between 11:29
+and 11:47 PM with the lights off. No power blip: the lights were sent again
+for nothing, which restarts their motion.
+
+- **The cloud catching up isn't a change.** A pattern sent over the home
+  network reaches Trimlight's cloud late, and the cloud describes it its own
+  way (an id of -1, fewer details, all 30 slots with the empty ones as a
+  count of 0). The 4.16.6 short-power-cut check compared that report with
+  what was sent exactly, so the cloud catching up looked like a change from
+  outside. Now a report that can only be the pattern sent (the same kind
+  and animation, no other saved pattern) counts as caught up. Another saved
+  pattern, another animation, no pattern reported at all, or another
+  switch state is still put right.
+- **Empty slots don't count** when two patterns are compared (also for the
+  backup timer's copy).
+- **While the lights are off,** only on and off are checked: the pattern
+  isn't showing and is sent again when they come on.
+- **When it does send them again,** the log says what the cloud reported
+  before and after and what was sent, to tell a real change from another
+  way of reporting.
+- Tests: `tests/test_lanresend4282.py` and
+  `tests/repro_min_lan_resend.py` (prints BUG on 4.28.1, OK with --fixed).
+- `tests/test_show419.py`: the weather-looks test used whichever schedule
+  window was open at the time it ran, and failed late at night; it uses a
+  fixed evening now.
+
 ## 4.28.1: one Alerts section in the manual
 
 Asked for: merge the three Alerts sections of the manual.

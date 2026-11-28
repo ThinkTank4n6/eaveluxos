@@ -1,7 +1,7 @@
 # EaveLuxOS: User Manual
 ### The Intelligent Lighting Control Platform
 
-Version 4.28.1 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
+Version 4.28.2 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
 
 > [!TIP]
 > **Quick start: you probably don't need Python.**
@@ -107,6 +107,9 @@ settings.*
   phone hears how long the app was off. Controller-offline alerts now come
   after 10 minutes, and **Sent lately** lists what was sent, to check against
   your phone (section 14, *Phone alerts*).
+- **No more needless re-sends** (4.28.2): the lights aren't sent again about
+  7 minutes after every change, when Trimlight's cloud catches up (section
+  16, *After a restart or a power cut*).
 - **Lightning and Snowflake** on any pattern saved on your controller, the
   same two effects as the Trimlight Edge app's Pattern Library: see
   [Lightning and Snowflake](#lightning-and-snowflake-422).
@@ -2922,6 +2925,13 @@ the meters and Sound delay work the same; set Sound delay by ear.
   lights are set again, usually within 6 to 10 minutes. Seen on Nov 21,
   2026: unplugged for 77 seconds, the controller came back in its own
   **Timer** mode and later showed its own pattern.
+- **Not a change (4.28.2):** Trimlight's cloud hears about a pattern sent over
+  the home network late, and describes it its own way. That report is no
+  longer taken for a change from outside, so the lights aren't sent again
+  about 7 minutes after every change, and while the lights are off only on
+  and off are checked. Another saved pattern, another animation, the lights
+  off or in **Timer** mode still are. When the app does send them again, the
+  log (**eaveluxos.log**) says what the cloud reported before and after.
 
 (Called the **safety net** before version 4.0.)
 

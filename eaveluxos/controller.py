@@ -79,6 +79,33 @@ def effect_matches(current, sent) -> bool | None:
         return None
 
 
+def _brief_effect(e) -> str:
+    """A pattern in a few words, for the log (4.28.2)."""
+    if not isinstance(e, dict) or not e:
+        return "none"
+    out = []
+    for k, w in (("id", "id"), ("category", "kind"), ("mode", "animation"), ("speed", "speed"), ("brightness", "brightness")):
+        if e.get(k) is not None:
+            out.append(f"{w} {e[k]}")
+    px = [p for p in e.get("pixels") or [] if isinstance(p, dict) and p.get("count")]
+    if px:
+        out.append("colors " + " ".join(f"#{int(p.get('color') or 0):06X}x{p.get('count')}" + ("(off)" if p.get("disable") else "")
+                                         for p in px[:8]) + (" ..." if len(px) > 8 else ""))
+    return ", ".join(out) or "an empty pattern"
+
+
+def _brief_seen(seen) -> str:
+    """A read-back as kept by the "changed outside" check, for the log."""
+    try:
+        sw, eff = json.loads(seen) if seen else (None, None)
+    except (TypeError, ValueError):
+        return str(seen)
+    bits = [] if sw is None else [{0: "off", 1: "on", 2: "timer"}.get(sw, f"switch {sw}")]
+    if eff is not None:
+        bits.append(_brief_effect(eff))
+    return "; ".join(bits) or "nothing"
+
+
 @dataclass
 class Target:
     key: str
@@ -1247,9 +1274,20 @@ class Controller:
         # over the home network means something outside changed them.
         moved = []
         for d in snap:
-            parts = self.lan_sent.get(d["id"], ())
+            parts = set(self.lan_sent.get(d["id"], ()))
             if not parts or not d["online"]:
                 continue
+            # 4.28.2 (Chris's log, Nov 27): while the lights are off (or the
+            # controller's own timers run them), the pattern isn't showing
+            # and is sent again when they come on: only the switch counts.
+            # Its report used to change after lights off and set the lights
+            # off again (11:01 AM; Nov 26, 11:29 to 11:47 PM).
+            # (the switch's state as sent over the home network, or as the
+            # cloud reports it when the switch last went through the cloud)
+            if (self.lan_state.get(d["id"]) if "switch" in parts else d["switch_raw"]) != 1:
+                parts.discard("pattern")
+                if not parts:
+                    continue
             seen = json.dumps([d["switch_raw"] if "switch" in parts else None,
                                d.get("effect_raw") if "pattern" in parts else None], sort_keys=True, default=str)
             base = self.cloud_seen.get(d["id"])
@@ -1257,8 +1295,16 @@ class Controller:
             # heard by the cloud, so the first read-back after one can still
             # show the old state; when the cloud catches up, its report is what
             # this app sent. That's not a change from outside.
+            # 4.28.2 (Chris's log, Nov 27: lights on 4:48 PM, "changed outside"
+            # 4:54; each send was sent again about 6 minutes 40 seconds later):
+            # the cloud describes a pattern sent over the home network in its
+            # own way (an id of -1, fewer details), so its catching up didn't
+            # count as matching. A report that can only be the pattern sent,
+            # described differently (the same kind and animation, no other
+            # saved pattern), counts too. Another saved pattern, another
+            # animation or another switch state is still a change from outside.
             caught_up = (("switch" not in parts or d["switch_raw"] == self.lan_state.get(d["id"]))
-                         and ("pattern" not in parts or self._matches(d.get("effect_raw"), self.sent_effect.get(d["id"])) is True))
+                         and ("pattern" not in parts or self._reports_sent(d.get("effect_raw"), self.sent_effect.get(d["id"]))))
             if base is None or base == seen or caught_up:
                 self.cloud_seen[d["id"]] = seen
                 self.cloud_moving.pop(d["id"], None)
@@ -1266,6 +1312,10 @@ class Controller:
                 # the same new report twice in a row (a single odd report
                 # isn't enough, as for the switch below): act on it
                 moved.append(d)
+                log.info("What Trimlight's cloud reported for %s: before %s; now %s; sent over the home network: %s.",
+                         d["name"], _brief_seen(base), _brief_seen(seen),
+                         _brief_effect(self.sent_effect.get(d["id"])) if "pattern" in parts else
+                         {0: "off", 1: "on", 2: "timer"}.get(self.lan_state.get(d["id"]), "?"))
                 self.cloud_seen[d["id"]] = seen
                 self.cloud_moving.pop(d["id"], None)
             else:
@@ -1421,6 +1471,24 @@ class Controller:
         if ok is False and effect_fp(current) in self.reported.get(effect_fp(sent) or "", ()):
             return True                                     # how this controller reports this pattern
         return ok
+
+    def _reports_sent(self, current, sent) -> bool:
+        """4.28.2: could the cloud's report be the pattern this app sent over
+        the home network, described the cloud's own way? Yes when it matches
+        (or matches how this controller was learned to report it), or when
+        it's the same kind and animation and no other saved pattern. A
+        different saved pattern, a preview where a saved pattern was shown,
+        or no pattern reported at all (a controller starting up after a
+        power cut) is a change from outside."""
+        ok = self._matches(current, sent)
+        if ok is True:
+            return True
+        if not (isinstance(current, dict) and current and isinstance(sent, dict)):
+            return False
+        cid, sid = current.get("id"), sent.get("id")
+        if sid is not None and cid is not None and cid != sid:
+            return False
+        return self._learnable(sent, current)
 
     def _check_pattern(self, t, snap) -> str | None:
         """The switch is right; is the pattern? (Someone chose another one in

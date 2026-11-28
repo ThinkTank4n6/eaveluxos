@@ -153,6 +153,8 @@ def _same_effect(a: dict, b: dict) -> bool:
     def norm(px):  # merge adjacent equal runs, so a split (60+30) equals the original 90
         runs = []
         for p in sorted(px or [], key=lambda p: p.get("index", 0)):
+            if not p.get("count"):
+                continue          # 4.28.2: an empty slot (the controller reports all 30) shows nothing
             k = (p.get("color"), bool(p.get("disable")))
             if runs and runs[-1][0] == k:
                 runs[-1][1] += p.get("count", 0)

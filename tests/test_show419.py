@@ -202,8 +202,9 @@ class WeatherOnTheLights(ServerBase):
         cur = {"fresh": True, "tags": {"clear"}, "temp_f": 28.0}
         c.weather = mock.Mock(current=lambda: cur)
         from datetime import datetime
-        w = c.cfg.schedule.active_window(c.cfg.loc.now()) or next(
-            x for x in (c.cfg.schedule.active_window(datetime(2026, 11, 23, 19, 0, tzinfo=c.cfg.loc.tz)),) if x)
+        # a fixed evening (4.28.2: "now" failed late at night, when another rule's window was open)
+        w = c.cfg.schedule.active_window(datetime(2026, 11, 23, 19, 0, tzinfo=c.cfg.loc.tz))
+        self.assertIsNotNone(w)
         eff = c._scheduled(w, w.start, {})[3]
         self.assertEqual(eff.key, "wx_temp_30")
         cur.update(tags={"rain"})
