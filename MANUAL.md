@@ -1,7 +1,7 @@
 # EaveLuxOS: User Manual
 ### The Intelligent Lighting Control Platform
 
-Version 4.28.0 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
+Version 4.28.1 · © 2026 Christopher A. Tankelewicz (ThinkTank4n6) · MIT License
 
 > [!TIP]
 > **Quick start: you probably don't need Python.**
@@ -72,23 +72,24 @@ settings.*
     - [Birthdays and anniversaries](#birthdays-and-anniversaries-418)
     - [Game-time lights](#game-time-lights)
     - [Fades between patterns](#fades-between-patterns-419)
-14. [Alerts: automations and weather rules](#14-alerts-automations-and-weather-rules)
+14. [Alerts](#14-alerts)
     - [Who's home: arriving and leaving](#whos-home-arriving-and-leaving-418)
     - [The weather on the lights](#the-weather-on-the-lights-419)
-15. [Alerts: security flash](#15-alerts-security-flash)
-16. [Music shows](#16-music-shows)
-17. [Backup timer (safety net)](#17-backup-timer-safety-net)
-18. [Setup › Lights & controller](#18-setup--lights--controller)
+    - [Security flash](#security-flash)
+    - [Phone alerts](#phone-alerts)
+    - [Webhooks and Home Assistant](#webhooks-and-home-assistant)
+15. [Music shows](#15-music-shows)
+16. [Backup timer (safety net)](#16-backup-timer-safety-net)
+17. [Setup › Lights & controller](#17-setup--lights--controller)
     - [Local mode (home network)](#local-mode-home-network)
-19. [Setup › Location & time](#19-setup--location--time)
-20. [Setup › Accounts & access, and App](#20-setup--accounts--access-and-app)
-21. [Alerts: webhooks and Home Assistant](#21-alerts-webhooks-and-home-assistant)
-22. [Share patterns with other owners](#22-share-patterns-with-other-owners)
-23. [Update, move or uninstall](#23-update-move-or-uninstall)
-24. [Test with your controller](#24-test-with-your-controller)
-25. [Troubleshooting](#25-troubleshooting)
-26. [Questions and answers](#26-questions-and-answers)
-27. [License](#27-license)
+18. [Setup › Location & time](#18-setup--location--time)
+19. [Setup › Accounts & access, and App](#19-setup--accounts--access-and-app)
+20. [Share patterns with other owners](#20-share-patterns-with-other-owners)
+21. [Update, move or uninstall](#21-update-move-or-uninstall)
+22. [Test with your controller](#22-test-with-your-controller)
+23. [Troubleshooting](#23-troubleshooting)
+24. [Questions and answers](#24-questions-and-answers)
+25. [License](#25-license)
 
 ---
 
@@ -101,11 +102,11 @@ settings.*
   chose all evening: see [Game-time lights](#game-time-lights).
 - **Control from anywhere** (4.27): **Setup › Accounts & access › Away from
   home** walks you through Tailscale, step by step, then shows the address
-  and a QR code for your phone. Nothing opens on your router (section 20).
+  and a QR code for your phone. Nothing opens on your router (section 19).
 - **"EaveLuxOS was off" alerts** (4.27): after a power cut or restart, your
   phone hears how long the app was off. Controller-offline alerts now come
   after 10 minutes, and **Sent lately** lists what was sent, to check against
-  your phone (section 20, Phone alerts).
+  your phone (section 14, *Phone alerts*).
 - **Lightning and Snowflake** on any pattern saved on your controller, the
   same two effects as the Trimlight Edge app's Pattern Library: see
   [Lightning and Snowflake](#lightning-and-snowflake-422).
@@ -138,7 +139,7 @@ settings.*
 - **Share Studio shows and automations** as codes, and add them from the
   Community list: [Share Studio shows and automations](#share-studio-shows-and-automations-421).
 - **Energy estimate:** about how many watts, kilowatt-hours and dollars your
-  schedule uses (**Setup › App › Lights usage**, section 20).
+  schedule uses (**Setup › App › Lights usage**, section 19).
 - **Start the controllers together**, so two or more controllers' patterns
   move in step: [Start the controllers together](#start-the-controllers-together-421).
 - **On and Off always work** (4.21.1), even when the app thinks the lights
@@ -344,7 +345,7 @@ under Assets on GitHub). The long number must match exactly.
   ```
 
 **Later versions install themselves** from **Setup › App › Update**
-(section 23), so you don't download them again. Your settings are kept apart
+(section 21), so you don't download them again. Your settings are kept apart
 from the program (see **Where your data is kept** below), so they stay when
 you update or go back to an older version.
 
@@ -455,13 +456,13 @@ the app.
      In Google Maps, right-click your house and the coordinates appear at the
      top of the menu. In the Americas, longitude is negative.
    - Leave **Daylight saving time** on **Automatic** unless you have a reason
-     not to (see section 19).
+     not to (see section 18).
    - Click **Save and continue**.
 5. **Phone access.** Create your **Administrator account**: a user name
    (`admin` unless you change it) and a password of at least 8 characters.
    Phones and other computers use it to sign in. You can skip this if you'll
    only ever use the app on this computer, and add accounts for other people
-   later (section 20).
+   later (section 19).
 6. **Done.** Click **Go to Home**.
 
 You start with sample patterns and a sample schedule. The schedule turns the
@@ -527,7 +528,7 @@ To have it running without any of this, turn on **Start automatically**:
    starts**.
 
 On Linux, it starts when you log in. To make it start at power-on without
-anyone logging in, see section 25.
+anyone logging in, see section 23.
 
 On a Mac it also starts when you log in. If the Mac waits at the login
 screen after a restart (FileVault always does), the lights follow the
@@ -594,7 +595,7 @@ the address never changes.
 
 Every phone and tablet must be on your **home Wi-Fi** (not a guest network,
 and not mobile data) to reach it. You sign in with your EaveLuxOS user name
-and password (section 5; more accounts in section 20).
+and password (section 5; more accounts in section 19).
 
 ### 2. HTTPS with mkcert (recommended)
 
@@ -754,7 +755,7 @@ A phone stays signed in until it goes **8 hours without being used**, and
 never longer than **7 days** (an Administrator can change the first number
 under **Setup › Accounts & access**). The sign-in is stored for this
 app's exact address, including the port, so other web apps on the same
-computer never see it. If you change the app's port (section 20), or update
+computer never see it. If you change the app's port (section 19), or update
 from a version before 2.3.2, each phone signs in once more.
 
 > [!NOTE]
@@ -765,7 +766,7 @@ from a version before 2.3.2, each phone signs in once more.
 > **Away from home:** The app is reached on your home network only, which is
 > deliberate. Never "port forward" it on your router. For remote access, use
 > Tailscale (**Setup › Accounts & access › Away from home** walks you through
-> it, section 20) or your router's own VPN.
+> it, section 19) or your router's own VPN.
 >
 > **If you put a reverse proxy in front of the app** (Caddy, nginx, Tailscale
 > Serve, cloudflared), the app tells outside requests apart from this computer
@@ -800,7 +801,7 @@ door, and the tabs are along the bottom of the screen.
   choice is kept on each phone or computer separately.
 - **Manual** (**?**) opens this manual.
 - **Quit** stops the app, after asking first. It's shown only on the computer
-  the app runs on (see **Quit the app** in section 20).
+  the app runs on (see **Quit the app** in section 19).
 
 - **The headline** says whether the lights are on and why. For example, "Every
   night: Warm white until 11:00 PM" or "Christmas, set by hand".
@@ -821,7 +822,7 @@ door, and the tabs are along the bottom of the screen.
   the schedule immediately. The Schedule tab's **Run the schedule** button
   (section 13) is always there and also ends a security flash and resends the
   lights.
-- **Security flash:** see section 15.
+- **Security flash:** see section 14, *Security flash*.
 - **Brightness and speed:** these change whatever is showing now, until the
   next scheduled change.
 - **This week:** each day's on and off times and which rule runs. A note
@@ -923,7 +924,7 @@ network:
 **Add one**
 
 1. Open **Setup › Local mode** (Administrators). The controller's address
-   must be set there (section 18).
+   must be set there (section 17).
 2. Under **On the controller now**, find the pattern. Each one has an
    **Effect** choice next to **Delete**.
 3. Choose **Lightning**, **Snowflake** or **None**. The app backs the
@@ -983,7 +984,7 @@ over the home network.
   To help add that controller, press **Copy details** and send what it
   copies to the EaveLuxOS project. It holds only the controller's timers,
   effects and clock, no pattern names; the same line is in the log
-  (section 25).
+  (section 23).
 - If the reason is **no clock at the end**, open the Trimlight Edge app once
   on your home Wi-Fi (it sets the controller's time), then **Read again**.
 - Controllers with newer firmware (4.17.79, November 2026) report their
@@ -1077,7 +1078,7 @@ This works like the color circles in the Trimlight app.
    minutes, then the schedule takes over again.
 7. Tap **Save pattern**. Tick **Also save it on the controller** first if you
    want it in the Trimlight Edge app's list too. Since 4.3 this goes over your
-   home network (see **Local mode** in section 18), so the controller's address
+   home network (see **Local mode** in section 17), so the controller's address
    must be set there.
 
 ### Animations (4.23)
@@ -1113,7 +1114,7 @@ thing.
 > their own animation, whichever it is.
 
 When **color correction** is on (see
-[Setup › Lights & controller](#18-setup--lights--controller)), the lights get adjusted
+[Setup › Lights & controller](#17-setup--lights--controller)), the lights get adjusted
 colors so they look like the preview. Tick **Exact colors** to send this
 pattern's colors unchanged, for example colors you already tuned by eye on the
 house.
@@ -1221,7 +1222,7 @@ sections at once:
 A controller has one brightness for the whole pattern, so a dimmer zone is
 made by darkening its color. That works best for still patterns: a moving
 pattern carries the dimmer color along with it. The percentages look right
-with **Color correction** on (section 18). With it off, a dimmed zone looks
+with **Color correction** on (section 17). With it off, a dimmed zone looks
 brighter than its number: 50% looks closer to 75%.
 
 **Preview on house** (next to Paint bulbs) shows the design animating on your
@@ -1245,7 +1246,7 @@ This is the "Isolated Front Peak" example from Trimlight's guide:
 | 4 | Blue | 25 | Bulbs 67–91 blue |
 
 The sequence then repeats for the rest of the lights. Bulb numbers follow the
-port setup on Setup › Lights & controller (section 18), so get that right first.
+port setup on Setup › Lights & controller (section 17), so get that right first.
 
 ### Tips from Trimlight's guide
 
@@ -1368,7 +1369,7 @@ every controller, as before.
 
 1. Open the **House** tab. The **Bulb finder** shows bulb **1** of your address
    space. That's the total number of bulbs, taken from the controller's ports
-   (section 18).
+   (section 17).
 2. Tap **Show on house**. That one bulb lights up and everything else goes
    dark.
 3. Step with **‹** and **›**. **Move by** sets the step size (1, 5, 10 or 25).
@@ -2038,7 +2039,7 @@ From highest to lowest:
    celebration.
 2. **A severe weather alert** (section 14), while the lights are on, or at
    any time if it's set to turn them on. Never during a music show.
-3. **A music show** (section 16).
+3. **A music show** (section 15).
 4. **Something you turned on or off by hand** (until the next scheduled change).
 5. **A weather rule** (section 14).
 6. **The scheduled rule with the highest priority.** Game days are 250,
@@ -2121,7 +2122,11 @@ and weather that could replace a pattern. Automations that run at a time
 that night, and ones that wait for an event (a score, a webhook), are listed
 too; they come on top when they run.
 
-## 14. Alerts: automations and weather rules
+## 14. Alerts
+
+Everything on the **Alerts** tab: what changes the lights when something
+happens (automations, who's home, the weather), the security flash, messages
+to your phone, and webhooks for Home Assistant and other systems.
 
 ### Automations (When · If · Then)
 
@@ -2200,7 +2205,8 @@ POST /api/hook/event
 {"name": "doorbell"}
 ```
 
-with the webhook address and token from **Alerts › Webhooks** (section 21).
+with the webhook address and token from **Alerts › Webhooks** (*Webhooks and
+Home Assistant*, below).
 Names are 1 to 40 letters, numbers, spaces, - or _, and upper and lower case
 are the same. The answer lists what each automation did.
 
@@ -2221,7 +2227,8 @@ with a webhook, when its owner arrives or leaves. Only *home* or *away* and
 the time are kept (in `presence.json`); no location is sent or stored.
 
 1. Under **Alerts › Who's home**, add the people who live here (up to 12).
-2. Turn on webhooks (section 21) and set up each phone:
+2. Turn on webhooks (*Webhooks and Home Assistant*, below) and set up each
+   phone:
    - **iPhone, Shortcuts:** **Automation › New Automation › Wi-Fi**, choose
      your home network, **When Joining** and **Run Immediately**. (Not
      **Arrive**: it runs down the street, before the phone is back on your
@@ -2250,7 +2257,7 @@ automations", but no automation runs, so the welcome flash doesn't repeat.
 Marking someone by hand is never ignored.
 
 When you leave, the phone is no longer on your home Wi-Fi, so it can only
-reach the app over a VPN (section 20, *Away from home*). Without one, use
+reach the app over a VPN (section 19, *Away from home*). Without one, use
 Home Assistant for leaving: it runs at home.
 
 In the automation builder:
@@ -2379,7 +2386,7 @@ Points to know:
 - An alert never interrupts a music show. A security flash or a webhook alert
   still wins over it while it runs.
 
-## 15. Alerts: security flash
+### Security flash
 
 The security flash is bright lights on demand for a few minutes. After that,
 everything returns to normal, including turning the lights back off in
@@ -2389,15 +2396,207 @@ daylight.
    (Security white is included) and the minutes. Changes save as you make
    them.
 2. Start it from **Home › Security flash**, or from a motion sensor through
-   Home Assistant (section 21).
+   Home Assistant (*Webhooks and Home Assistant*, below).
 
 Starting it again while it's running restarts the timer. **Stop flash** ends it.
 
 Webhooks can also flash **other patterns, for a set number of seconds, on
-part of the house** (section 21), for example green over the front porch when
-a package is detected. **Stop flash** ends those too.
+part of the house** (*Webhooks and Home Assistant*, below), for example
+green over the front porch when a package is detected. **Stop flash** ends those too.
 
-## 16. Music shows
+### Phone alerts
+
+Administrators can get a message on their phone when something needs
+them:
+
+- the lights can't be reached to turn on or off (after 10 minutes);
+- a controller is offline (after 10 minutes), and again when it's back;
+- Trimlight can't read a controller (code 12006);
+- **EaveLuxOS was off** (4.27): the computer lost power, was shut down or
+  restarted without **Quit**, for 5 minutes or more. While the computer is
+  off nothing can be sent, so this one comes when it runs again, with the
+  times it was off ("from about 8:41 PM to 10:24 PM"). It's also listed
+  under **Activity** on Home. A **Quit** isn't reported;
+- a new version is out.
+
+To set it up:
+
+1. Install the free **ntfy** app (App Store or Google Play). No account is
+   needed.
+2. In ntfy, tap **+** and subscribe to the topic shown in EaveLuxOS (tap
+   **Copy**).
+3. Tap **Send a test**, then tick **Send alerts** and the alerts you want.
+
+Alerts only go out when something is wrong, so on a good week you get none.
+**Sent lately** lists the last 20 messages, with ✓ when the ntfy server took
+them (or why it didn't). **A ✓ but nothing on your phone?** Open the ntfy
+app and look in the topic:
+
+- **The message is in the topic, but no banner came:** on an iPhone, open
+  the **Settings** app, then **Notifications**, then **ntfy**, and turn on **Allow Notifications**
+  and **Banners**; check that a Focus mode isn't hiding it.
+- **The message isn't in the topic:** in ntfy, delete the subscription and
+  add the topic again (copy it from EaveLuxOS).
+- On an iPhone, swiping ntfy away in the app switcher can stop its alerts
+  until you open it again.
+
+Each problem is sent once, then at most every 6 hours while it lasts, and a
+message follows when it's back to normal. Anyone who knows the topic can
+read the alerts, so the one EaveLuxOS picks is random; change it under
+**Topic and server**, where you can also use your own ntfy server. The topic
+is kept out of exports. Messages never include your address.
+
+### Webhooks and Home Assistant
+
+Webhooks let other systems control the lights. For example, a motion sensor
+can start the security flash at night.
+
+1. In **Alerts › Webhooks**, tick **Allow webhooks**.
+2. Tap **Copy token** and keep it private.
+3. Have the other system send a **POST** request to
+   `http://APP-COMPUTER-ADDRESS:8787/api/hook/ACTION` with the header
+   `X-Token: YOUR-TOKEN`. Services that can't set headers, such as IFTTT, can
+   send `{"token": "YOUR-TOKEN"}` in a JSON body instead. A token in the web
+   address (`?token=`) is refused, because addresses end up in logs and browser
+   history.
+
+| Action | What it does | Optional body |
+|---|---|---|
+| `flash` | Start the security flash, or an alert flash (below) | `{"minutes": 10}`, or `{"effect": "package", "zone": "Front porch", "seconds": 30}` |
+| `stop_flash` | End the flash | |
+| `on` | Show a pattern | `{"effect": "christmas"}` (the pattern's internal name) |
+| `off` | Turn off | |
+| `resume` | Return to schedule | `{"force": true}`: Run the schedule (also ends a security flash and sends the lights again) |
+| `levels` | Brightness or speed | `{"brightness": 120}` (0–255) |
+| `music` | Start a music show (section 15) | `{"minutes": 60}`; `0` until stopped |
+| `stop_music` | End the music show | |
+| `dismiss_alert` | Put the lights back for the severe weather alert showing now (*Severe weather alerts*, above) | |
+| `presence` | Someone arrived or left (*Who's home*, above) | `{"person": "Chris", "state": "home"}` or `"away"` |
+| `status` | Change nothing; report what the lights are doing (also with **GET**) | |
+
+Every action replies with what the lights are doing then: on or off, the
+pattern and its internal name, why (`schedule`, `manual`, `weather`, `alert`,
+`flash`, `music`), brightness, speed, and the list of your patterns. `status` changes
+nothing, so another system can ask as often as it likes (it isn't written to
+the activity list).
+
+#### Siri, Alexa and Google (4.18)
+
+**Siri:** in the Shortcuts app, make a shortcut with one action, **Get
+Contents of URL** (Method POST, header **X-Token** with the webhook token,
+and a JSON body if the action takes one), and name it what you'll say, for
+example *Holiday lights on*. "Hey Siri, holiday lights on" then runs it, also
+from the Lock Screen, CarPlay or an Apple Watch. **Alerts › Webhooks ›
+Siri, Alexa and Google** lists the addresses: lights on with a pattern, off,
+back to the schedule, the security flash, and an automation by name.
+
+**Alexa and Google Assistant** go through Home Assistant: add the
+`rest_command` shown on that panel, make a Home Assistant script for each
+phrase, and expose the scripts to Alexa or Google in Home Assistant's voice
+assistant settings (Home Assistant Cloud, or its Alexa and Google
+integrations).
+
+#### Alerts: a pattern, a length and a zone
+
+`flash` with a body shows any pattern for a while, then everything goes back
+to normal (including off in daylight):
+
+| Field | What it means |
+|---|---|
+| `effect` | One of your patterns (its name or internal name), or a ready-made **alert pattern**: `package` (green), `alarm` (red strobe), `doorbell` (blue and white), `delivery` (cyan), `severe` (amber), `security` (bright white) |
+| `color` | Instead of `effect`: one plain color, like `"#00FF00"` |
+| `zone` | Optional: a zone from the House tab, like `"Front porch"`. Only those bulbs light; the rest stay dark |
+| `seconds` | 5 to 14400. Leave it out for 30 seconds (or use `minutes`) |
+| `label` | Optional: what Home and the activity list call it, like `"Package at the door"` |
+
+A flash started while another runs replaces it. **Alerts › Webhooks › Try
+an alert** lets you test a pattern and zone from the app.
+
+**Zones** are made on the House tab: select a range of bulbs with the bulb
+finder and save it as a zone (section 12). Trimlight's cloud has no command
+for lighting only part of the house, so a zone flash is a pattern with every
+bulb outside the zone switched off (the Trimlight app's "X"), and the alert's
+colors spread over the zone. That works for patterns made of colors (custom
+patterns and the alert patterns), not built-in effects or patterns saved only
+in the Trimlight app. A pattern has 30 color slots, and dark stretches of
+more than 90 bulbs use extra slots, so a pattern with many colors may not fit a
+small zone in a long run; the reply says so. With **more than one controller**,
+every controller gets the same zone pattern, counted against the longest
+controller's bulbs, so a zone is most reliable on a single controller.
+
+**When two things happen at once**, the more important one wins: the security
+flash and urgent alerts (`alarm`, `security`, or `"urgent": true`) first, then
+a severe weather warning, then other alerts, then score celebrations. A less
+important flash is skipped (the reply says `"flash_started": false`), and a
+shorter one that interrupts a longer one (a package during a doorbell) hands
+back to it when it ends. During a music show, only urgent alerts show, and
+they end the show, because a pattern knocks the controller out of music mode
+and this app can't switch it back on.
+
+Examples for Home Assistant (`configuration.yaml`):
+
+```yaml
+rest_command:
+  lights_package:
+    url: "http://192.168.1.20:8787/api/hook/flash"
+    method: POST
+    headers:
+      X-Token: !secret trimlight_webhook_token
+    content_type: "application/json"
+    payload: '{"effect": "package", "zone": "Front porch", "seconds": 30, "label": "Package at the door"}'
+  lights_alarm:
+    url: "http://192.168.1.20:8787/api/hook/flash"
+    method: POST
+    headers:
+      X-Token: !secret trimlight_webhook_token
+    content_type: "application/json"
+    payload: '{"effect": "alarm", "minutes": 10, "label": "Alarm"}'
+```
+
+For **Frigate**, trigger `rest_command.lights_package` from an automation on
+Frigate's package (or person) detection in a front-door camera zone. For
+**Blue Iris**, add an alert action of type **Web request or MQTT**: POST to the
+same address, with the `X-Token` header and the JSON body above. Each alert
+reaches the lights in about a second (through Trimlight's cloud).
+
+#### Home Assistant: the ready-made package
+
+The app comes with `tools/home-assistant/eaveluxos.yaml`, a Home Assistant
+*package* that adds the house lights as a light with brightness and your
+patterns as effects, a sensor for the pattern showing now, and scripts for
+the security flash and Return to schedule. Its `README.md` explains the four
+steps. With Home Assistant's **HomeKit Bridge**, the light then appears in
+Apple Home too (on, off and brightness).
+
+#### Home Assistant: a single action
+
+For just one action, in `configuration.yaml`:
+
+```yaml
+rest_command:
+  lights_security_flash:
+    url: "http://192.168.1.20:8787/api/hook/flash"
+    method: POST
+    headers:
+      X-Token: !secret trimlight_webhook_token
+```
+
+Then create an automation that is triggered by your motion sensor, with the
+condition "Sun: below horizon" and the action **Call service ›
+rest_command.lights_security_flash**.
+
+If you reach the app by a name (for example `lights.home.example`) rather than
+an IP address, and requests are refused with "Unknown host name", run this
+once in the app folder on the app computer:
+
+```
+python3 main.py allow-host lights.home.example
+```
+
+To undo it, add `--remove`. For safety, this list can only be changed on the
+app computer, not from the app's screens.
+
+## 15. Music shows
 
 The Music tab has three parts: **Music show** (the controller's own music
 mode, below), **Music from this computer** (this app runs music mode itself,
@@ -2471,7 +2670,8 @@ show player:
 
 ### From Home Assistant or a webhook
 
-The webhook actions `music` and `stop_music` start and stop a show (section 21).
+The webhook actions `music` and `stop_music` start and stop a show (section
+14, *Webhooks and Home Assistant*).
 `music` takes an optional `{"minutes": 60}`; `{"minutes": 0}` means until
 stopped, and with no body it uses the usual length set on the Music tab.
 
@@ -2698,7 +2898,7 @@ clicks. The delay is remembered in this browser.
 **With the controller's music patterns** (the original way), the analysis,
 the meters and Sound delay work the same; set Sound delay by ear.
 
-## 17. Backup timer (safety net)
+## 16. Backup timer (safety net)
 
 ### After a restart or a power cut (4.15)
 
@@ -2823,7 +3023,7 @@ speed.
   Wi-Fi so it syncs the controller, check your patterns and timers there,
   then untick **On** and tick it again.
 - **"Trimlight can't read its copy of this controller" (code 12006):** see
-  Troubleshooting (section 25).
+  Troubleshooting (section 23).
 
 ### Limits
 
@@ -2843,7 +3043,7 @@ speed.
   controller is in Timer mode. To clean up later, delete the entries in the
   Trimlight app's calendar, or start this app again and untick **On**.
 
-## 18. Setup › Lights & controller
+## 17. Setup › Lights & controller
 
 ### Start the controllers together (4.21)
 
@@ -3097,7 +3297,7 @@ version.
 
 ### Pattern backups
 
-Before every change it makes, the backup timer (section 17) saves a backup of
+Before every change it makes, the backup timer (section 16) saves a backup of
 the controller, including every pattern saved in the Trimlight app. Local
 mode saves one before each change too. The first
 one, from before EaveLuxOS ever changed the controller, is kept forever. After
@@ -3161,7 +3361,7 @@ richer and less pale. To keep one pattern exactly as it is, open it in
 **Create** and tick **Exact colors**. Only an Administrator can change color
 correction.
 
-## 19. Setup › Location & time
+## 18. Setup › Location & time
 
 - **The clock** shows the app computer's time, which your schedule uses. The
   computer keeps it correct over the internet. If your phone and the computer
@@ -3185,7 +3385,7 @@ correction.
     set. **Use the real time** undoes it. This only affects the controllers'
     own clocks, not this app's schedule. Most people never need it.
 
-## 20. Setup › Accounts & access, and App
+## 19. Setup › Accounts & access, and App
 
 These were the **Settings** tab before 4.0. **Accounts & access** has the
 Trimlight account, your account, accounts for other people and phones;
@@ -3222,7 +3422,7 @@ automatically, AI pattern ideas, version history and Setup and about.
     makes that account an Administrator). `python3 main.py users` lists the
     accounts.
 - **Phones and other computers:** the address to use on your home Wi-Fi.
-- **Share and back up:** export or import patterns and schedules (section 22).
+- **Share and back up:** export or import patterns and schedules (section 20).
 - **App address:** shows the port the app uses (8787 unless you change it).
   To change it, type a port from 1024 to 65535, such as 8790, and tap
   **Restart on new port**. The app checks the port is free, moves there in a
@@ -3230,7 +3430,7 @@ automatically, AI pattern ideas, version history and Setup and about.
   and Home Screen icons on your phones. On a computer without a screen, run
   `python3 main.py port 8790` in the app folder and restart the app.
 - **Start automatically:** see section 7.
-- **Webhooks:** on the **Alerts** tab now; see section 21.
+- **Webhooks:** on the **Alerts** tab now; see section 14, *Webhooks and Home Assistant*.
 - **Lights usage:** hours the lights were on each month, for the last 12
   months. Under **Estimate the cost**, enter your system's watts (on the power
   supply's label; that's its maximum, so the estimate errs high) and your
@@ -3246,43 +3446,8 @@ automatically, AI pattern ideas, version history and Setup and about.
   a third, a dark bulb almost nothing; a built-in effect counts as half of
   white, and the controller adds about 3 W. Weather, flashes and choices made
   by hand aren't known ahead.
-- **Updates:** see section 23.
-- **Phone alerts** (Administrators; on the **Alerts** tab now): a message on
-  your phone when something needs you:
-  - the lights can't be reached to turn on or off (after 10 minutes);
-  - a controller is offline (after 10 minutes), and again when it's back;
-  - Trimlight can't read a controller (code 12006);
-  - **EaveLuxOS was off** (4.27): the computer lost power, was shut down or
-    restarted without **Quit**, for 5 minutes or more. While the computer is
-    off nothing can be sent, so this one comes when it runs again, with the
-    times it was off ("from about 8:41 PM to 10:24 PM"). It's also listed
-    under **Activity** on Home. A **Quit** isn't reported;
-  - a new version is out.
-
-  To set it up:
-  1. Install the free **ntfy** app (App Store or Google Play). No account is
-     needed.
-  2. In ntfy, tap **+** and subscribe to the topic shown in EaveLuxOS (tap
-     **Copy**).
-  3. Tap **Send a test**, then tick **Send alerts** and the alerts you want.
-
-  Alerts only go out when something is wrong, so on a good week you get none.
-  **Sent lately** lists the last 20 messages, with ✓ when the ntfy server took
-  them (or why it didn't). **A ✓ but nothing on your phone?** Open the ntfy
-  app and look in the topic:
-  - **The message is in the topic, but no banner came:** on an iPhone, open
-    the **Settings** app, then **Notifications**, then **ntfy**, and turn on **Allow Notifications**
-    and **Banners**; check that a Focus mode isn't hiding it.
-  - **The message isn't in the topic:** in ntfy, delete the subscription and
-    add the topic again (copy it from EaveLuxOS).
-  - On an iPhone, swiping ntfy away in the app switcher can stop its alerts
-    until you open it again.
-
-  Each problem is sent once, then at most every 6 hours while it lasts, and a
-  message follows when it's back to normal. Anyone who knows the topic can
-  read the alerts, so the one EaveLuxOS picks is random; change it under
-  **Topic and server**, where you can also use your own ntfy server. The topic
-  is kept out of exports. Messages never include your address.
+- **Updates:** see section 21.
+- **Phone alerts:** on the **Alerts** tab; see section 14, *Phone alerts*.
 - **Version history:** every save is kept, up to the last 100. Tap
   **Restore** to go back to the patterns, schedule and house map from that
   moment. Your account, phones and app address stay as they are. The restore
@@ -3314,7 +3479,7 @@ A token never manages accounts or tokens, never changes the Trimlight
 connection, never installs updates or quits the app, and never sees the
 account's secrets, whatever its role. **Revoke** stops it at once. Each
 token shows when and from where it was last used. Making one from a phone
-asks for your password again. Webhooks keep their own link (section 21).
+asks for your password again. Webhooks keep their own link (section 14, *Webhooks and Home Assistant*).
 
 **Audit log** (Accounts & access, Administrators): who changed what and
 from where, for a year. It lists people by account, API tokens, webhooks and
@@ -3380,157 +3545,7 @@ timers in the Trimlight Edge app (clock icon). This can't happen when the
 computer loses power or shuts down suddenly. When EaveLuxOS starts again it
 takes over as usual.
 
-## 21. Alerts: webhooks and Home Assistant
-
-Webhooks let other systems control the lights. For example, a motion sensor
-can start the security flash at night.
-
-1. In **Alerts › Webhooks**, tick **Allow webhooks**.
-2. Tap **Copy token** and keep it private.
-3. Have the other system send a **POST** request to
-   `http://APP-COMPUTER-ADDRESS:8787/api/hook/ACTION` with the header
-   `X-Token: YOUR-TOKEN`. Services that can't set headers, such as IFTTT, can
-   send `{"token": "YOUR-TOKEN"}` in a JSON body instead. A token in the web
-   address (`?token=`) is refused, because addresses end up in logs and browser
-   history.
-
-| Action | What it does | Optional body |
-|---|---|---|
-| `flash` | Start the security flash, or an alert flash (below) | `{"minutes": 10}`, or `{"effect": "package", "zone": "Front porch", "seconds": 30}` |
-| `stop_flash` | End the flash | |
-| `on` | Show a pattern | `{"effect": "christmas"}` (the pattern's internal name) |
-| `off` | Turn off | |
-| `resume` | Return to schedule | `{"force": true}`: Run the schedule (also ends a security flash and sends the lights again) |
-| `levels` | Brightness or speed | `{"brightness": 120}` (0–255) |
-| `music` | Start a music show (section 16) | `{"minutes": 60}`; `0` until stopped |
-| `stop_music` | End the music show | |
-| `dismiss_alert` | Put the lights back for the severe weather alert showing now (section 14) | |
-| `presence` | Someone arrived or left (section 14, *Who's home*) | `{"person": "Chris", "state": "home"}` or `"away"` |
-| `status` | Change nothing; report what the lights are doing (also with **GET**) | |
-
-Every action replies with what the lights are doing then: on or off, the
-pattern and its internal name, why (`schedule`, `manual`, `weather`, `alert`,
-`flash`, `music`), brightness, speed, and the list of your patterns. `status` changes
-nothing, so another system can ask as often as it likes (it isn't written to
-the activity list).
-
-### Siri, Alexa and Google (4.18)
-
-**Siri:** in the Shortcuts app, make a shortcut with one action, **Get
-Contents of URL** (Method POST, header **X-Token** with the webhook token,
-and a JSON body if the action takes one), and name it what you'll say, for
-example *Holiday lights on*. "Hey Siri, holiday lights on" then runs it, also
-from the Lock Screen, CarPlay or an Apple Watch. **Alerts › Webhooks ›
-Siri, Alexa and Google** lists the addresses: lights on with a pattern, off,
-back to the schedule, the security flash, and an automation by name.
-
-**Alexa and Google Assistant** go through Home Assistant: add the
-`rest_command` shown on that panel, make a Home Assistant script for each
-phrase, and expose the scripts to Alexa or Google in Home Assistant's voice
-assistant settings (Home Assistant Cloud, or its Alexa and Google
-integrations).
-
-### Alerts: a pattern, a length and a zone
-
-`flash` with a body shows any pattern for a while, then everything goes back
-to normal (including off in daylight):
-
-| Field | What it means |
-|---|---|
-| `effect` | One of your patterns (its name or internal name), or a ready-made **alert pattern**: `package` (green), `alarm` (red strobe), `doorbell` (blue and white), `delivery` (cyan), `severe` (amber), `security` (bright white) |
-| `color` | Instead of `effect`: one plain color, like `"#00FF00"` |
-| `zone` | Optional: a zone from the House tab, like `"Front porch"`. Only those bulbs light; the rest stay dark |
-| `seconds` | 5 to 14400. Leave it out for 30 seconds (or use `minutes`) |
-| `label` | Optional: what Home and the activity list call it, like `"Package at the door"` |
-
-A flash started while another runs replaces it. **Alerts › Webhooks › Try
-an alert** lets you test a pattern and zone from the app.
-
-**Zones** are made on the House tab: select a range of bulbs with the bulb
-finder and save it as a zone (section 12). Trimlight's cloud has no command
-for lighting only part of the house, so a zone flash is a pattern with every
-bulb outside the zone switched off (the Trimlight app's "X"), and the alert's
-colors spread over the zone. That works for patterns made of colors (custom
-patterns and the alert patterns), not built-in effects or patterns saved only
-in the Trimlight app. A pattern has 30 color slots, and dark stretches of
-more than 90 bulbs use extra slots, so a pattern with many colors may not fit a
-small zone in a long run; the reply says so. With **more than one controller**,
-every controller gets the same zone pattern, counted against the longest
-controller's bulbs, so a zone is most reliable on a single controller.
-
-**When two things happen at once**, the more important one wins: the security
-flash and urgent alerts (`alarm`, `security`, or `"urgent": true`) first, then
-a severe weather warning, then other alerts, then score celebrations. A less
-important flash is skipped (the reply says `"flash_started": false`), and a
-shorter one that interrupts a longer one (a package during a doorbell) hands
-back to it when it ends. During a music show, only urgent alerts show, and
-they end the show, because a pattern knocks the controller out of music mode
-and this app can't switch it back on.
-
-Examples for Home Assistant (`configuration.yaml`):
-
-```yaml
-rest_command:
-  lights_package:
-    url: "http://192.168.1.20:8787/api/hook/flash"
-    method: POST
-    headers:
-      X-Token: !secret trimlight_webhook_token
-    content_type: "application/json"
-    payload: '{"effect": "package", "zone": "Front porch", "seconds": 30, "label": "Package at the door"}'
-  lights_alarm:
-    url: "http://192.168.1.20:8787/api/hook/flash"
-    method: POST
-    headers:
-      X-Token: !secret trimlight_webhook_token
-    content_type: "application/json"
-    payload: '{"effect": "alarm", "minutes": 10, "label": "Alarm"}'
-```
-
-For **Frigate**, trigger `rest_command.lights_package` from an automation on
-Frigate's package (or person) detection in a front-door camera zone. For
-**Blue Iris**, add an alert action of type **Web request or MQTT**: POST to the
-same address, with the `X-Token` header and the JSON body above. Each alert
-reaches the lights in about a second (through Trimlight's cloud).
-
-### Home Assistant: the ready-made package
-
-The app comes with `tools/home-assistant/eaveluxos.yaml`, a Home Assistant
-*package* that adds the house lights as a light with brightness and your
-patterns as effects, a sensor for the pattern showing now, and scripts for
-the security flash and Return to schedule. Its `README.md` explains the four
-steps. With Home Assistant's **HomeKit Bridge**, the light then appears in
-Apple Home too (on, off and brightness).
-
-### Home Assistant: a single action
-
-For just one action, in `configuration.yaml`:
-
-```yaml
-rest_command:
-  lights_security_flash:
-    url: "http://192.168.1.20:8787/api/hook/flash"
-    method: POST
-    headers:
-      X-Token: !secret trimlight_webhook_token
-```
-
-Then create an automation that is triggered by your motion sensor, with the
-condition "Sun: below horizon" and the action **Call service ›
-rest_command.lights_security_flash**.
-
-If you reach the app by a name (for example `lights.home.example`) rather than
-an IP address, and requests are refused with "Unknown host name", run this
-once in the app folder on the app computer:
-
-```
-python3 main.py allow-host lights.home.example
-```
-
-To undo it, add `--remove`. For safety, this list can only be changed on the
-app computer, not from the app's screens.
-
-## 22. Share patterns with other owners
+## 20. Share patterns with other owners
 
 ### A share code or QR code (one pattern, or a few)
 
@@ -3651,7 +3666,7 @@ In the library's repository, a show or an automation is an index entry with
 `"kind": "show"` or `"kind": "automation"` and a file in `shows/` or
 `automations/` holding its share code (`{"code": "ELX1:…"}`).
 
-## 23. Update, move or uninstall
+## 21. Update, move or uninstall
 
 **Know when there's a new version**
 
@@ -3766,7 +3781,7 @@ automatically** and **App address** aren't used: Docker restarts the
 container, and the port is set in `.env`. Back up the volume, for example
 with `docker compose stop`, then copy it, then `docker compose start`.
 
-## 24. Test with your controller
+## 22. Test with your controller
 
 Some things can only be checked on real hardware. The guided hardware test
 checks them one by one and saves a report. It takes about 10 minutes, and you
@@ -3794,11 +3809,11 @@ Before changing anything, the test saves the controller's full state as
 Ctrl+C. The report is saved as `hardware-test-….txt` in the data folder.
 Sharing it helps other Trimlight owners know what works on their firmware.
 
-## 25. Troubleshooting
+## 23. Troubleshooting
 
 | Problem | What to do |
 |---|---|
-| Another program uses port 8787 | The app moves to the next free port by itself and remembers it. To pick one, use **Setup › App › App address** (section 20). |
+| Another program uses port 8787 | The app moves to the next free port by itself and remembers it. To pick one, use **Setup › App › App address** (section 19). |
 | The browser says it can't connect, or the desktop icon says **Can't reach EaveLuxOS** | The program isn't running (the icon and bookmarks only show it). Click **Start EaveLuxOS** on that page (4.22.2; your browser asks first), or open the program from its folder (the page shows where it is). On Mac or Linux, when run from the source code, keep its window open. Turn on **Start automatically** (section 7) so it's always running. |
 | Mac: it didn't come back after a shutdown or restart | Open **EaveLuxOS** from **Applications** (nothing is lost; your settings are in ~/Library/Application Support/EaveLuxOS). If Home or **Setup › App** says it runs from a temporary copy or the disk image, quit, drag it into Applications, eject the .dmg and open it from there, then turn **Start automatically** on. It starts after someone logs in to the Mac. If phones still can't reach it, the Mac may have a new address after the restart: see **Setup › Accounts & access › Phones and other computers**, and reserve the Mac's address in your router. If macOS asks to allow incoming connections for EaveLuxOS, click **Allow**. |
 | "Couldn't check these with Trimlight" during setup | The app couldn't reach Trimlight, so your keys weren't checked yet. Check the internet connection and try again. If the message also says the **certificate check failed**: on a Mac, update to version 3.11.1 or later, which fixes this. Otherwise check the computer's date and time, and whether antivirus or network filtering software checks secure (HTTPS) connections. |
@@ -3808,11 +3823,11 @@ Sharing it helps other Trimlight owners know what works on their firmware.
 | Lights are on or off at the wrong time | **Setup › Location & time:** check the location, time zone and Daylight saving (Automatic). Check the computer's own clock. Check **Schedule › Coming up**. |
 | A different pattern than expected is showing | Look at the Home headline. It names the rule, weather rule or manual change in charge. Check priorities on the Schedule tab. |
 | The lights turned back on after I switched them off in the Trimlight app | That's by design (section 6). Use **Turn off** in this app instead. |
-| Colors are wrong (red shows as green) | **Setup › Lights & controller › Color order** (section 18). |
+| Colors are wrong (red shows as green) | **Setup › Lights & controller › Color order** (section 17). |
 | My phone can't open the address (nothing happens, or it times out) | On the app computer, open **Setup › Accounts & access › Phones and other computers › A phone can't open it?** and tap **Check this computer**. On Windows it finds the usual causes: the network set to **Public** (Windows blocks phones; switch it to Private in Windows Settings › Network & internet), or Windows Firewall blocking the app (often from pressing **Cancel** when Windows first asked). **Let phones in** fixes the firewall after one Windows permission prompt. Also check: the phone is on home Wi-Fi (not mobile data or a guest network), the address starts with `http://` and ends with the port, and try any other address listed there. The computer's address can change, so consider a reserved IP in your router. When it works, the phone shows the sign-in page. |
 | The phone says "create an account" | On the app computer, go to **Setup › Accounts & access** and add one. |
 | "These settings were changed on another device" | Someone saved changes from another phone or computer at the same time. The latest settings have been loaded; make your change again. |
-| "Unknown host name" | You used a name the app doesn't know. Use the IP address, or run `python3 main.py allow-host NAME` on the app computer (section 21). |
+| "Unknown host name" | You used a name the app doesn't know. Use the IP address, or run `python3 main.py allow-host NAME` on the app computer (section 14, *Webhooks and Home Assistant*). |
 | Weather isn't working | Weather rules are US only. Check **Weather: On** on the Alerts tab. Home shows the current reading or the error. |
 | On Linux, it doesn't start at power-on until someone logs in | Run `loginctl enable-linger` once in a terminal. That's the only command in this manual. |
 | The controller shows offline, or nothing responds | Use the controller steps in Trimlight's guide ("Basic Troubleshooting"). **1)** Unplug the controller for 30 seconds, then let it boot for a few minutes. **2)** If the **Network Connected** light isn't green, press the **STA/AP** button briefly until it is (blue-light mode can't be reached by this app). **3)** A factory reset is a last resort; see the question below. |
@@ -3820,19 +3835,19 @@ Sharing it helps other Trimlight owners know what works on their firmware.
 | Backup timer says "Not armed" | Read the reason shown. Most often the controller's library is full, or it was offline. Tap **Update now** to retry; the app also retries on its own every 30 minutes. |
 | "That image is too large" when uploading a photo | The image is over 40 megapixels and not a JPEG (for example a huge PNG). Save it as a JPEG, or smaller, and upload it again. Photos straight from a phone are fine. |
 | A house photo shows as solid green, stripes, or one flat color | Some graphics drivers garble photos when the browser processes them. Since version 3.11.5 the app computer processes photos itself, so this shouldn't happen; upload the photo again. If you still see a message about a flat color (the browser is used for iPhone HEIC photos, or when the app runs from source without Pillow), try another browser, or turn off **Use graphics acceleration when available** in the browser's settings (System section). |
-| The finder lights the wrong spot | Check the port layout on Setup › Lights & controller (section 18). Bulb numbers follow it. |
+| The finder lights the wrong spot | Check the port layout on Setup › Lights & controller (section 17). Bulb numbers follow it. |
 | "The settings database couldn't be read" | Rare, usually after a disk problem. The app kept the damaged file, restored your patterns and schedule from its plain-text copy (`settings.last-good.json`), and asks you to enter your Trimlight account and app password again. |
 | Music from this computer: "Couldn't reach the controller" or "didn't answer" | Check the address the Trimlight Edge app shows when it opens, and that the app computer is on the same home network (not a guest network). Unplugging the controller for 30 seconds clears a stuck connection. Close the Trimlight app on your phone while testing; it may hold the controller's attention. After a firmware update, a new capture (`tools/music-capture`) shows whether the messages changed. |
 | Music from this computer: "The controller stopped answering" | Nothing came back from the controller for 15 seconds. Check it's online in the Trimlight app, and that the app computer's Wi-Fi or cable is steady; unplugging the controller for 30 seconds clears a stuck one. |
 | Music from this computer: the bars move but the lights don't follow the beat | Raise **Sensitivity** or **Input level**; try another music pattern. With a microphone, move it closer to the speakers, or use **This computer's sound**. |
-| Music from this computer: "No sound was shared" | Pick the **browser tab** that's playing the music and keep **Also share tab audio** on. Sharing a window leaves the sound out, and **Also share system audio** for Entire screen doesn't appear on every computer. For music from an app (Spotify), use **Stereo Mix** (section 16). |
+| Music from this computer: "No sound was shared" | Pick the **browser tab** that's playing the music and keep **Also share tab audio** on. Sharing a window leaves the sound out, and **Also share system audio** for Entire screen doesn't appear on every computer. For music from an app (Spotify), use **Stereo Mix** (section 15). |
 | Microsoft Defender blocks or removes EaveLuxOS.exe ("executes commands from an attacker", Suspicious Behavior) | A false alarm: Defender guesses from behavior, and an unsigned program that runs a small web server and starts helpers (PowerShell for the phone check, `icacls` to lock its data folder) looks like that to it. Since 4.1.3 the Windows build uses its own launcher, which Defender flags far less. **1)** Check the file is the one GitHub built: in Command Prompt, `certutil -hashfile "%USERPROFILE%\Downloads\EaveLuxOS-Windows.zip" SHA256` must match the zip's line in **SHA256SUMS.txt** on the release page. **2)** In **Windows Security › Virus & threat protection › Protection history**, open the item and choose **Restore** (or **Allow on device**). **3)** Report it so Microsoft clears it for everyone: microsoft.com/wdsi/filesubmission, "Software developer" or "Home customer", **Incorrectly detected**. |
-| I changed something and want it back | **Setup › App › Version history**: tap **Restore** next to an earlier save (section 20). |
+| I changed something and want it back | **Setup › App › Version history**: tap **Restore** next to an earlier save (section 19). |
 | Forgot a password | Ask an Administrator to set a new one under **Setup › Accounts & access**, or on the app computer run `python3 main.py reset-password NAME`. |
 | "This account can only view" | You're signed in as a Viewer. An Administrator can make you an Editor. |
 | Something else | The log is **eaveluxos.log** in your data folder (on Windows `%LOCALAPPDATA%\EaveLuxOS`). |
 
-## 26. Questions and answers
+## 24. Questions and answers
 
 **Does this replace the Trimlight Edge app?** For scheduling, yes. Keep the
 Trimlight Edge app for:
@@ -3841,7 +3856,7 @@ Trimlight Edge app for:
 - Groups of controllers.
 - **Switching music mode on.** Trimlight's guide says music only works on the
   local network, so it isn't available through the cloud API this app uses.
-  The **Music** tab keeps this app from interfering while it runs (section 16).
+  The **Music** tab keeps this app from interfering while it runs (section 15).
 - The **lightning and snowflake** overlays: in the Trimlight app's library,
   press and hold a pattern.
 - Alexa and Google Home skills.
@@ -3863,7 +3878,7 @@ assistant once more.
 **Does it work with Alexa or Google Home?** Trimlight's own skills keep
 working alongside this app, but a voice change lasts only until this app's
 next scheduled change or its 5-minute check (section 6). Home Assistant users
-can control this app directly (section 21).
+can control this app directly (section 14, *Webhooks and Home Assistant*).
 
 **Does it work without internet?** The schedule and sun times are calculated
 on your computer. However, every command goes through Trimlight's cloud,
@@ -3910,9 +3925,9 @@ refused rather than silently overwriting the first.
 **Can it control more than one controller?** Yes. Everything you turn on is
 sent to all the controllers ticked under **Setup › Lights & controller › Controlled by this app**.
 Setup › Lights & controller shows a card for each controller; tap one to manage its
-settings (section 18).
+settings (section 17).
 
-## 27. License
+## 25. License
 
 EaveLuxOS is free software released under the **MIT License**:
 

@@ -1,5 +1,21 @@
 # Changelog
 
+## 4.28.1: one Alerts section in the manual
+
+Asked for: merge the three Alerts sections of the manual.
+
+- **Manual:** sections 14 (automations and weather), 15 (security flash) and
+  21 (webhooks and Home Assistant) are now one section, **14. Alerts**, in the
+  order of the Alerts tab. **Phone alerts** moved there too from Setup ›
+  Accounts & access, and App, where a short pointer stays. The sections after
+  it are renumbered (Music shows is now 15, Update, move or uninstall is 21,
+  License is 25), and every cross-reference, the Contents and the app's two
+  "Manual, section ..." notes follow.
+- Tests: `tests/test_manual4281.py` (one Alerts section, sections and
+  Contents in order, every reference and link exists) and
+  `tests/repro_min_manual_alerts_split.py` (prints BUG on 4.28.0, OK with
+  --fixed on 4.28.1).
+
 ## 4.28.0: games on the calendar, game time by default
 
 Asked for: show game-time lights and score celebrations under Coming up;
